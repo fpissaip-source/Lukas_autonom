@@ -1,0 +1,46 @@
+import { Switch, Route, Router as WouterRouter } from "wouter";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Layout } from "@/components/layout";
+import NotFound from "@/pages/not-found";
+
+import Dashboard from "@/pages/dashboard";
+import Chat from "@/pages/chat";
+import Memory from "@/pages/memory";
+import Goals from "@/pages/goals";
+import Diary from "@/pages/diary";
+import Studio from "@/pages/studio";
+
+const queryClient = new QueryClient();
+
+function Router() {
+  return (
+    <Layout>
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/chat" component={Chat} />
+        <Route path="/memory" component={Memory} />
+        <Route path="/goals" component={Goals} />
+        <Route path="/diary" component={Diary} />
+        <Route path="/studio" component={Studio} />
+        <Route component={NotFound} />
+      </Switch>
+    </Layout>
+  );
+}
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+          <Router />
+        </WouterRouter>
+        <Toaster />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+}
+
+export default App;

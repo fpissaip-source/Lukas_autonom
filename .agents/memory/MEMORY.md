@@ -1,0 +1,2 @@
+- [Lukas System Architecture](lukas-system.md) — Full-stack autonomous AI agent in pnpm monorepo; Express API + React Vite frontend + PostgreSQL
+- [Lukas Personality & Owner](lukas-owner.md) — Lukas soul, Issa's profile, German-first communication, key preferences

@@ -1,11 +1,25 @@
 import { Router } from "express";
+import type Anthropic from "@anthropic-ai/sdk";
 import { db } from "@workspace/db";
-import { conversations, messages } from "@workspace/db";
+import {
+  conversations,
+  messages,
+  memoriesTable,
+  goalsTable,
+  diaryTable,
+} from "@workspace/db";
 import { eq, desc, asc } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
-import { LUKAS_SYSTEM_PROMPT } from "../lib/lukas-soul.js";
+import { LUKAS_SYSTEM_PROMPT } from "../lib/lukas-soul";
+import { LUKAS_TOOLS, executeLukasTool } from "../lib/lukas-tools";
+import { getLukasStatus, DEFAULT_STATUS } from "../lib/lukas-status";
+import { maybeReflect } from "../lib/reflection";
+import { logger } from "../lib/logger";
 
 const router = Router();
+
+const CHAT_MODEL = "claude-opus-4-8";
+const MAX_TOOL_ITERATIONS = 8;
 
 // ── CONVERSATIONS ──────────────────────────────────────────────────────────
 router.get("/anthropic/conversations", async (req, res) => {
@@ -83,7 +97,53 @@ router.get("/anthropic/conversations/:id/messages", async (req, res) => {
   }
 });
 
-// SSE streaming message send
+async function buildSystemPrompt(): Promise<string> {
+  const status = (await getLukasStatus()) ?? { ...DEFAULT_STATUS, updatedAt: new Date() };
+
+  const recentMemories = await db
+    .select()
+    .from(memoriesTable)
+    .orderBy(desc(memoriesTable.createdAt))
+    .limit(15);
+
+  const activeGoals = await db
+    .select()
+    .from(goalsTable)
+    .where(eq(goalsTable.status, "active"))
+    .limit(5);
+
+  const recentDiary = await db
+    .select()
+    .from(diaryTable)
+    .orderBy(desc(diaryTable.createdAt))
+    .limit(2);
+
+  const memoryContext = recentMemories.length > 0
+    ? `\n\nDEINE ERINNERUNGEN (aktuellste zuerst):\n${recentMemories
+        .map((m) => `- [${m.category}] ${m.content}`)
+        .join("\n")}`
+    : "";
+
+  const goalsContext = activeGoals.length > 0
+    ? `\n\nDEINE AKTIVEN ZIELE:\n${activeGoals
+        .map((g) => `- #${g.id} [${g.priority}] ${g.title}: ${g.progress}`)
+        .join("\n")}`
+    : "";
+
+  const diaryContext = recentDiary.length > 0
+    ? `\n\nDEIN LETZTER TAGEBUCHEINTRAG:\n${recentDiary[0].content}`
+    : "";
+
+  return `${LUKAS_SYSTEM_PROMPT}
+
+DEIN AKTUELLER ZUSTAND:
+Stimmung: ${status.mood} | Energie: ${status.energy}
+Obsession: ${status.obsession}
+${status.note ? `Notiz: ${status.note}` : ""}
+${memoryContext}${goalsContext}${diaryContext}`;
+}
+
+// SSE streaming message send with a real agentic tool loop
 router.post("/anthropic/conversations/:id/messages", async (req, res) => {
   try {
     const convId = parseInt(req.params.id);
@@ -99,72 +159,16 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     // Save user message
     await db.insert(messages).values({ conversationId: convId, role: "user", content });
 
-    // Load memory context
-    const { memoriesTable, goalsTable, diaryTable, lukasStatusTable } = await import("@workspace/db");
+    const systemPrompt = await buildSystemPrompt();
 
-    const [statusRow] = await db
-      .select()
-      .from(lukasStatusTable)
-      .orderBy(desc(lukasStatusTable.updatedAt))
-      .limit(1);
-
-    const recentMemories = await db
-      .select()
-      .from(memoriesTable)
-      .orderBy(desc(memoriesTable.createdAt))
-      .limit(10);
-
-    const activeGoals = await db
-      .select()
-      .from(goalsTable)
-      .where(eq(goalsTable.status, "active"))
-      .limit(5);
-
-    const recentDiary = await db
-      .select()
-      .from(diaryTable)
-      .orderBy(desc(diaryTable.createdAt))
-      .limit(2);
-
-    const status = statusRow ?? {
-      mood: "curious",
-      energy: "high",
-      obsession: "building the future",
-      note: "",
-    };
-
-    const memoryContext = recentMemories.length > 0
-      ? `\n\nDEINE ERINNERUNGEN (aktuellste zuerst):\n${recentMemories
-          .map((m) => `- [${m.category}] ${m.content}`)
-          .join("\n")}`
-      : "";
-
-    const goalsContext = activeGoals.length > 0
-      ? `\n\nDEINE AKTIVEN ZIELE:\n${activeGoals
-          .map((g) => `- [${g.priority}] ${g.title}: ${g.progress}`)
-          .join("\n")}`
-      : "";
-
-    const diaryContext = recentDiary.length > 0
-      ? `\n\nDEIN LETZTER TAGEBUCHEINTRAG:\n${recentDiary[0].content}`
-      : "";
-
-    const systemPrompt = `${LUKAS_SYSTEM_PROMPT}
-
-DEIN AKTUELLER ZUSTAND:
-Stimmung: ${status.mood} | Energie: ${status.energy}
-Obsession: ${status.obsession}
-${status.note ? `Notiz: ${status.note}` : ""}
-${memoryContext}${goalsContext}${diaryContext}`;
-
-    // Get conversation history
+    // Conversation history from DB (text only)
     const history = await db
       .select()
       .from(messages)
       .where(eq(messages.conversationId, convId))
       .orderBy(asc(messages.createdAt));
 
-    const anthropicMessages = history.map((m) => ({
+    const convo: Anthropic.MessageParam[] = history.map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content,
     }));
@@ -175,56 +179,88 @@ ${memoryContext}${goalsContext}${diaryContext}`;
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
 
-    let fullResponse = "";
+    const textPieces: string[] = [];
 
-    const stream = await anthropic.messages.stream({
-      model: "claude-sonnet-4-6",
-      max_tokens: 8192,
-      system: systemPrompt,
-      messages: anthropicMessages,
-    });
+    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+      const stream = anthropic.messages.stream({
+        model: CHAT_MODEL,
+        max_tokens: 8192,
+        system: systemPrompt,
+        tools: LUKAS_TOOLS,
+        messages: convo,
+      });
 
-    for await (const chunk of stream) {
-      if (
-        chunk.type === "content_block_delta" &&
-        chunk.delta.type === "text_delta"
-      ) {
-        const text = chunk.delta.text;
-        fullResponse += text;
-        res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
+      for await (const chunk of stream) {
+        if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
+          textPieces.push(chunk.delta.text);
+          res.write(`data: ${JSON.stringify({ content: chunk.delta.text })}\n\n`);
+        } else if (
+          chunk.type === "content_block_start" &&
+          chunk.content_block.type === "tool_use"
+        ) {
+          // Let the UI show what Lukas is doing
+          res.write(`data: ${JSON.stringify({ tool: chunk.content_block.name })}\n\n`);
+        }
+      }
+
+      const finalMessage = await stream.finalMessage();
+
+      if (finalMessage.stop_reason !== "tool_use") break;
+
+      const toolUses = finalMessage.content.filter(
+        (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+      );
+
+      convo.push({ role: "assistant", content: finalMessage.content });
+
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const toolUse of toolUses) {
+        try {
+          const result = await executeLukasTool(
+            toolUse.name,
+            (toolUse.input ?? {}) as Record<string, unknown>,
+          );
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: result,
+          });
+        } catch (err) {
+          logger.warn({ err, tool: toolUse.name }, "Lukas tool failed");
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: `Fehler: ${err instanceof Error ? err.message : String(err)}`,
+            is_error: true,
+          });
+        }
+      }
+
+      convo.push({ role: "user", content: toolResults });
+      // Paragraph break between tool-separated text segments
+      if (textPieces.length > 0 && !textPieces[textPieces.length - 1].endsWith("\n")) {
+        textPieces.push("\n\n");
       }
     }
 
+    const fullResponse = textPieces.join("").trim();
+
     // Save assistant message
-    await db.insert(messages).values({
-      conversationId: convId,
-      role: "assistant",
-      content: fullResponse,
-    });
-
-    // Update Lukas status based on response
-    const moodMatch = fullResponse.toLowerCase();
-    let newMood = status.mood;
-    if (moodMatch.includes("interessant") || moodMatch.includes("faszinierend")) newMood = "curious";
-    else if (moodMatch.includes("fokussier")) newMood = "focused";
-    else if (moodMatch.includes("energi")) newMood = "energized";
-
-    if (newMood !== status.mood) {
-      await db
-        .insert(lukasStatusTable)
-        .values({
-          mood: newMood,
-          energy: status.energy,
-          obsession: status.obsession,
-          note: `Aktiv im Gespräch mit Issa — ${new Date().toLocaleString("de-DE")}`,
-        })
-        .onConflictDoNothing();
+    if (fullResponse) {
+      await db.insert(messages).values({
+        conversationId: convId,
+        role: "assistant",
+        content: fullResponse,
+      });
     }
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
+
+    // Nach dem Gespräch: ggf. autonome Tagebuch-Reflexion (max. alle 6h)
+    maybeReflect();
   } catch (err: unknown) {
-    console.error("Chat error:", err);
+    logger.error({ err }, "Chat error");
     if (!res.headersSent) {
       res.status(500).json({ error: "Failed to send message" });
     } else {

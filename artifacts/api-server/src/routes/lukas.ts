@@ -5,20 +5,17 @@ import {
   goalsTable,
   diaryTable,
   mediaJobsTable,
-  lukasStatusTable,
 } from "@workspace/db";
-import { eq, desc, ilike, or } from "drizzle-orm";
+import { eq, desc, ilike, and } from "drizzle-orm";
+import { getLukasStatus, DEFAULT_STATUS } from "../lib/lukas-status";
+import { runReflection } from "../lib/reflection";
 
 const router = Router();
 
 // ── STATUS ─────────────────────────────────────────────────────────────────
 router.get("/lukas/status", async (req, res) => {
   try {
-    const [statusRow] = await db
-      .select()
-      .from(lukasStatusTable)
-      .orderBy(desc(lukasStatusTable.updatedAt))
-      .limit(1);
+    const statusRow = await getLukasStatus();
 
     const memoriesCount = await db.$count(memoriesTable);
     const activeGoals = await db
@@ -26,13 +23,7 @@ router.get("/lukas/status", async (req, res) => {
       .from(goalsTable)
       .where(eq(goalsTable.status, "active"));
 
-    const status = statusRow ?? {
-      mood: "curious",
-      energy: "high",
-      obsession: "building the future",
-      note: "Erste Session — alles frisch geladen.",
-      updatedAt: new Date(),
-    };
+    const status = statusRow ?? { ...DEFAULT_STATUS, updatedAt: new Date() };
 
     res.json({
       mood: status.mood,
@@ -51,11 +42,7 @@ router.get("/lukas/status", async (req, res) => {
 // ── DASHBOARD ──────────────────────────────────────────────────────────────
 router.get("/lukas/dashboard", async (req, res) => {
   try {
-    const [statusRow] = await db
-      .select()
-      .from(lukasStatusTable)
-      .orderBy(desc(lukasStatusTable.updatedAt))
-      .limit(1);
+    const statusRow = await getLukasStatus();
 
     const memoriesCount = await db.$count(memoriesTable);
     const activeGoals = await db
@@ -83,13 +70,7 @@ router.get("/lukas/dashboard", async (req, res) => {
       .orderBy(desc(mediaJobsTable.createdAt))
       .limit(5);
 
-    const status = statusRow ?? {
-      mood: "curious",
-      energy: "high",
-      obsession: "building the future",
-      note: "Erste Session — alles frisch geladen.",
-      updatedAt: new Date(),
-    };
+    const status = statusRow ?? { ...DEFAULT_STATUS, updatedAt: new Date() };
 
     res.json({
       status: {
@@ -130,21 +111,14 @@ router.get("/lukas/memories", async (req, res) => {
   try {
     const { category, search, limit = "50" } = req.query as Record<string, string>;
 
-    let query = db.select().from(memoriesTable);
     const conditions = [];
-
     if (category) conditions.push(eq(memoriesTable.category, category));
-    if (search)
-      conditions.push(
-        or(
-          ilike(memoriesTable.content, `%${search}%`),
-        )!
-      );
+    if (search) conditions.push(ilike(memoriesTable.content, `%${search}%`));
 
     const rows = await db
       .select()
       .from(memoriesTable)
-      .where(conditions.length > 0 ? conditions[0] : undefined)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(memoriesTable.createdAt))
       .limit(parseInt(limit) || 50);
 
@@ -275,6 +249,35 @@ router.get("/lukas/diary", async (req, res) => {
     res.json(rows.map((d) => ({ ...d, createdAt: d.createdAt.toISOString() })));
   } catch (err) {
     res.status(500).json({ error: "Failed to get diary" });
+  }
+});
+
+router.post("/lukas/diary", async (req, res) => {
+  try {
+    const { content, mood = "neutral", energy = "normal" } = req.body;
+    if (!content) return void res.status(400).json({ error: "content required" });
+
+    const [row] = await db
+      .insert(diaryTable)
+      .values({ content, mood, energy })
+      .returning();
+
+    res.status(201).json({ ...row, createdAt: row.createdAt.toISOString() });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to create diary entry" });
+  }
+});
+
+// ── REFLECT ────────────────────────────────────────────────────────────────
+// Löst eine echte Selbstreflexion aus: Lukas schreibt einen Tagebucheintrag
+// über die letzten Gespräche/Ziele und aktualisiert seinen Status.
+router.post("/lukas/reflect", async (req, res) => {
+  try {
+    const entry = await runReflection(true);
+    if (!entry) return void res.status(500).json({ error: "Reflection produced no entry" });
+    res.status(201).json({ ...entry, createdAt: entry.createdAt.toISOString() });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to reflect" });
   }
 });
 

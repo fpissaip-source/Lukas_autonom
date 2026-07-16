@@ -13,6 +13,6 @@
     "p-retry": "^7.1.1"
   },
   "devDependencies": {
-    "@types/node": "catalog:"
+    "@types/node": "^25.3.3"
   }
 }

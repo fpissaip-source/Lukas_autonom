@@ -15,6 +15,8 @@ tags:
     description: Higgsfield media generation
   - name: anthropic
     description: Anthropic AI chat operations
+  - name: trades
+    description: LUKAS trade history and bankroll data (VPS trading system)
 paths:
   /healthz:
     get:
@@ -193,6 +195,37 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/DiaryEntry"
+    post:
+      operationId: createDiaryEntry
+      tags: [lukas]
+      summary: Write a diary entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiaryInput"
+      responses:
+        "201":
+          description: Created diary entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiaryEntry"
+
+  # ── LUKAS REFLECT ────────────────────────────────────────────────────────
+  /lukas/reflect:
+    post:
+      operationId: triggerReflection
+      tags: [lukas]
+      summary: Trigger a self-reflection (writes a diary entry and updates status)
+      responses:
+        "201":
+          description: Reflection written as diary entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiaryEntry"
 
   # ── LUKAS DASHBOARD SUMMARY ───────────────────────────────────────────────
   /lukas/dashboard:
@@ -398,6 +431,102 @@ paths:
           content:
             text/event-stream: {}
 
+  # ── TRADES (VPS trading system) ──────────────────────────────────────────
+  /trades:
+    get:
+      operationId: listTrades
+      tags: [trades]
+      summary: List trades
+      description: Returns trade history from the LUKAS VPS database
+      parameters:
+        - name: status
+          in: query
+          description: Filter by trade status (open, won, lost, cancelled)
+          schema:
+            type: string
+        - name: bot
+          in: query
+          description: Filter by bot name
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum number of records to return (default 100, max 500)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: List of trades
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TradesResponse"
+        "503":
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /trades/summary:
+    get:
+      operationId: getTradesSummary
+      tags: [trades]
+      summary: Trading summary
+      description: Returns open positions, closed trade stats, and realized PnL
+      parameters:
+        - name: bot
+          in: query
+          description: Filter by bot name
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Trading summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TradesSummary"
+        "503":
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /bankroll-history:
+    get:
+      operationId: listBankrollHistory
+      tags: [trades]
+      summary: Bankroll history
+      description: Returns bankroll snapshots from the LUKAS VPS database
+      parameters:
+        - name: bot
+          in: query
+          description: Filter by bot name
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum number of records to return (default 100, max 500)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Bankroll history snapshots
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankrollHistoryResponse"
+        "503":
+          description: Database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -553,6 +682,18 @@ components:
         - mood
         - energy
         - createdAt
+
+    DiaryInput:
+      type: object
+      properties:
+        content:
+          type: string
+        mood:
+          type: ["string", "null"]
+        energy:
+          type: ["string", "null"]
+      required:
+        - content
 
     LukasDashboard:
       type: object
@@ -757,6 +898,143 @@ components:
         - createdAt
         - messages
     AnthropicError:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    # ── TRADES ──────────────────────────────────────────────────────────────
+    TradeRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+        bot:
+          type: string
+        market_slug:
+          type: string
+          nullable: true
+        market_question:
+          type: string
+          nullable: true
+        side:
+          type: string
+          nullable: true
+        shares:
+          type: string
+          nullable: true
+        entry_price:
+          type: string
+          nullable: true
+        stake:
+          type: string
+          nullable: true
+        status:
+          type: string
+        opened_at:
+          type: string
+          nullable: true
+        exit_price:
+          type: string
+          nullable: true
+        payout:
+          type: string
+          nullable: true
+        pnl:
+          type: string
+          nullable: true
+        closed_at:
+          type: string
+          nullable: true
+      required:
+        - id
+        - bot
+        - status
+    TradesResponse:
+      type: object
+      properties:
+        trades:
+          type: array
+          items:
+            $ref: "#/components/schemas/TradeRecord"
+        total:
+          type: integer
+      required:
+        - trades
+        - total
+    TradesSummary:
+      type: object
+      properties:
+        open_count:
+          type: integer
+        closed_count:
+          type: integer
+        total_count:
+          type: integer
+        realized_pnl:
+          type: number
+        win_count:
+          type: integer
+        loss_count:
+          type: integer
+        win_rate:
+          type: number
+        open_positions:
+          type: array
+          items:
+            $ref: "#/components/schemas/TradeRecord"
+      required:
+        - open_count
+        - closed_count
+        - total_count
+        - realized_pnl
+        - win_count
+        - loss_count
+        - win_rate
+        - open_positions
+    BankrollSnapshot:
+      type: object
+      properties:
+        id:
+          type: integer
+        bot:
+          type: string
+        balance:
+          type: string
+        base:
+          type: string
+          nullable: true
+        pnl:
+          type: string
+          nullable: true
+        open_pos:
+          type: string
+          nullable: true
+        note:
+          type: string
+          nullable: true
+        recorded_at:
+          type: string
+          nullable: true
+      required:
+        - id
+        - bot
+        - balance
+    BankrollHistoryResponse:
+      type: object
+      properties:
+        snapshots:
+          type: array
+          items:
+            $ref: "#/components/schemas/BankrollSnapshot"
+        total:
+          type: integer
+      required:
+        - snapshots
+        - total
+    ErrorResponse:
       type: object
       properties:
         error:

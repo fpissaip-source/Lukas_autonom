@@ -26,7 +26,10 @@ export default function Chat() {
 
   const { data: convos = [], isLoading: loadingConvos } = useListAnthropicConversations();
   const { data: activeConv } = useGetAnthropicConversation(activeId!, {
-    query: { enabled: activeId !== null },
+    query: {
+      queryKey: getGetAnthropicConversationQueryKey(activeId!),
+      enabled: activeId !== null,
+    },
   });
   const createConvo = useCreateAnthropicConversation();
   const deleteConvo = useDeleteAnthropicConversation();
@@ -56,9 +59,13 @@ export default function Chat() {
     setStreamContent("");
 
     try {
+      const token = localStorage.getItem("lukas_token");
       const response = await fetch(`${BASE}/api/anthropic/conversations/${activeId}/messages`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ content: msg }),
       });
 
@@ -78,6 +85,7 @@ export default function Chat() {
               try {
                 const parsed = JSON.parse(line.slice(6));
                 if (parsed.content) setStreamContent(prev => prev + parsed.content);
+                if (parsed.tool) setStreamContent(prev => `${prev}\n[⚙ ${parsed.tool}]\n`);
                 if (parsed.done) done = true;
               } catch {}
             }

@@ -116,16 +116,31 @@ router.post("/higgsfield/generate", async (req, res) => {
             job.requestId = requestId;
             job.status = "processing";
           }
+        } else {
+          const errText = await response.text().catch(() => "");
+          console.error(`Higgsfield API error ${response.status}: ${errText.slice(0, 500)}`);
+          await db
+            .update(mediaJobsTable)
+            .set({ status: "failed", updatedAt: new Date() })
+            .where(eq(mediaJobsTable.id, job.id));
+          job.status = "failed";
         }
       } catch (apiErr) {
         console.error("Higgsfield API error:", apiErr);
+        await db
+          .update(mediaJobsTable)
+          .set({ status: "failed", updatedAt: new Date() })
+          .where(eq(mediaJobsTable.id, job.id));
+        job.status = "failed";
       }
     } else {
+      // Kein API-Key konfiguriert — ehrlich als failed markieren statt den Job
+      // für immer auf "processing" hängen zu lassen.
       await db
         .update(mediaJobsTable)
-        .set({ status: "processing", updatedAt: new Date() })
+        .set({ status: "failed", updatedAt: new Date() })
         .where(eq(mediaJobsTable.id, job.id));
-      job.status = "processing";
+      job.status = "failed";
     }
 
     res.status(202).json({

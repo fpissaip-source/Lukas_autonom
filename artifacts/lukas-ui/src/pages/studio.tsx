@@ -4,6 +4,7 @@ import {
   useGenerateMedia,
   useGetMediaJobs,
   useGetMediaStatus,
+  getGetMediaStatusQueryKey,
   getGetMediaJobsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -59,6 +60,7 @@ function JobCard({ job }: { job: { id: number; requestId?: string | null; status
   const qc = useQueryClient();
   const { data: statusData } = useGetMediaStatus(job.requestId!, {
     query: {
+      queryKey: getGetMediaStatusQueryKey(job.requestId!),
       enabled: !!job.requestId && (job.status === "processing" || job.status === "pending"),
       refetchInterval: job.status === "processing" ? 3000 : false,
     },

@@ -1,0 +1,267 @@
+<!--
+  Polymarket Reality panel (Task #64)
+  Injected by dashboard_server.py just before </body>. Mounts itself, polls
+  /api/data every 10s, and renders on-chain balance, internal bankroll,
+  drift, open positions (cost basis vs market value), realized PnL last 24h,
+  and a force-close timeline.
+-->
+<style>
+  #polymarket-reality-panel {
+    margin: 24px auto;
+    max-width: 1100px;
+    background: #0c1424;
+    border: 1px solid #1d2940;
+    border-radius: 14px;
+    padding: 20px 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #d8e2f3;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+  }
+  #polymarket-reality-panel h2 {
+    margin: 0 0 4px 0;
+    font-size: 18px;
+    color: #f4d35e;
+    letter-spacing: 0.5px;
+  }
+  #polymarket-reality-panel .pr-sub {
+    color: #6b7d99;
+    font-size: 12px;
+    margin-bottom: 16px;
+  }
+  #polymarket-reality-panel .pr-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  #polymarket-reality-panel .pr-stat {
+    background: #111c30;
+    border: 1px solid #1d2940;
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  #polymarket-reality-panel .pr-stat .pr-label {
+    font-size: 11px;
+    color: #6b7d99;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  #polymarket-reality-panel .pr-stat .pr-value {
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+  }
+  #polymarket-reality-panel .pr-stat.warn .pr-value { color: #ffb86c; }
+  #polymarket-reality-panel .pr-stat.bad  .pr-value { color: #ff6b8a; }
+  #polymarket-reality-panel .pr-stat.good .pr-value { color: #79e2a3; }
+  #polymarket-reality-panel .pr-section-title {
+    color: #9bb2d3;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 16px 0 8px 0;
+  }
+  #polymarket-reality-panel table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  #polymarket-reality-panel th, #polymarket-reality-panel td {
+    padding: 6px 10px;
+    text-align: left;
+    border-bottom: 1px solid #1d2940;
+  }
+  #polymarket-reality-panel th {
+    color: #6b7d99;
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+  }
+  #polymarket-reality-panel td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  #polymarket-reality-panel .pr-pos { color: #79e2a3; }
+  #polymarket-reality-panel .pr-neg { color: #ff6b8a; }
+  #polymarket-reality-panel .pr-event {
+    display: flex;
+    gap: 12px;
+    padding: 6px 10px;
+    border-bottom: 1px solid #1d2940;
+    font-size: 12px;
+  }
+  #polymarket-reality-panel .pr-event .pr-kind {
+    font-weight: 600;
+    min-width: 130px;
+  }
+  #polymarket-reality-panel .pr-kind-STOP_LOSS,
+  #polymarket-reality-panel .pr-kind-CATASTROPHIC_SL,
+  #polymarket-reality-panel .pr-kind-FORCE_PURGE,
+  #polymarket-reality-panel .pr-kind-ACCEPT_FULL_LOSS,
+  #polymarket-reality-panel .pr-kind-DRIFT_WARN { color: #ff6b8a; }
+  #polymarket-reality-panel .pr-kind-TAKE_PROFIT,
+  #polymarket-reality-panel .pr-kind-PRE_EXPIRY  { color: #79e2a3; }
+  #polymarket-reality-panel .pr-kind-MAX_HOLD    { color: #ffb86c; }
+  #polymarket-reality-panel .pr-empty {
+    color: #6b7d99;
+    font-style: italic;
+    padding: 12px 0;
+  }
+  #polymarket-reality-panel .pr-stale {
+    color: #ff6b8a;
+    font-weight: 600;
+  }
+</style>
+
+<div id="polymarket-reality-panel">
+  <h2>🔴 Polymarket Reality</h2>
+  <div class="pr-sub" id="pr-sub">Lädt…</div>
+
+  <div class="pr-grid" id="pr-grid"></div>
+
+  <div class="pr-section-title">Offene Positionen</div>
+  <div id="pr-positions"><div class="pr-empty">—</div></div>
+
+  <div class="pr-section-title">Force-Close Timeline (letzte 20)</div>
+  <div id="pr-events"><div class="pr-empty">—</div></div>
+</div>
+
+<script>
+(function() {
+  const $grid = document.getElementById("pr-grid");
+  const $sub = document.getElementById("pr-sub");
+  const $positions = document.getElementById("pr-positions");
+  const $events = document.getElementById("pr-events");
+
+  function fmtUsd(v) {
+    if (v === null || v === undefined || isNaN(v)) return "—";
+    const n = Number(v);
+    const sign = n < 0 ? "-" : "";
+    return sign + "$" + Math.abs(n).toFixed(2);
+  }
+
+  function fmtAge(ts) {
+    if (!ts) return "—";
+    const now = Math.floor(Date.now() / 1000);
+    const age = now - Number(ts);
+    if (age < 0) return "in Zukunft";
+    if (age < 60) return age + "s";
+    if (age < 3600) return Math.floor(age/60) + "m";
+    if (age < 86400) return Math.floor(age/3600) + "h";
+    return Math.floor(age/86400) + "d";
+  }
+
+  function pnlClass(v) {
+    if (v === null || v === undefined || isNaN(v)) return "";
+    return Number(v) >= 0 ? "pr-pos" : "pr-neg";
+  }
+
+  function renderStat(label, value, cls) {
+    const div = document.createElement("div");
+    div.className = "pr-stat" + (cls ? " " + cls : "");
+    div.innerHTML = '<div class="pr-label">' + label + '</div>' +
+                    '<div class="pr-value">' + value + '</div>';
+    return div;
+  }
+
+  function render(reality) {
+    if (!reality || !reality.ts) {
+      $sub.innerHTML = '<span class="pr-stale">Bot-Reality unbekannt — reality.json fehlt oder ist leer.</span>';
+      $grid.innerHTML = "";
+      $positions.innerHTML = '<div class="pr-empty">—</div>';
+      $events.innerHTML = '<div class="pr-empty">—</div>';
+      return;
+    }
+
+    const ageSec = Math.floor(Date.now()/1000) - Number(reality.ts || 0);
+    const stale = ageSec > 180;
+    $sub.innerHTML = "Letzte Sync: " + fmtAge(reality.ts) + " her" +
+                     (stale ? ' <span class="pr-stale">(stale!)</span>' : "");
+
+    $grid.innerHTML = "";
+    $grid.appendChild(renderStat("On-Chain USDC", fmtUsd(reality.on_chain_balance)));
+    $grid.appendChild(renderStat("Internal Bankroll", fmtUsd(reality.internal_bankroll)));
+    $grid.appendChild(renderStat(
+      "Drift (intern - chain)",
+      fmtUsd(reality.drift_usd),
+      reality.drift_warn ? "warn" : ""
+    ));
+    $grid.appendChild(renderStat("Offene Positionen", reality.open_positions_count || 0));
+    $grid.appendChild(renderStat("Cost Basis offen", fmtUsd(reality.open_positions_cost_basis)));
+    $grid.appendChild(renderStat(
+      "Marktwert offen",
+      fmtUsd(reality.open_positions_value),
+      Number(reality.open_positions_unrealized || 0) < 0 ? "bad" : "good"
+    ));
+    $grid.appendChild(renderStat(
+      "Realized PnL 24h",
+      fmtUsd(reality.realized_pnl_24h_usd) + " (" + (reality.realized_trades_24h || 0) + ")",
+      Number(reality.realized_pnl_24h_usd || 0) >= 0 ? "good" : "bad"
+    ));
+    $grid.appendChild(renderStat(
+      "Realized PnL 1h",
+      fmtUsd(reality.realized_pnl_1h_usd) + " (" + (reality.realized_trades_1h || 0) + ")",
+      Number(reality.realized_pnl_1h_usd || 0) >= 0 ? "good" : "bad"
+    ));
+
+    // Positions table
+    const positions = reality.positions || [];
+    if (positions.length === 0) {
+      $positions.innerHTML = '<div class="pr-empty">Keine offenen Positionen.</div>';
+    } else {
+      const rows = positions.map(p => {
+        const upnl = Number(p.unrealized_pnl || 0);
+        return '<tr>' +
+          '<td>' + (p.market_id || "—").substring(0, 50) + '</td>' +
+          '<td>' + (p.side || "BUY") + '</td>' +
+          '<td class="num">' + (p.shares || 0).toFixed(2) + '</td>' +
+          '<td class="num">' + (p.entry_price || 0).toFixed(3) + '</td>' +
+          '<td class="num">' + (p.current_price || 0).toFixed(3) + '</td>' +
+          '<td class="num">' + fmtUsd(p.cost_basis) + '</td>' +
+          '<td class="num">' + fmtUsd(p.current_value) + '</td>' +
+          '<td class="num ' + pnlClass(upnl) + '">' + fmtUsd(upnl) + '</td>' +
+        '</tr>';
+      }).join("");
+      $positions.innerHTML =
+        '<table><thead><tr>' +
+          '<th>Market</th><th>Side</th><th>Shares</th>' +
+          '<th>Entry</th><th>Now</th>' +
+          '<th>Cost</th><th>Value</th><th>UPnL</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+
+    // Events
+    const events = reality.recent_events || [];
+    if (events.length === 0) {
+      $events.innerHTML = '<div class="pr-empty">Keine Force-Close Events bisher.</div>';
+    } else {
+      $events.innerHTML = events.map(e => {
+        const kind = e.kind || "UNKNOWN";
+        const det = e.details || {};
+        const pnl = det.pnl_usd;
+        const pnlBadge = (pnl !== undefined && pnl !== null)
+          ? ' <span class="' + pnlClass(pnl) + '">' + fmtUsd(pnl) + '</span>'
+          : "";
+        return '<div class="pr-event">' +
+          '<span class="pr-kind pr-kind-' + kind + '">' + kind + '</span>' +
+          '<span style="min-width:60px;color:#6b7d99">' + fmtAge(e.ts) + '</span>' +
+          '<span style="flex:1;color:#9bb2d3">' + (e.market_id || "").substring(0,40) + '</span>' +
+          '<span>' + pnlBadge + '</span>' +
+        '</div>';
+      }).join("");
+    }
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch("/api/data", { cache: "no-store" });
+      const data = await r.json();
+      render(data.polymarket_reality || null);
+    } catch (e) {
+      $sub.innerHTML = '<span class="pr-stale">/api/data fehlgeschlagen: ' + (e && e.message || e) + '</span>';
+    }
+  }
+
+  poll();
+  setInterval(poll, 10000);
+})();
+</script>

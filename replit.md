@@ -45,7 +45,7 @@ Persistenter KI-Agent mit Persönlichkeit, Gedächtnis (PostgreSQL), echtem Tool
 
 - Nach Änderungen an `openapi.yaml` immer `npm run codegen` laufen lassen, sonst passen Server-Zod-Schemas und UI-Hooks nicht.
 - `LUKAS_API_TOKEN` schützt die API erst, wenn gesetzt; UI liest den Token aus `localStorage.getItem("lukas_token")`.
-- Das alte Python-/VPS-System ist NICHT Teil dieses Repos — nur Lesezugriff auf dessen Postgres.
+- Das Python-/VPS-System liegt unter `vps/` (Quelle der Wahrheit; Deploy via `scripts/lukas-deploy/deploy.sh`). Die Web-App startet es nicht — nur Lesezugriff auf dessen Postgres.
 
 ## User preferences
 

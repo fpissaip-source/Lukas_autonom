@@ -86,9 +86,13 @@ Interaktive HTML-Ansicht: `graphify-out/graph.html` im Browser öffnen.
 - `lib/api-zod` / `lib/api-client-react` — generierte Clients
 - `lib/integrations-anthropic-ai` — Anthropic-Client
 
+## VPS-Trading-System (die 99 Dateien)
+
+Das autonome Python-System liegt versioniert unter [`vps/`](vps/README.md) und wird mit
+`bash scripts/lukas-deploy/deploy.sh <IP> <PASSWORT>` als 10 systemd-Services auf den VPS
+ausgerollt. Die Web-App liest dessen Postgres über `VPS_DATABASE_URL`.
+
 ## Wichtig
 
 - Vor öffentlichem Deployment `LUKAS_API_TOKEN` setzen — ohne Token ist die API offen.
-- Das alte Python-/VPS-System (99 Dateien) ist ein separates System auf dem VPS; dieses Repo
-  liest dessen Datenbank nur über `VPS_DATABASE_URL`. Der Code-Dump liegt nicht mehr im Repo
-  (siehe Git-Historie, Commit `ff9a7ce`).
+- Der frühere `TELEGRAM_BOT_TOKEN` war im Code-Archiv hartkodiert → über @BotFather rotieren.

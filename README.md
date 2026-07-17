@@ -45,6 +45,37 @@ npm run codegen   # API-Clients aus lib/api-spec/openapi.yaml neu generieren
 | `HIGGSFIELD_API_KEY` | Optional: Higgsfield Media-Generierung |
 | `LUKAS_API_TOKEN` | Optional: schützt alle `/api`-Routen (außer `/api/healthz`) per Bearer-Token. Im Browser: `localStorage.setItem("lukas_token", "<token>")` |
 | `VPS_DATABASE_URL` | Optional: Postgres des VPS-Trading-Systems (Fallback: `DATABASE_URL`) |
+| `ELEVENLABS_API_KEY` | Stimme für das Portfolio-Widget (ElevenLabs, Flash v2.5 ≈ 75 ms Latenz) |
+| `ELEVENLABS_VOICE_ID` | Deine gewählte Stimme aus dem ElevenLabs VoiceLab |
+| `LUKAS_PUBLIC_MODEL` | Modell für den öffentlichen Widget-Chat (Standard `claude-haiku-4-5` für minimale Latenz) |
+
+## Portfolio-Widget (issahareb.me)
+
+Lukas lässt sich mit einer Zeile auf jeder Webseite einbetten — Besucher können mit ihm
+schreiben **und sprechen** (Mikrofon → Web Speech API, Antwort → ElevenLabs-Stimme):
+
+```html
+<script src="https://DEINE-LUKAS-DOMAIN/widget.js" data-api="https://DEINE-LUKAS-DOMAIN" defer></script>
+```
+
+- Demo lokal: `http://localhost:5000/embed-demo.html`
+- Endpoints: `POST /api/public/chat` (SSE, ohne Auth, Rate-Limit pro IP) und `POST /api/public/tts` (ElevenLabs-Proxy — der Key bleibt auf dem Server)
+- **Was Besucher wissen dürfen**, steuerst du über Erinnerungen mit Kategorie `public` — nur die fließen in den öffentlichen System-Prompt. Private Memories bleiben privat.
+- Für Voice braucht die Seite HTTPS (Mikrofon-Zugriff) und Chrome/Edge/Safari (Web Speech API).
+
+## Codebase-Graph (Graphify + Obsidian)
+
+Das Repo enthält unter `docs/obsidian-vault/` einen mit [graphify](https://graphify.net)
+generierten Wissens-Graphen der Codebase als Markdown-Wiki — den Ordner einfach in
+Obsidian als Vault öffnen (Graph-Ansicht zeigt das Netzwerk). Neu erzeugen:
+
+```bash
+pip install graphifyy
+graphify update .            # Graph bauen (ohne API-Key, nur Code-AST)
+graphify label .             # optional: Communities per LLM benennen (braucht ANTHROPIC_API_KEY)
+```
+
+Interaktive HTML-Ansicht: `graphify-out/graph.html` im Browser öffnen.
 
 ## Struktur
 

@@ -50,3 +50,6 @@ Thumbs.db
 
 # Environment
 .env
+
+# Graphify (generierter Codebase-Graph; mit "graphify update ." neu erzeugen)
+graphify-out/

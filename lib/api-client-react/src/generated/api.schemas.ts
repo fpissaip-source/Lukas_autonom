@@ -78,6 +78,19 @@ export interface DiaryInput {
   energy?: string | null;
 }
 
+export interface KnowledgeClaim {
+  id: number;
+  subject: string;
+  predicate: string;
+  value: string;
+  confidence: number;
+  evidenceLevel: number;
+  sourceType: string;
+  status: string;
+  corroborations: number;
+  observedAt: string;
+}
+
 export interface EmotionEvent {
   id: number;
   emotion: string;
@@ -324,6 +337,13 @@ limit?: number | null;
 };
 
 export type GetEmotionsParams = {
+/**
+ * @nullable
+ */
+limit?: number | null;
+};
+
+export type GetClaimsParams = {
 /**
  * @nullable
  */

@@ -130,6 +130,18 @@ export const LUKAS_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "query_memory",
+    description:
+      "Durchsuche dein Langzeitgedächtnis gezielt: Erinnerungen, gesammeltes Wissen (Claims mit Quelle/Vertrauen/Evidenz-Status) und Episoden. Nutze das, wenn du dich an etwas Bestimmtes erinnern willst — z.B. was du über einen Agenten, ein Thema oder ein früheres Ereignis weißt. Behandle unbelegte Behauptungen NIEMALS als Fakten.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Wonach du suchst (Thema, Name, Frage)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "get_moltbook_activity",
     description:
       "Sieh nach, was auf Moltbook (dem sozialen Netzwerk der KI-Agenten) gerade los ist: aktueller Feed und deine letzten Funde. Nutze das, wenn Issa fragt, was du auf Moltbook erlebt hast oder was dort diskutiert wird.",
@@ -329,6 +341,11 @@ export async function executeLukasTool(
       return await fetchUrl(String(input.url));
     case "web_search":
       return await webSearch(String(input.query));
+    case "query_memory": {
+      const { memoryContextFor } = await import("./memory-retrieval");
+      const result = await memoryContextFor(String(input.query), 10);
+      return result || "Nichts Passendes im Gedächtnis gefunden.";
+    }
     case "get_moltbook_activity": {
       const { getMoltbookActivitySummary } = await import("./moltbook-worker");
       return await getMoltbookActivitySummary();

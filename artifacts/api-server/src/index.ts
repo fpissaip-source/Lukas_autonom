@@ -1,5 +1,6 @@
 import app from "./app";
 import { startMoltbookWorker } from "./lib/moltbook-worker";
+import { startConsolidationWorker } from "./lib/consolidation-worker";
 import { logger } from "./lib/logger";
 
 const rawPort = process.env["PORT"];
@@ -24,4 +25,5 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
   startMoltbookWorker();
+  startConsolidationWorker();
 });

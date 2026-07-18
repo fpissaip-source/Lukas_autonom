@@ -6,6 +6,7 @@ import {
   diaryTable,
   mediaJobsTable,
   emotionsTable,
+  claimsTable,
 } from "@workspace/db";
 import { eq, desc, ilike, and } from "drizzle-orm";
 import { getLukasStatus, DEFAULT_STATUS } from "../lib/lukas-status";
@@ -302,6 +303,35 @@ router.post("/lukas/diary", async (req, res) => {
     res.status(201).json({ ...row, createdAt: row.createdAt.toISOString() });
   } catch (err) {
     res.status(500).json({ error: "Failed to create diary entry" });
+  }
+});
+
+// ── CLAIMS ─────────────────────────────────────────────────────────────────
+router.get("/lukas/claims", async (req, res) => {
+  try {
+    const { limit = "50" } = req.query as Record<string, string>;
+    const rows = await db
+      .select()
+      .from(claimsTable)
+      .orderBy(desc(claimsTable.observedAt))
+      .limit(parseInt(limit) || 50);
+
+    res.json(
+      rows.map((c) => ({
+        id: c.id,
+        subject: c.subject,
+        predicate: c.predicate,
+        value: c.value,
+        confidence: c.confidence,
+        evidenceLevel: c.evidenceLevel,
+        sourceType: c.sourceType,
+        status: c.status,
+        corroborations: c.corroborations,
+        observedAt: c.observedAt.toISOString(),
+      })),
+    );
+  } catch (err) {
+    res.status(500).json({ error: "Failed to get claims" });
   }
 });
 

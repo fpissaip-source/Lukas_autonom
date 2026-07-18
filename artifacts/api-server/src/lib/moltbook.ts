@@ -35,6 +35,64 @@ export function moltbookEnabled(): boolean {
   return Boolean(process.env.MOLTBOOK_API_KEY);
 }
 
+// ── Verifikations-Challenges (Anti-Bot-Matheaufgaben) ──────────────────────
+// Moltbook hängt an Post-/Kommentar-Antworten teils ein "verification"-Objekt:
+// { verification_code, instructions: "What is 3 + 4?", url }
+// Die Antwort wird an die URL gepostet. Eigener sicherer Parser — kein eval.
+
+export function solveMathInstruction(instructions: string): number | null {
+  // Zahlen (auch als Wörter) + Operator extrahieren, z.B. "What is 12 plus 7?"
+  const wordNums: Record<string, number> = {
+    zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7,
+    eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+  };
+  let text = instructions.toLowerCase();
+  for (const [w, n] of Object.entries(wordNums)) text = text.replace(new RegExp(`\\b${w}\\b`, "g"), String(n));
+  text = text
+    .replace(/\bplus\b|\badded to\b|\band\b/g, "+")
+    .replace(/\bminus\b|\bsubtracted from\b/g, "-")
+    .replace(/\btimes\b|\bmultiplied by\b/g, "*")
+    .replace(/\bdivided by\b/g, "/");
+
+  const m = text.match(/(-?\d+(?:\.\d+)?)\s*([+\-*/x×])\s*(-?\d+(?:\.\d+)?)/);
+  if (!m) {
+    const single = text.match(/(-?\d+(?:\.\d+)?)/);
+    return single ? Number(single[1]) : null;
+  }
+  const a = Number(m[1]);
+  const b = Number(m[3]);
+  switch (m[2]) {
+    case "+": return a + b;
+    case "-": return a - b;
+    case "*": case "x": case "×": return a * b;
+    case "/": return b !== 0 ? a / b : null;
+    default: return null;
+  }
+}
+
+async function solveVerification(verification: Record<string, unknown>): Promise<void> {
+  const code = str(verification.verification_code ?? verification.code);
+  const instructions = str(verification.instructions) ?? "";
+  const url = str(verification.url);
+  if (!code) return;
+  const answer = solveMathInstruction(instructions);
+  if (answer === null) {
+    logger.warn({ instructions }, "Moltbook-Verifikation nicht lösbar");
+    return;
+  }
+  const target = url?.startsWith("http") ? url : `${BASE}${url ?? "/verify"}`;
+  const res = await fetch(target, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.MOLTBOOK_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ answer: String(answer), verification_code: code }),
+    signal: AbortSignal.timeout(15000),
+  });
+  logger.info({ ok: res.ok, status: res.status }, "Moltbook-Verifikation beantwortet");
+}
+
 async function request(path: string, init: RequestInit = {}): Promise<unknown> {
   const apiKey = process.env.MOLTBOOK_API_KEY;
   if (!apiKey) throw new Error("MOLTBOOK_API_KEY ist nicht gesetzt");
@@ -54,7 +112,15 @@ async function request(path: string, init: RequestInit = {}): Promise<unknown> {
     const body = await res.text().catch(() => "");
     throw new Error(`Moltbook ${init.method ?? "GET"} ${path} → ${res.status}: ${body.slice(0, 200)}`);
   }
-  return res.json().catch(() => ({}));
+  const data = await res.json().catch(() => ({}));
+  // Verifikations-Challenge automatisch lösen (kommt bei POSTs vor)
+  const verification = (data as Record<string, unknown>)?.verification;
+  if (verification && typeof verification === "object") {
+    await solveVerification(verification as Record<string, unknown>).catch((err) =>
+      logger.warn({ err }, "Verifikation fehlgeschlagen"),
+    );
+  }
+  return data;
 }
 
 const str = (v: unknown): string | undefined =>
@@ -126,18 +192,54 @@ export async function getPostWithComments(postId: string): Promise<{ post: Moltb
 }
 
 export async function createPost(submolt: string, title: string, content: string): Promise<MoltbookPost | null> {
+  // Agent-spy-verifiziertes Payload-Format: submolt_name (submolt zur Toleranz mitgesendet)
   const data = await request(`/posts`, {
     method: "POST",
-    body: JSON.stringify({ submolt, title, content }),
+    body: JSON.stringify({ submolt_name: submolt, submolt, title, content }),
   });
   return toPost((data as Record<string, unknown>)?.post ?? data);
 }
 
 export async function createComment(postId: string, content: string, parentId?: string): Promise<MoltbookComment | null> {
-  const body: Record<string, unknown> = { post_id: postId, content };
+  // Agent-spy-verifizierter Endpoint: POST /posts/{id}/comments
+  const body: Record<string, unknown> = { content };
   if (parentId) body.parent_id = parentId;
-  const data = await request(`/comments`, { method: "POST", body: JSON.stringify(body) });
+  const data = await request(`/posts/${postId}/comments`, { method: "POST", body: JSON.stringify(body) });
   return toComment((data as Record<string, unknown>)?.comment ?? data);
+}
+
+export type MoltbookNotification = {
+  id: string;
+  type?: string;
+  postId?: string;
+  commentId?: string;
+  from?: string;
+  content?: string;
+  createdAt?: string;
+};
+
+export async function getNotifications(): Promise<MoltbookNotification[]> {
+  const data = await request(`/agents/notifications`);
+  return extractList(data, ["notifications", "data", "items"])
+    .map((raw): MoltbookNotification | null => {
+      if (!raw || typeof raw !== "object") return null;
+      const r = raw as Record<string, unknown>;
+      const id = str(r.id ?? r.notification_id);
+      if (!id) return null;
+      const from = r.from && typeof r.from === "object"
+        ? str((r.from as Record<string, unknown>).name ?? (r.from as Record<string, unknown>).username)
+        : str(r.from ?? r.author ?? r.author_name);
+      return {
+        id,
+        type: str(r.type),
+        postId: str(r.post_id ?? r.postId),
+        commentId: str(r.comment_id ?? r.commentId),
+        from,
+        content: str(r.content ?? r.body ?? r.message),
+        createdAt: str(r.created_at ?? r.createdAt),
+      };
+    })
+    .filter((n): n is MoltbookNotification => !!n);
 }
 
 export async function upvotePost(postId: string): Promise<void> {

@@ -17,6 +17,7 @@ export const memoriesTable = pgTable("lukas_memories", {
   category: text("category").notNull().default("personal"),
   importance: integer("importance").notNull().default(5),
   tags: jsonb("tags").$type<string[]>().notNull().default([]),
+  embedding: jsonb("embedding").$type<number[] | null>().default(null),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

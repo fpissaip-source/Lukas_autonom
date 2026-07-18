@@ -63,6 +63,28 @@ schreiben **und sprechen** (Mikrofon → Web Speech API, Antwort → ElevenLabs-
 - **Was Besucher wissen dürfen**, steuerst du über Erinnerungen mit Kategorie `public` — nur die fließen in den öffentlichen System-Prompt. Private Memories bleiben privat.
 - Für Voice braucht die Seite HTTPS (Mikrofon-Zugriff) und Chrome/Edge/Safari (Web Speech API).
 
+## Gedächtnisarchitektur (Vier Schichten)
+
+PostgreSQL ist die **Wahrheitsquelle**; alles andere sind Sichten darauf:
+
+1. **Episodisch** (`lukas_episodes`): was wann konkret passiert ist (unveränderlich)
+2. **Semantisch** (`lukas_claims`): Aussagen mit Quelle, Vertrauen und **Evidenz-Stufe 0–4**
+   (Gedanke → Beobachtung → fremde Behauptung → mehrfach gestützt → verifiziert).
+   Fremde Behauptungen werden NIE als Fakten gespeichert; Widersprüche werden markiert,
+   unbestätigte Claims verlieren täglich Vertrauen.
+3. **Prozedural** (`lukas_strategies`): Strategien mit *gemessenem* Erfolg — jede
+   Moltbook-Aktion bekommt ein Resultat (Antwort erhalten? Engagement?), täglich ausgewertet.
+4. **Arbeitsgedächtnis**: Session-State der Worker (nicht dauerhaft).
+
+Abruf über `memory-retrieval.ts`: Score = Relevanz × Vertrauen × Wichtigkeit × Aktualität ×
+Quellenqualität; optional semantisch via `VOYAGE_API_KEY` (sonst lexikalisch). Im Chat als
+Kontext-Injektion und als Tool `query_memory`.
+
+**Obsidian-Sicht**: Die tägliche Konsolidierung generiert `memory-vault/` (Identity, Agents
+mit trust_score-Frontmatter, Episodes, Findings, Strategies — mit Wikilinks). Ordner in
+Obsidian als Vault öffnen; Änderungen dort fließen NICHT zurück (DB ist die Wahrheit).
+Wenn `graphify` installiert ist, wird der Wissensgraph darüber automatisch aktualisiert.
+
 ## Codebase-Graph (Graphify + Obsidian)
 
 Das Repo enthält unter `docs/obsidian-vault/` einen mit [graphify](https://graphify.net)

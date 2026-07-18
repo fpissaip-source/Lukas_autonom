@@ -32,6 +32,7 @@ import type {
   EmotionEvent,
   ErrorResponse,
   GeneratedPrompt,
+  GetClaimsParams,
   GetDiaryEntriesParams,
   GetEmotionsParams,
   GetMemoriesParams,
@@ -40,6 +41,7 @@ import type {
   GoalInput,
   GoalUpdate,
   HealthStatus,
+  KnowledgeClaim,
   ListBankrollHistoryParams,
   ListTradesParams,
   LukasDashboard,
@@ -978,6 +980,90 @@ export function useGetEmotions<TData = Awaited<ReturnType<typeof getEmotions>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetEmotionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetClaimsUrl = (params?: GetClaimsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/lukas/claims?${stringifiedParams}` : `/api/lukas/claims`
+}
+
+/**
+ * @summary Get stored knowledge claims with evidence status
+ */
+export const getClaims = async (params?: GetClaimsParams, options?: RequestInit): Promise<KnowledgeClaim[]> => {
+
+  return customFetch<KnowledgeClaim[]>(getGetClaimsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetClaimsQueryKey = (params?: GetClaimsParams,) => {
+    return [
+    `/api/lukas/claims`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetClaimsQueryOptions = <TData = Awaited<ReturnType<typeof getClaims>>, TError = ErrorType<unknown>>(params?: GetClaimsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getClaims>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetClaimsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getClaims>>> = ({ signal }) => getClaims(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getClaims>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetClaimsQueryResult = NonNullable<Awaited<ReturnType<typeof getClaims>>>
+export type GetClaimsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get stored knowledge claims with evidence status
+ */
+
+export function useGetClaims<TData = Awaited<ReturnType<typeof getClaims>>, TError = ErrorType<unknown>>(
+ params?: GetClaimsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getClaims>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetClaimsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

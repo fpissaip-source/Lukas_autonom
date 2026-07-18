@@ -98,7 +98,7 @@ router.get("/anthropic/conversations/:id/messages", async (req, res) => {
   }
 });
 
-async function buildSystemPrompt(): Promise<string> {
+async function buildSystemPrompt(userQuery?: string): Promise<string> {
   const status = (await getLukasStatus()) ?? { ...DEFAULT_STATUS, updatedAt: new Date() };
 
   // Wichtige Erinnerungen (importance ≥ 7) UND die neuesten — nicht nur die
@@ -138,6 +138,18 @@ async function buildSystemPrompt(): Promise<string> {
   const emotionalContext = await getEmotionalContext();
   const characterContext = await getCharacterContext();
 
+  // Zur aktuellen Frage passendes Wissen (Claims/Episoden/Memories, bewertet)
+  let relevantContext = "";
+  if (userQuery) {
+    try {
+      const { memoryContextFor } = await import("../lib/memory-retrieval");
+      const block = await memoryContextFor(userQuery, 6);
+      if (block) relevantContext = `\n\nRELEVANTES WISSEN ZU DIESER NACHRICHT (mit Evidenz-Status — unbelegtes NIE als Fakt behandeln):\n${block}`;
+    } catch (err) {
+      logger.warn({ err }, "Memory-Retrieval fehlgeschlagen");
+    }
+  }
+
   const memoryContext = memories.length > 0
     ? `\n\nDEINE ERINNERUNGEN (wichtigste und neueste):\n${memories
         .map((m) => `- [${m.category}|${m.importance}] ${m.content}`)
@@ -160,7 +172,7 @@ DEIN AKTUELLER GEFÜHLSZUSTAND:
 ${emotionalContext}
 Obsession: ${status.obsession}
 ${characterContext ? `\n${characterContext}` : ""}
-${memoryContext}${goalsContext}${diaryContext}`;
+${memoryContext}${goalsContext}${diaryContext}${relevantContext}`;
 }
 
 // SSE streaming message send with a real agentic tool loop
@@ -179,7 +191,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     // Save user message
     await db.insert(messages).values({ conversationId: convId, role: "user", content });
 
-    const systemPrompt = await buildSystemPrompt();
+    const systemPrompt = await buildSystemPrompt(String(content).slice(0, 500));
 
     // Conversation history from DB (text only)
     const history = await db

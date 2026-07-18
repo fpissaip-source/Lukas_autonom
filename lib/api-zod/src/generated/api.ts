@@ -207,6 +207,28 @@ export const GetEmotionsResponse = zod.array(GetEmotionsResponseItem)
 
 
 /**
+ * @summary Get stored knowledge claims with evidence status
+ */
+export const GetClaimsQueryParams = zod.object({
+  "limit": zod.coerce.number().nullish()
+})
+
+export const GetClaimsResponseItem = zod.object({
+  "id": zod.number(),
+  "subject": zod.string(),
+  "predicate": zod.string(),
+  "value": zod.string(),
+  "confidence": zod.number(),
+  "evidenceLevel": zod.number(),
+  "sourceType": zod.string(),
+  "status": zod.string(),
+  "corroborations": zod.number(),
+  "observedAt": zod.coerce.date()
+})
+export const GetClaimsResponse = zod.array(GetClaimsResponseItem)
+
+
+/**
  * @summary Trigger a self-reflection (writes a diary entry and updates status)
  */
 export const TriggerReflectionResponse = zod.object({

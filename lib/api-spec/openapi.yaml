@@ -234,6 +234,27 @@ paths:
                 items:
                   $ref: "#/components/schemas/EmotionEvent"
 
+  # ── LUKAS CLAIMS (semantisches Gedächtnis, Transparenz) ──────────────────
+  /lukas/claims:
+    get:
+      operationId: getClaims
+      tags: [lukas]
+      summary: Get stored knowledge claims with evidence status
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: List of claims (newest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeClaim"
+
   # ── LUKAS REFLECT ────────────────────────────────────────────────────────
   /lukas/reflect:
     post:
@@ -715,6 +736,42 @@ components:
           type: ["string", "null"]
       required:
         - content
+
+    KnowledgeClaim:
+      type: object
+      properties:
+        id:
+          type: integer
+        subject:
+          type: string
+        predicate:
+          type: string
+        value:
+          type: string
+        confidence:
+          type: number
+        evidenceLevel:
+          type: integer
+        sourceType:
+          type: string
+        status:
+          type: string
+        corroborations:
+          type: integer
+        observedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - subject
+        - predicate
+        - value
+        - confidence
+        - evidenceLevel
+        - sourceType
+        - status
+        - corroborations
+        - observedAt
 
     EmotionEvent:
       type: object

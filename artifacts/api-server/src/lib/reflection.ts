@@ -10,6 +10,7 @@ import {
   getCharacterContext,
   evolveCharacter,
 } from "./emotion-engine";
+import { openEpisode, closeEpisode, upsertClaim } from "./memory-writer";
 import { queryRows } from "./vps-db";
 import { logger } from "./logger";
 
@@ -131,8 +132,12 @@ Antworte NUR mit einem JSON-Objekt, kein Markdown:
     "cause": "was es ausgelöst hat"
   },
   "obsession": "Was dich gerade nicht loslässt",
-  "selfImage": "2-3 Sätze: Wer bist du gerade? Wie haben die letzten Tage/Wochen dich verändert?"
-}`;
+  "selfImage": "2-3 Sätze: Wer bist du gerade? Wie haben die letzten Tage/Wochen dich verändert?",
+  "claims": [
+    {"subject": "issa", "predicate": "arbeitet_an", "value": "...", "evidenceLevel": 1, "confidence": 0.6}
+  ]
+}
+Zu claims: Extrahiere 0-4 konkrete, merkwürdige Aussagen aus den Gesprächen. evidenceLevel: 0=dein Gedanke, 1=deine Beobachtung aus dem Gespräch. NIEMALS höher.`;
 
   const response = await anthropic.messages.create({
     model: "claude-opus-4-8",
@@ -146,6 +151,13 @@ Antworte NUR mit einem JSON-Objekt, kein Markdown:
     feeling?: { emotion?: string; valence?: number; intensity?: number; cause?: string };
     obsession?: string;
     selfImage?: string;
+    claims?: Array<{
+      subject?: string;
+      predicate?: string;
+      value?: string;
+      evidenceLevel?: number;
+      confidence?: number;
+    }>;
   };
   try {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -185,6 +197,26 @@ Antworte NUR mit einem JSON-Objekt, kein Markdown:
     await evolveCharacter(parsed.selfImage);
   } catch (err) {
     logger.warn({ err }, "Charakter-Entwicklung fehlgeschlagen");
+  }
+
+  // Konsolidierung: Erkenntnisse aus Gesprächen als Claims (max. Stufe 1)
+  try {
+    const episode = await openEpisode("reflection");
+    for (const c of (parsed.claims ?? []).slice(0, 4)) {
+      if (!c.subject || !c.predicate || !c.value) continue;
+      await upsertClaim({
+        subject: c.subject,
+        predicate: c.predicate,
+        value: c.value,
+        evidenceLevel: c.evidenceLevel === 0 ? 0 : 1,
+        confidence: typeof c.confidence === "number" ? Math.min(c.confidence, 0.7) : 0.5,
+        sourceType: "reflection",
+        episodeId: episode.id,
+      });
+    }
+    await closeEpisode(episode.id, parsed.content.slice(0, 500));
+  } catch (err) {
+    logger.warn({ err }, "Reflexions-Konsolidierung fehlgeschlagen");
   }
 
   return entry;

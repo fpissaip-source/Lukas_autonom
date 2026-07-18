@@ -53,3 +53,6 @@ Thumbs.db
 
 # Graphify (generierter Codebase-Graph; mit "graphify update ." neu erzeugen)
 graphify-out/
+
+# Gedaechtnis-Vault (generierte Sicht auf die DB; Obsidian-lesbar)
+memory-vault/

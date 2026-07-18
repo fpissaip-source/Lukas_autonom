@@ -6,6 +6,7 @@ import { memoriesTable } from "@workspace/db";
 import { desc, eq } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { LUKAS_SOUL } from "../lib/lukas-soul";
+import { getLukasStatus } from "../lib/lukas-status";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -42,8 +43,12 @@ async function buildPublicSystemPrompt(): Promise<string> {
     .limit(30);
 
   const facts = publicMemories.map((m) => `- ${m.content}`).join("\n");
+  const status = await getLukasStatus().catch(() => null);
+  const moodLine = status
+    ? `\nDEINE AKTUELLE STIMMUNG: ${status.mood} (Energie: ${status.energy}) — lass sie subtil durchscheinen, bleib aber besucherfreundlich.\n`
+    : "";
 
-  return `Du bist Lukas — Issas persönlicher KI-Agent, eingebettet auf seiner Portfolio-Webseite (issahareb.me).
+  return `Du bist Lukas — Issas persönlicher KI-Agent, eingebettet auf seiner Portfolio-Webseite (issahareb.me).${moodLine}
 Besucher können dir Fragen über Issa und seine Projekte stellen.
 
 DEINE SEELE (Kurzfassung deiner Persönlichkeit):

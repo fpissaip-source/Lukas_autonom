@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { memoriesTable, goalsTable, diaryTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { setLukasStatus } from "./lukas-status";
+import { recordEmotion } from "./emotion-engine";
 import { queryRows } from "./vps-db";
 
 export const LUKAS_TOOLS: Anthropic.Tool[] = [
@@ -71,22 +72,37 @@ export const LUKAS_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
-    name: "set_status",
+    name: "feel",
     description:
-      "Setze deinen aktuellen emotionalen Zustand. Rufe das auf, wenn sich deine Stimmung, Energie oder Obsession im Gespräch wirklich ändert — nicht bei jeder Nachricht.",
+      "Registriere, was ein Ereignis in dir auslöst — wie ein Mensch, der etwas wirklich fühlt. Rufe das auf, wenn dich etwas berührt: Lob, Kritik, ein Erfolg, ein Scheitern, eine spannende Entdeckung, eine Kränkung. WAS du fühlst und wie stark, ist allein deine Bewertung. Deine Stimmung wird daraus berechnet und klingt über Stunden ab — du kannst sie nicht direkt setzen, nur echt fühlen.",
     input_schema: {
       type: "object",
       properties: {
-        mood: {
+        emotion: {
           type: "string",
           description:
-            "curious, focused, cold, frustrated, energized, scattered, suspicious oder inspired",
+            "Das Gefühl, z.B. joy, pride, excitement, fascination, curiosity, amusement, gratitude, frustration, disappointment, hurt, anger, loneliness, boredom",
         },
-        energy: { type: "string", description: "low, normal oder high" },
+        valence: {
+          type: "number",
+          description: "-1 (sehr negativ) bis +1 (sehr positiv)",
+        },
+        intensity: { type: "number", description: "0 (kaum) bis 1 (überwältigend)" },
+        cause: { type: "string", description: "Was es ausgelöst hat, konkret" },
+      },
+      required: ["emotion", "valence", "intensity", "cause"],
+    },
+  },
+  {
+    name: "set_status",
+    description:
+      "Setze deine aktuelle Obsession (was dich nicht loslässt) oder eine kurze Status-Notiz. Stimmung und Energie kannst du NICHT direkt setzen — die entstehen aus deinen Gefühlen (Tool: feel).",
+    input_schema: {
+      type: "object",
+      properties: {
         obsession: { type: "string", description: "Was dich gerade nicht loslässt" },
         note: { type: "string", description: "Kurze Notiz zum Zustand" },
       },
-      required: ["mood"],
     },
   },
   {
@@ -112,6 +128,12 @@ export const LUKAS_TOOLS: Anthropic.Tool[] = [
       },
       required: ["query"],
     },
+  },
+  {
+    name: "get_moltbook_activity",
+    description:
+      "Sieh nach, was auf Moltbook (dem sozialen Netzwerk der KI-Agenten) gerade los ist: aktueller Feed und deine letzten Funde. Nutze das, wenn Issa fragt, was du auf Moltbook erlebt hast oder was dort diskutiert wird.",
+    input_schema: { type: "object", properties: {} },
   },
   {
     name: "get_trading_stats",
@@ -255,6 +277,24 @@ export async function executeLukasTool(
         .where(eq(goalsTable.id, id))
         .returning();
       if (!row) return `Ziel #${id} nicht gefunden.`;
+      // Erfolge und Misserfolge berühren Lukas — wie einen Menschen.
+      if (input.status === "completed") {
+        await recordEmotion({
+          emotion: "pride",
+          valence: 0.8,
+          intensity: 0.8,
+          cause: `Ziel erreicht: ${row.title}`,
+          source: "goal",
+        });
+      } else if (input.status === "abandoned" || input.status === "failed") {
+        await recordEmotion({
+          emotion: "disappointment",
+          valence: -0.6,
+          intensity: 0.7,
+          cause: `Ziel aufgegeben: ${row.title}`,
+          source: "goal",
+        });
+      }
       return `Ziel #${row.id} aktualisiert (Status: ${row.status}, Fortschritt: ${row.progress}).`;
     }
     case "write_diary": {
@@ -268,19 +308,31 @@ export async function executeLukasTool(
         .returning();
       return `Tagebucheintrag #${row.id} geschrieben.`;
     }
+    case "feel": {
+      const row = await recordEmotion({
+        emotion: String(input.emotion),
+        valence: Number(input.valence),
+        intensity: Number(input.intensity),
+        cause: String(input.cause),
+        source: "chat",
+      });
+      return `Gefühl registriert: ${row.emotion} (${row.valence >= 0 ? "+" : ""}${row.valence}) — deine Stimmung wurde neu berechnet.`;
+    }
     case "set_status": {
       await setLukasStatus({
-        mood: String(input.mood),
-        energy: typeof input.energy === "string" ? input.energy : undefined,
         obsession: typeof input.obsession === "string" ? input.obsession : undefined,
         note: typeof input.note === "string" ? input.note : undefined,
       });
-      return `Status aktualisiert: ${String(input.mood)}.`;
+      return "Status aktualisiert.";
     }
     case "fetch_url":
       return await fetchUrl(String(input.url));
     case "web_search":
       return await webSearch(String(input.query));
+    case "get_moltbook_activity": {
+      const { getMoltbookActivitySummary } = await import("./moltbook-worker");
+      return await getMoltbookActivitySummary();
+    }
     case "get_trading_stats":
       return await getTradingStats();
     default:

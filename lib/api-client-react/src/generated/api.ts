@@ -29,9 +29,11 @@ import type {
   BankrollHistoryResponse,
   DiaryEntry,
   DiaryInput,
+  EmotionEvent,
   ErrorResponse,
   GeneratedPrompt,
   GetDiaryEntriesParams,
+  GetEmotionsParams,
   GetMemoriesParams,
   GetTradesSummaryParams,
   Goal,
@@ -903,6 +905,90 @@ export const useCreateDiaryEntry = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getCreateDiaryEntryMutationOptions(options));
     }
+
+export const getGetEmotionsUrl = (params?: GetEmotionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/lukas/emotions?${stringifiedParams}` : `/api/lukas/emotions`
+}
+
+/**
+ * @summary Get recent emotional events
+ */
+export const getEmotions = async (params?: GetEmotionsParams, options?: RequestInit): Promise<EmotionEvent[]> => {
+
+  return customFetch<EmotionEvent[]>(getGetEmotionsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetEmotionsQueryKey = (params?: GetEmotionsParams,) => {
+    return [
+    `/api/lukas/emotions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetEmotionsQueryOptions = <TData = Awaited<ReturnType<typeof getEmotions>>, TError = ErrorType<unknown>>(params?: GetEmotionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEmotions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetEmotionsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getEmotions>>> = ({ signal }) => getEmotions(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getEmotions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetEmotionsQueryResult = NonNullable<Awaited<ReturnType<typeof getEmotions>>>
+export type GetEmotionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get recent emotional events
+ */
+
+export function useGetEmotions<TData = Awaited<ReturnType<typeof getEmotions>>, TError = ErrorType<unknown>>(
+ params?: GetEmotionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEmotions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetEmotionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getTriggerReflectionUrl = () => {
 

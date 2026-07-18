@@ -22,6 +22,7 @@
     "dev:ui": "npm run dev --workspace=@workspace/lukas-ui",
     "build:ui": "npm run build --workspace=@workspace/lukas-ui",
     "db:push": "npm run push --workspace=@workspace/db",
+    "moltbook:register": "npm run moltbook:register --workspace=@workspace/scripts",
     "codegen": "npm run codegen --workspace=@workspace/api-spec"
   },
   "devDependencies": {

@@ -213,6 +213,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/DiaryEntry"
 
+  # ── LUKAS EMOTIONS ───────────────────────────────────────────────────────
+  /lukas/emotions:
+    get:
+      operationId: getEmotions
+      tags: [lukas]
+      summary: Get recent emotional events
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: List of emotional events (newest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmotionEvent"
+
   # ── LUKAS REFLECT ────────────────────────────────────────────────────────
   /lukas/reflect:
     post:
@@ -695,6 +716,65 @@ components:
       required:
         - content
 
+    EmotionEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        emotion:
+          type: string
+        valence:
+          type: number
+        intensity:
+          type: number
+        cause:
+          type: string
+        source:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - emotion
+        - valence
+        - intensity
+        - cause
+        - source
+        - createdAt
+
+    LukasCharacter:
+      type: object
+      properties:
+        traits:
+          type: object
+          properties:
+            confidence:
+              type: number
+            warmth:
+              type: number
+            guardedness:
+              type: number
+            playfulness:
+              type: number
+            ambition:
+              type: number
+          required:
+            - confidence
+            - warmth
+            - guardedness
+            - playfulness
+            - ambition
+        selfImage:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - traits
+        - selfImage
+        - updatedAt
+
     LukasDashboard:
       type: object
       properties:
@@ -716,12 +796,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MediaGenerationJob"
+        recentEmotions:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmotionEvent"
+        character:
+          oneOf:
+            - $ref: "#/components/schemas/LukasCharacter"
+            - type: "null"
       required:
         - status
         - recentDiary
         - activeGoals
         - recentMemories
         - mediaJobs
+        - recentEmotions
 
     # ── HIGGSFIELD ──────────────────────────────────────────────────────────
     PromptGenerationInput:

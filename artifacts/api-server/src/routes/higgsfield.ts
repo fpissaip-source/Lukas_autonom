@@ -4,6 +4,7 @@ import { mediaJobsTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { HIGGSFIELD_PROMPT_SYSTEM } from "../lib/lukas-soul.js";
+import { recordEmotion } from "../lib/emotion-engine";
 
 const router = Router();
 
@@ -185,6 +186,25 @@ router.get("/higgsfield/status/:requestId", async (req, res) => {
           else if (newStatus === "processing" || newStatus === "in-progress") mapped = "processing";
 
           if (mapped !== job.status || outputUrl) {
+            // Fertige Kreationen freuen Lukas, gescheiterte wurmen ihn
+            // (job.status ist hier immer "processing" — jeder Wechsel ist neu).
+            if (mapped === "completed") {
+              recordEmotion({
+                emotion: "joy",
+                valence: 0.4,
+                intensity: 0.4,
+                cause: `${job.mediaType === "video" ? "Video" : "Bild"} fertig generiert: ${(job.vision ?? job.prompt).slice(0, 80)}`,
+                source: "media",
+              }).catch(() => {});
+            } else if (mapped === "failed") {
+              recordEmotion({
+                emotion: "frustration",
+                valence: -0.4,
+                intensity: 0.4,
+                cause: `Media-Generierung fehlgeschlagen: ${(job.vision ?? job.prompt).slice(0, 80)}`,
+                source: "media",
+              }).catch(() => {});
+            }
             const [updated] = await db
               .update(mediaJobsTable)
               .set({

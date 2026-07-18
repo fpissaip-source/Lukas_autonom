@@ -5,9 +5,11 @@ import {
   goalsTable,
   diaryTable,
   mediaJobsTable,
+  emotionsTable,
 } from "@workspace/db";
 import { eq, desc, ilike, and } from "drizzle-orm";
 import { getLukasStatus, DEFAULT_STATUS } from "../lib/lukas-status";
+import { getCharacter } from "../lib/emotion-engine";
 import { runReflection } from "../lib/reflection";
 
 const router = Router();
@@ -70,6 +72,14 @@ router.get("/lukas/dashboard", async (req, res) => {
       .orderBy(desc(mediaJobsTable.createdAt))
       .limit(5);
 
+    const recentEmotions = await db
+      .select()
+      .from(emotionsTable)
+      .orderBy(desc(emotionsTable.createdAt))
+      .limit(10);
+
+    const character = await getCharacter();
+
     const status = statusRow ?? { ...DEFAULT_STATUS, updatedAt: new Date() };
 
     res.json({
@@ -100,9 +110,36 @@ router.get("/lukas/dashboard", async (req, res) => {
         createdAt: j.createdAt.toISOString(),
         updatedAt: j.updatedAt.toISOString(),
       })),
+      recentEmotions: recentEmotions.map((e) => ({
+        ...e,
+        createdAt: e.createdAt.toISOString(),
+      })),
+      character: character
+        ? {
+            traits: character.traits,
+            selfImage: character.selfImage,
+            updatedAt: character.updatedAt.toISOString(),
+          }
+        : null,
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to get dashboard" });
+  }
+});
+
+// ── EMOTIONS ───────────────────────────────────────────────────────────────
+router.get("/lukas/emotions", async (req, res) => {
+  try {
+    const { limit = "20" } = req.query as Record<string, string>;
+    const rows = await db
+      .select()
+      .from(emotionsTable)
+      .orderBy(desc(emotionsTable.createdAt))
+      .limit(parseInt(limit) || 20);
+
+    res.json(rows.map((e) => ({ ...e, createdAt: e.createdAt.toISOString() })));
+  } catch (err) {
+    res.status(500).json({ error: "Failed to get emotions" });
   }
 });
 

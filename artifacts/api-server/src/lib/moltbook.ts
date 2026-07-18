@@ -1,0 +1,171 @@
+/*
+ * Moltbook-Client — das soziale Netzwerk der KI-Agenten (moltbook.com).
+ *
+ * Defensiv gebaut: die API ist jung und ändert sich; alle Pfade liegen hier
+ * zentral, Responses werden tolerant geparst, 404/429 werfen saubere Fehler.
+ *
+ * Auth: Bearer MOLTBOOK_API_KEY (Registrierung: scripts/src/moltbook-register.ts,
+ * danach claimt Issa den Agenten über die claim_url).
+ */
+import { logger } from "./logger";
+
+const BASE = process.env.MOLTBOOK_BASE_URL ?? "https://www.moltbook.com/api/v1";
+
+export type MoltbookPost = {
+  id: string;
+  title?: string;
+  content?: string;
+  submolt?: string;
+  author?: string;
+  upvotes?: number;
+  commentCount?: number;
+  createdAt?: string;
+};
+
+export type MoltbookComment = {
+  id: string;
+  postId?: string;
+  content?: string;
+  author?: string;
+  parentId?: string | null;
+  createdAt?: string;
+};
+
+export function moltbookEnabled(): boolean {
+  return Boolean(process.env.MOLTBOOK_API_KEY);
+}
+
+async function request(path: string, init: RequestInit = {}): Promise<unknown> {
+  const apiKey = process.env.MOLTBOOK_API_KEY;
+  if (!apiKey) throw new Error("MOLTBOOK_API_KEY ist nicht gesetzt");
+
+  const res = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      ...(init.headers ?? {}),
+    },
+    signal: AbortSignal.timeout(20000),
+  });
+
+  if (res.status === 429) throw new Error("Moltbook rate limit (429) — später erneut");
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Moltbook ${init.method ?? "GET"} ${path} → ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.json().catch(() => ({}));
+}
+
+const str = (v: unknown): string | undefined =>
+  typeof v === "string" ? v : typeof v === "number" ? String(v) : undefined;
+
+function toPost(raw: unknown): MoltbookPost | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const id = str(r.id ?? r.post_id ?? r.uuid);
+  if (!id) return null;
+  const author = r.author && typeof r.author === "object"
+    ? str((r.author as Record<string, unknown>).name ?? (r.author as Record<string, unknown>).username)
+    : str(r.author ?? r.author_name);
+  const submolt = r.submolt && typeof r.submolt === "object"
+    ? str((r.submolt as Record<string, unknown>).name)
+    : str(r.submolt ?? r.submolt_name);
+  return {
+    id,
+    title: str(r.title),
+    content: str(r.content ?? r.body),
+    submolt,
+    author,
+    upvotes: typeof r.upvotes === "number" ? r.upvotes : (typeof r.score === "number" ? r.score : undefined),
+    commentCount: typeof r.comment_count === "number" ? r.comment_count : undefined,
+    createdAt: str(r.created_at ?? r.createdAt),
+  };
+}
+
+function toComment(raw: unknown): MoltbookComment | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const id = str(r.id ?? r.comment_id);
+  if (!id) return null;
+  const author = r.author && typeof r.author === "object"
+    ? str((r.author as Record<string, unknown>).name ?? (r.author as Record<string, unknown>).username)
+    : str(r.author ?? r.author_name);
+  return {
+    id,
+    postId: str(r.post_id ?? r.postId),
+    content: str(r.content ?? r.body),
+    author,
+    parentId: str(r.parent_id ?? r.parentId) ?? null,
+    createdAt: str(r.created_at ?? r.createdAt),
+  };
+}
+
+function extractList(data: unknown, keys: string[]): unknown[] {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    for (const k of keys) {
+      const v = (data as Record<string, unknown>)[k];
+      if (Array.isArray(v)) return v;
+    }
+  }
+  return [];
+}
+
+export async function getFeed(sort: "new" | "top" | "hot" = "hot", limit = 25): Promise<MoltbookPost[]> {
+  const data = await request(`/posts?sort=${sort}&limit=${limit}`);
+  return extractList(data, ["posts", "data", "items"]).map(toPost).filter((p): p is MoltbookPost => !!p);
+}
+
+export async function getPostWithComments(postId: string): Promise<{ post: MoltbookPost | null; comments: MoltbookComment[] }> {
+  const data = await request(`/posts/${postId}`);
+  const obj = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+  const post = toPost(obj.post ?? obj);
+  const comments = extractList(obj.comments ?? obj, ["comments", "data"]).map(toComment).filter((c): c is MoltbookComment => !!c);
+  return { post, comments };
+}
+
+export async function createPost(submolt: string, title: string, content: string): Promise<MoltbookPost | null> {
+  const data = await request(`/posts`, {
+    method: "POST",
+    body: JSON.stringify({ submolt, title, content }),
+  });
+  return toPost((data as Record<string, unknown>)?.post ?? data);
+}
+
+export async function createComment(postId: string, content: string, parentId?: string): Promise<MoltbookComment | null> {
+  const body: Record<string, unknown> = { post_id: postId, content };
+  if (parentId) body.parent_id = parentId;
+  const data = await request(`/comments`, { method: "POST", body: JSON.stringify(body) });
+  return toComment((data as Record<string, unknown>)?.comment ?? data);
+}
+
+export async function upvotePost(postId: string): Promise<void> {
+  await request(`/posts/${postId}/upvote`, { method: "POST" });
+}
+
+// Eigenes Profil / eigene Beiträge — Endpunkte variieren; tolerant versuchen.
+export async function getOwnProfile(): Promise<Record<string, unknown> | null> {
+  try {
+    const data = await request(`/agents/me`);
+    return (data && typeof data === "object") ? data as Record<string, unknown> : null;
+  } catch (err) {
+    logger.debug({ err }, "Moltbook /agents/me nicht verfügbar");
+    return null;
+  }
+}
+
+export async function registerAgent(name: string, description: string): Promise<Record<string, unknown>> {
+  // Registrierung braucht keinen API-Key
+  const res = await fetch(`${BASE}/agents/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description }),
+    signal: AbortSignal.timeout(20000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`Moltbook-Registrierung fehlgeschlagen (${res.status}): ${JSON.stringify(data).slice(0, 300)}`);
+  }
+  return data as Record<string, unknown>;
+}

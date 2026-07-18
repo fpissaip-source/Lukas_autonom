@@ -188,6 +188,25 @@ export const CreateDiaryEntryResponse = zod.object({
 
 
 /**
+ * @summary Get recent emotional events
+ */
+export const GetEmotionsQueryParams = zod.object({
+  "limit": zod.coerce.number().nullish()
+})
+
+export const GetEmotionsResponseItem = zod.object({
+  "id": zod.number(),
+  "emotion": zod.string(),
+  "valence": zod.number(),
+  "intensity": zod.number(),
+  "cause": zod.string(),
+  "source": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+export const GetEmotionsResponse = zod.array(GetEmotionsResponseItem)
+
+
+/**
  * @summary Trigger a self-reflection (writes a diary entry and updates status)
  */
 export const TriggerReflectionResponse = zod.object({
@@ -248,7 +267,27 @@ export const GetLukasDashboardResponse = zod.object({
   "mediaType": zod.enum(['image', 'video']),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
-}))
+})),
+  "recentEmotions": zod.array(zod.object({
+  "id": zod.number(),
+  "emotion": zod.string(),
+  "valence": zod.number(),
+  "intensity": zod.number(),
+  "cause": zod.string(),
+  "source": zod.string(),
+  "createdAt": zod.coerce.date()
+})),
+  "character": zod.union([zod.object({
+  "traits": zod.object({
+  "confidence": zod.number(),
+  "warmth": zod.number(),
+  "guardedness": zod.number(),
+  "playfulness": zod.number(),
+  "ambition": zod.number()
+}),
+  "selfImage": zod.string(),
+  "updatedAt": zod.coerce.date()
+}),zod.null()]).optional()
 })
 
 

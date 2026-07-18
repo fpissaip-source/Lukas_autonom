@@ -6,7 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { DiaryEntry } from './diaryEntry';
+import type { EmotionEvent } from './emotionEvent';
 import type { Goal } from './goal';
+import type { LukasCharacter } from './lukasCharacter';
 import type { LukasStatus } from './lukasStatus';
 import type { MediaGenerationJob } from './mediaGenerationJob';
 import type { Memory } from './memory';
@@ -17,4 +19,6 @@ export interface LukasDashboard {
   activeGoals: Goal[];
   recentMemories: Memory[];
   mediaJobs: MediaGenerationJob[];
+  recentEmotions: EmotionEvent[];
+  character?: LukasCharacter | null;
 }

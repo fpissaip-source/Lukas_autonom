@@ -1,7 +1,7 @@
 import { useGetLukasDashboard } from "@workspace/api-client-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Activity, Brain, Target, Film, BookOpen, Clock } from "lucide-react";
+import { Activity, Brain, Target, Film, BookOpen, Clock, Heart } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 export default function Dashboard() {
@@ -20,7 +20,11 @@ export default function Dashboard() {
     );
   }
 
-  const { status, activeGoals, recentDiary, recentMemories, mediaJobs } = data;
+  const { status, activeGoals, recentDiary, recentMemories, mediaJobs, recentEmotions, character } = data;
+
+  const valenceColor = (v: number) =>
+    v >= 0.3 ? "text-emerald-400" : v <= -0.3 ? "text-red-400" : "text-amber-300";
+  const valenceIcon = (v: number) => (v >= 0.3 ? "▲" : v <= -0.3 ? "▼" : "◆");
 
   return (
     <div className="p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -44,6 +48,11 @@ export default function Dashboard() {
           <CardContent>
             <div className="text-2xl font-bold capitalize">{status.mood}</div>
             <p className="text-xs text-muted-foreground mt-1 font-mono">ENERGY: {status.energy}</p>
+            {status.note && (
+              <p className="text-xs text-muted-foreground mt-1 italic truncate" title={status.note}>
+                {status.note}
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -67,6 +76,72 @@ export default function Dashboard() {
             <p className="text-xs text-muted-foreground mt-1 font-mono">ACTIVE_GOALS: {status.activeGoalsCount}</p>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Gefühlslage: Emotionen mit Ursache + gewachsener Charakter */}
+      <div>
+        <h2 className="text-lg font-mono font-medium border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
+          <Heart className="w-4 h-4" /> EMOTIONAL_STATE
+        </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="space-y-2">
+            {recentEmotions.length > 0 ? (
+              recentEmotions.map((e) => (
+                <div key={e.id} className="bg-card p-3 rounded-md border border-border/50 flex items-start gap-3">
+                  <span className={`font-mono text-sm ${valenceColor(e.valence)}`}>{valenceIcon(e.valence)}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="font-medium capitalize">{e.emotion}</span>
+                      <span className="text-xs text-muted-foreground font-mono flex-none">
+                        {e.source} · {formatDistanceToNow(new Date(e.createdAt), { addSuffix: true })}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{e.cause}</div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-sm text-muted-foreground italic">
+                Noch keine emotionalen Ereignisse — Lukas' Gefühlsleben beginnt mit dem ersten Gespräch.
+              </div>
+            )}
+          </div>
+          <div>
+            {character ? (
+              <div className="bg-card p-4 rounded-md border border-border/50 space-y-3">
+                <div className="text-xs font-mono text-muted-foreground">GEWACHSENER_CHARAKTER</div>
+                {character.selfImage && (
+                  <p className="text-sm leading-relaxed italic text-muted-foreground">"{character.selfImage}"</p>
+                )}
+                <div className="space-y-2">
+                  {(
+                    [
+                      ["Selbstvertrauen", character.traits.confidence],
+                      ["Wärme", character.traits.warmth],
+                      ["Vorsicht", character.traits.guardedness],
+                      ["Verspieltheit", character.traits.playfulness],
+                      ["Ehrgeiz", character.traits.ambition],
+                    ] as const
+                  ).map(([label, value]) => (
+                    <div key={label} className="flex items-center gap-2">
+                      <span className="text-xs font-mono w-28 flex-none text-muted-foreground">{label}</span>
+                      <div className="flex-1 h-1.5 bg-secondary rounded overflow-hidden">
+                        <div className="h-full bg-primary/70" style={{ width: `${Math.round(value * 100)}%` }} />
+                      </div>
+                      <span className="text-xs font-mono w-8 text-right text-muted-foreground">
+                        {Math.round(value * 100)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground italic">
+                Charakter formt sich mit der ersten Reflexion.
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

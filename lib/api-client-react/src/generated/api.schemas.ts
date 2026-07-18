@@ -78,6 +78,30 @@ export interface DiaryInput {
   energy?: string | null;
 }
 
+export interface EmotionEvent {
+  id: number;
+  emotion: string;
+  valence: number;
+  intensity: number;
+  cause: string;
+  source: string;
+  createdAt: string;
+}
+
+export type LukasCharacterTraits = {
+  confidence: number;
+  warmth: number;
+  guardedness: number;
+  playfulness: number;
+  ambition: number;
+};
+
+export interface LukasCharacter {
+  traits: LukasCharacterTraits;
+  selfImage: string;
+  updatedAt: string;
+}
+
 export type MediaGenerationJobStatus = typeof MediaGenerationJobStatus[keyof typeof MediaGenerationJobStatus];
 
 
@@ -118,6 +142,8 @@ export interface LukasDashboard {
   activeGoals: Goal[];
   recentMemories: Memory[];
   mediaJobs: MediaGenerationJob[];
+  recentEmotions: EmotionEvent[];
+  character?: LukasCharacter | null;
 }
 
 /**
@@ -291,6 +317,13 @@ limit?: number | null;
 };
 
 export type GetDiaryEntriesParams = {
+/**
+ * @nullable
+ */
+limit?: number | null;
+};
+
+export type GetEmotionsParams = {
 /**
  * @nullable
  */

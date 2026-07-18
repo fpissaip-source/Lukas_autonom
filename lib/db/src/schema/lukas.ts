@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, real, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -52,11 +52,42 @@ export const mediaJobsTable = pgTable("lukas_media_jobs", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Gefühlsarchiv: jedes emotionale Ereignis wird dauerhaft gespeichert —
+// daraus entstehen aktuelle Stimmung (mit Abklingen) und langfristig Charakter.
+export const emotionsTable = pgTable("lukas_emotions", {
+  id: serial("id").primaryKey(),
+  emotion: text("emotion").notNull(),
+  valence: real("valence").notNull(), // -1 (sehr negativ) … +1 (sehr positiv)
+  intensity: real("intensity").notNull(), // 0 … 1
+  cause: text("cause").notNull(),
+  source: text("source").notNull().default("chat"), // chat|goal|trading|media|tool|reflection|moltbook
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type CharacterTraits = {
+  confidence: number;
+  warmth: number;
+  guardedness: number;
+  playfulness: number;
+  ambition: number;
+};
+
+export const characterTable = pgTable("lukas_character", {
+  id: serial("id").primaryKey(),
+  traits: jsonb("traits").$type<CharacterTraits>().notNull(),
+  selfImage: text("self_image").notNull().default(""),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const insertMemorySchema = createInsertSchema(memoriesTable).omit({ id: true, createdAt: true });
 export const insertGoalSchema = createInsertSchema(goalsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertDiarySchema = createInsertSchema(diaryTable).omit({ id: true, createdAt: true });
 export const insertMediaJobSchema = createInsertSchema(mediaJobsTable).omit({ id: true, createdAt: true, updatedAt: true });
 
+export const insertEmotionSchema = createInsertSchema(emotionsTable).omit({ id: true, createdAt: true });
+
+export type EmotionRow = typeof emotionsTable.$inferSelect;
+export type CharacterRow = typeof characterTable.$inferSelect;
 export type Memory = typeof memoriesTable.$inferSelect;
 export type Goal = typeof goalsTable.$inferSelect;
 export type DiaryEntry = typeof diaryTable.$inferSelect;

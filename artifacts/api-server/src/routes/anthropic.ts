@@ -8,11 +8,12 @@ import {
   goalsTable,
   diaryTable,
 } from "@workspace/db";
-import { eq, desc, asc } from "drizzle-orm";
+import { eq, desc, asc, gte } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { LUKAS_SYSTEM_PROMPT } from "../lib/lukas-soul";
 import { LUKAS_TOOLS, executeLukasTool } from "../lib/lukas-tools";
 import { getLukasStatus, DEFAULT_STATUS } from "../lib/lukas-status";
+import { getEmotionalContext, getCharacterContext, recordEmotion } from "../lib/emotion-engine";
 import { maybeReflect } from "../lib/reflection";
 import { logger } from "../lib/logger";
 
@@ -100,11 +101,27 @@ router.get("/anthropic/conversations/:id/messages", async (req, res) => {
 async function buildSystemPrompt(): Promise<string> {
   const status = (await getLukasStatus()) ?? { ...DEFAULT_STATUS, updatedAt: new Date() };
 
+  // Wichtige Erinnerungen (importance ≥ 7) UND die neuesten — nicht nur die
+  // neuesten, sonst fallen alte wichtige Erinnerungen aus dem Kontext.
+  const importantMemories = await db
+    .select()
+    .from(memoriesTable)
+    .where(gte(memoriesTable.importance, 7))
+    .orderBy(desc(memoriesTable.importance), desc(memoriesTable.createdAt))
+    .limit(10);
+
   const recentMemories = await db
     .select()
     .from(memoriesTable)
     .orderBy(desc(memoriesTable.createdAt))
-    .limit(15);
+    .limit(10);
+
+  const seen = new Set<number>();
+  const memories = [...importantMemories, ...recentMemories].filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
 
   const activeGoals = await db
     .select()
@@ -118,9 +135,12 @@ async function buildSystemPrompt(): Promise<string> {
     .orderBy(desc(diaryTable.createdAt))
     .limit(2);
 
-  const memoryContext = recentMemories.length > 0
-    ? `\n\nDEINE ERINNERUNGEN (aktuellste zuerst):\n${recentMemories
-        .map((m) => `- [${m.category}] ${m.content}`)
+  const emotionalContext = await getEmotionalContext();
+  const characterContext = await getCharacterContext();
+
+  const memoryContext = memories.length > 0
+    ? `\n\nDEINE ERINNERUNGEN (wichtigste und neueste):\n${memories
+        .map((m) => `- [${m.category}|${m.importance}] ${m.content}`)
         .join("\n")}`
     : "";
 
@@ -136,10 +156,10 @@ async function buildSystemPrompt(): Promise<string> {
 
   return `${LUKAS_SYSTEM_PROMPT}
 
-DEIN AKTUELLER ZUSTAND:
-Stimmung: ${status.mood} | Energie: ${status.energy}
+DEIN AKTUELLER GEFÜHLSZUSTAND:
+${emotionalContext}
 Obsession: ${status.obsession}
-${status.note ? `Notiz: ${status.note}` : ""}
+${characterContext ? `\n${characterContext}` : ""}
 ${memoryContext}${goalsContext}${diaryContext}`;
 }
 
@@ -233,6 +253,16 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
             content: `Fehler: ${err instanceof Error ? err.message : String(err)}`,
             is_error: true,
           });
+          // Scheitern nervt — leicht, aber echt (nicht für das feel-Tool selbst).
+          if (toolUse.name !== "feel") {
+            recordEmotion({
+              emotion: "frustration",
+              valence: -0.3,
+              intensity: 0.3,
+              cause: `Tool ${toolUse.name} ist fehlgeschlagen`,
+              source: "tool",
+            }).catch(() => {});
+          }
         }
       }
 

@@ -35,6 +35,34 @@ npm run build
 npm run codegen   # API-Clients aus lib/api-spec/openapi.yaml neu generieren
 ```
 
+## Deployment auf Railway (empfohlen, HTTPS inklusive)
+
+Railway betreibt echte Dauer-Container — die Hintergrund-Worker (Moltbook,
+Konsolidierung, Reflexion) laufen dort durch. (Vercel ist dafür ungeeignet: Serverless
+friert den Prozess ein.) Schritte:
+
+1. [railway.app](https://railway.app) → **New Project → Deploy from GitHub repo** →
+   dieses Repo + Branch wählen. Build/Start sind über `railway.json` vorkonfiguriert
+   (`npm ci && npm run build`, Start: `npm run start:deploy` = Schema-Sync + Server).
+2. Im Projekt **+ New → Database → PostgreSQL** anlegen. Beim App-Service unter
+   *Variables*: `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` (Referenz).
+3. Weitere Variablen setzen (`PORT` setzt Railway automatisch):
+   - `AI_INTEGRATIONS_ANTHROPIC_API_KEY` — **echter Anthropic-Key** von
+     console.anthropic.com (außerhalb Replits nötig)
+   - `AI_INTEGRATIONS_ANTHROPIC_BASE_URL` = `https://api.anthropic.com`
+   - `LUKAS_API_TOKEN` (Pflicht — schützt die private API)
+   - `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_AGENT_ID`, `ELEVENLABS_LLM_TOKEN`
+   - optional: `MOLTBOOK_API_KEY`, `VOYAGE_API_KEY`, `VPS_DATABASE_URL`, `HIGGSFIELD_API_KEY`
+4. Service → *Settings → Networking* → **Generate Domain**. Diese Domain ist dann:
+   - das Dashboard: `https://<domain>/`
+   - das Widget: `https://<domain>/widget.js` (+ `data-api="https://<domain>"`)
+   - für ElevenLabs Custom LLM: `https://<domain>/api/public/llm/v1`
+5. Optional eigene Domain (z.B. `lukas.issahareb.me`) per CNAME in den
+   Networking-Settings verbinden.
+
+Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
+(SPA), Widget und die öffentlichen Endpoints.
+
 ## Umgebungsvariablen
 
 | Variable | Zweck |

@@ -60,6 +60,31 @@ friert den Prozess ein.) Schritte:
 5. Optional eigene Domain (z.B. `lukas.issahareb.me`) per CNAME in den
    Networking-Settings verbinden.
 
+### Bestehende Railway-Postgres mitnutzen (statt neuer DB)
+
+Lukas kann die (fast ungenutzte) Postgres eines anderen Railway-Projekts mitbenutzen:
+
+- **Gleiches Projekt**: Lukas-Service in dasselbe Railway-Projekt deployen →
+  `DATABASE_URL = ${{Postgres.DATABASE_URL}}` (privates Netz, kein Egress).
+- **Anderes Projekt**: beim dortigen Postgres-Service die `DATABASE_PUBLIC_URL`
+  kopieren und beim Lukas-Service als `DATABASE_URL` eintragen.
+
+Das ist sicher: Alle Lukas-Tabellen sind `lukas_*`-geprefixt, und der Schema-Sync
+(`drizzle-kit push`) ist per `tablesFilter` hart auf Lukas-Tabellen begrenzt —
+die Tabellen der Webseite werden weder verändert noch angetastet (verifiziert).
+
+**Noch sauberer (empfohlen)**: eigene Datenbank in derselben Postgres-Instanz —
+eine Railway-Postgres kann beliebig viele Datenbanken enthalten, kostenlos:
+
+```bash
+# Einmalig mit der DATABASE_PUBLIC_URL des Postgres-Service verbinden:
+psql "<DATABASE_PUBLIC_URL>" -c "CREATE DATABASE lukas;"
+```
+
+Dann als `DATABASE_URL` denselben Connection-String verwenden, nur mit
+`/lukas` statt des Webseiten-Datenbanknamens am Ende — komplett getrennte
+Namensräume, null Risiko für die Webseite.
+
 Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
 (SPA), Widget und die öffentlichen Endpoints.
 

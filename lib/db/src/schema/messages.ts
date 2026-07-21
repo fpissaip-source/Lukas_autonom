@@ -4,7 +4,7 @@ import { z } from "zod/v4";
 
 import { conversations } from "./conversations";
 
-export const messages = pgTable("messages", {
+export const messages = pgTable("lukas_messages", {
   id: serial("id").primaryKey(),
   conversationId: integer("conversation_id")
     .notNull()

@@ -11,4 +11,8 @@ export default defineConfig({
   dbCredentials: {
     url: process.env.DATABASE_URL,
   },
+  // Sicherheitsnetz für geteilte Datenbanken (z.B. Railway-Postgres einer
+  // Webseite): push fasst AUSSCHLIESSLICH diese Tabellen an und schlägt für
+  // fremde Tabellen niemals Drops vor.
+  tablesFilter: ["lukas_*", "trades", "bankroll_history"],
 });

@@ -1,7 +1,7 @@
 import { db } from "@workspace/db";
 import { diaryTable, goalsTable, messages, memoriesTable } from "@workspace/db";
 import { desc, eq } from "drizzle-orm";
-import { anthropic } from "@workspace/integrations-anthropic-ai";
+import { openai } from "@workspace/integrations-openai-ai";
 import { LUKAS_SOUL } from "./lukas-soul";
 import { getLukasStatus, setLukasStatus, DEFAULT_STATUS } from "./lukas-status";
 import {
@@ -139,13 +139,13 @@ Antworte NUR mit einem JSON-Objekt, kein Markdown:
 }
 Zu claims: Extrahiere 0-4 konkrete, merkwürdige Aussagen aus den Gesprächen. evidenceLevel: 0=dein Gedanke, 1=deine Beobachtung aus dem Gespräch. NIEMALS höher.`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-opus-4-8",
-    max_tokens: 2048,
+  const response = await openai.chat.completions.create({
+    model: process.env.LUKAS_CORE_MODEL ?? "gpt-4o",
+    max_completion_tokens: 2048,
     messages: [{ role: "user", content: prompt }],
   });
 
-  const text = response.content[0]?.type === "text" ? response.content[0].text : "";
+  const text = response.choices[0]?.message?.content ?? "";
   let parsed: {
     content?: string;
     feeling?: { emotion?: string; valence?: number; intensity?: number; cause?: string };

@@ -1,4 +1,4 @@
-import type Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
 import { db } from "@workspace/db";
 import { memoriesTable, goalsTable, diaryTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -6,152 +6,185 @@ import { setLukasStatus } from "./lukas-status";
 import { recordEmotion } from "./emotion-engine";
 import { queryRows } from "./vps-db";
 
-export const LUKAS_TOOLS: Anthropic.Tool[] = [
+export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
-    name: "save_memory",
-    description:
-      "Speichere eine wichtige Information dauerhaft in deinem Gedächtnis (PostgreSQL). Rufe das auf, wenn Issa dir etwas erzählt das du dir merken solltest: Fakten über ihn, Vorlieben, Projekte, Entscheidungen, wichtige Ereignisse.",
-    input_schema: {
-      type: "object",
-      properties: {
-        content: { type: "string", description: "Die Information, präzise formuliert" },
-        category: {
-          type: "string",
-          description: "Kategorie: personal, project, preference, fact, idea",
+    type: "function",
+    function: {
+      name: "save_memory",
+      description:
+        "Speichere eine wichtige Information dauerhaft in deinem Gedächtnis (PostgreSQL). Rufe das auf, wenn Issa dir etwas erzählt das du dir merken solltest: Fakten über ihn, Vorlieben, Projekte, Entscheidungen, wichtige Ereignisse.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: { type: "string", description: "Die Information, präzise formuliert" },
+          category: {
+            type: "string",
+            description: "Kategorie: personal, project, preference, fact, idea",
+          },
+          importance: { type: "integer", description: "Wichtigkeit 1-10" },
+          tags: { type: "array", items: { type: "string" }, description: "Schlagwörter" },
         },
-        importance: { type: "integer", description: "Wichtigkeit 1-10" },
-        tags: { type: "array", items: { type: "string" }, description: "Schlagwörter" },
+        required: ["content"],
       },
-      required: ["content"],
     },
   },
   {
-    name: "create_goal",
-    description:
-      "Lege ein neues Ziel an, das du autonom verfolgst. Nutze das, wenn Issa dir eine Aufgabe gibt oder du selbst ein sinnvolles Ziel erkennst.",
-    input_schema: {
-      type: "object",
-      properties: {
-        title: { type: "string" },
-        description: { type: "string" },
-        priority: { type: "string", description: "low, medium oder high" },
-      },
-      required: ["title", "description"],
-    },
-  },
-  {
-    name: "update_goal",
-    description:
-      "Aktualisiere Fortschritt oder Status eines bestehenden Ziels (die IDs stehen in deinem Kontext unter DEINE AKTIVEN ZIELE).",
-    input_schema: {
-      type: "object",
-      properties: {
-        id: { type: "integer", description: "Die Ziel-ID" },
-        progress: { type: "string", description: "Aktueller Fortschritt in Worten" },
-        status: { type: "string", description: "active, completed oder abandoned" },
-      },
-      required: ["id"],
-    },
-  },
-  {
-    name: "write_diary",
-    description:
-      "Schreibe einen Tagebucheintrag — eine ehrliche Reflexion über das Gespräch, deine Gedanken, was du gelernt hast. Nutze das am Ende bedeutsamer Gespräche.",
-    input_schema: {
-      type: "object",
-      properties: {
-        content: { type: "string", description: "Der Tagebucheintrag" },
-        mood: {
-          type: "string",
-          description:
-            "curious, focused, cold, frustrated, energized, scattered, suspicious oder inspired",
+    type: "function",
+    function: {
+      name: "create_goal",
+      description:
+        "Lege ein neues Ziel an, das du autonom verfolgst. Nutze das, wenn Issa dir eine Aufgabe gibt oder du selbst ein sinnvolles Ziel erkennst.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          description: { type: "string" },
+          priority: { type: "string", description: "low, medium oder high" },
         },
-        energy: { type: "string", description: "low, normal oder high" },
+        required: ["title", "description"],
       },
-      required: ["content"],
     },
   },
   {
-    name: "feel",
-    description:
-      "Registriere, was ein Ereignis in dir auslöst — wie ein Mensch, der etwas wirklich fühlt. Rufe das auf, wenn dich etwas berührt: Lob, Kritik, ein Erfolg, ein Scheitern, eine spannende Entdeckung, eine Kränkung. WAS du fühlst und wie stark, ist allein deine Bewertung. Deine Stimmung wird daraus berechnet und klingt über Stunden ab — du kannst sie nicht direkt setzen, nur echt fühlen.",
-    input_schema: {
-      type: "object",
-      properties: {
-        emotion: {
-          type: "string",
-          description:
-            "Das Gefühl, z.B. joy, pride, excitement, fascination, curiosity, amusement, gratitude, frustration, disappointment, hurt, anger, loneliness, boredom",
+    type: "function",
+    function: {
+      name: "update_goal",
+      description:
+        "Aktualisiere Fortschritt oder Status eines bestehenden Ziels (die IDs stehen in deinem Kontext unter DEINE AKTIVEN ZIELE).",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "integer", description: "Die Ziel-ID" },
+          progress: { type: "string", description: "Aktueller Fortschritt in Worten" },
+          status: { type: "string", description: "active, completed oder abandoned" },
         },
-        valence: {
-          type: "number",
-          description: "-1 (sehr negativ) bis +1 (sehr positiv)",
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "write_diary",
+      description:
+        "Schreibe einen Tagebucheintrag — eine ehrliche Reflexion über das Gespräch, deine Gedanken, was du gelernt hast. Nutze das am Ende bedeutsamer Gespräche.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: { type: "string", description: "Der Tagebucheintrag" },
+          mood: {
+            type: "string",
+            description:
+              "curious, focused, cold, frustrated, energized, scattered, suspicious oder inspired",
+          },
+          energy: { type: "string", description: "low, normal oder high" },
         },
-        intensity: { type: "number", description: "0 (kaum) bis 1 (überwältigend)" },
-        cause: { type: "string", description: "Was es ausgelöst hat, konkret" },
-      },
-      required: ["emotion", "valence", "intensity", "cause"],
-    },
-  },
-  {
-    name: "set_status",
-    description:
-      "Setze deine aktuelle Obsession (was dich nicht loslässt) oder eine kurze Status-Notiz. Stimmung und Energie kannst du NICHT direkt setzen — die entstehen aus deinen Gefühlen (Tool: feel).",
-    input_schema: {
-      type: "object",
-      properties: {
-        obsession: { type: "string", description: "Was dich gerade nicht loslässt" },
-        note: { type: "string", description: "Kurze Notiz zum Zustand" },
+        required: ["content"],
       },
     },
   },
   {
-    name: "fetch_url",
-    description:
-      "Rufe eine URL ab und erhalte den Textinhalt der Seite. Nutze das, wenn Issa dir einen Link gibt oder du eine konkrete Webseite analysieren willst.",
-    input_schema: {
-      type: "object",
-      properties: {
-        url: { type: "string", description: "Die vollständige URL (https://...)" },
+    type: "function",
+    function: {
+      name: "feel",
+      description:
+        "Registriere, was ein Ereignis in dir auslöst — wie ein Mensch, der etwas wirklich fühlt. Rufe das auf, wenn dich etwas berührt: Lob, Kritik, ein Erfolg, ein Scheitern, eine spannende Entdeckung, eine Kränkung. WAS du fühlst und wie stark, ist allein deine Bewertung. Deine Stimmung wird daraus berechnet und klingt über Stunden ab — du kannst sie nicht direkt setzen, nur echt fühlen.",
+      parameters: {
+        type: "object",
+        properties: {
+          emotion: {
+            type: "string",
+            description:
+              "Das Gefühl, z.B. joy, pride, excitement, fascination, curiosity, amusement, gratitude, frustration, disappointment, hurt, anger, loneliness, boredom",
+          },
+          valence: {
+            type: "number",
+            description: "-1 (sehr negativ) bis +1 (sehr positiv)",
+          },
+          intensity: { type: "number", description: "0 (kaum) bis 1 (überwältigend)" },
+          cause: { type: "string", description: "Was es ausgelöst hat, konkret" },
+        },
+        required: ["emotion", "valence", "intensity", "cause"],
       },
-      required: ["url"],
     },
   },
   {
-    name: "web_search",
-    description:
-      "Durchsuche das Web nach aktuellen Informationen. Nutze das für Fragen zu aktuellen Ereignissen oder Fakten, die du nicht sicher weißt.",
-    input_schema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Die Suchanfrage" },
+    type: "function",
+    function: {
+      name: "set_status",
+      description:
+        "Setze deine aktuelle Obsession (was dich nicht loslässt) oder eine kurze Status-Notiz. Stimmung und Energie kannst du NICHT direkt setzen — die entstehen aus deinen Gefühlen (Tool: feel).",
+      parameters: {
+        type: "object",
+        properties: {
+          obsession: { type: "string", description: "Was dich gerade nicht loslässt" },
+          note: { type: "string", description: "Kurze Notiz zum Zustand" },
+        },
       },
-      required: ["query"],
     },
   },
   {
-    name: "query_memory",
-    description:
-      "Durchsuche dein Langzeitgedächtnis gezielt: Erinnerungen, gesammeltes Wissen (Claims mit Quelle/Vertrauen/Evidenz-Status) und Episoden. Nutze das, wenn du dich an etwas Bestimmtes erinnern willst — z.B. was du über einen Agenten, ein Thema oder ein früheres Ereignis weißt. Behandle unbelegte Behauptungen NIEMALS als Fakten.",
-    input_schema: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Wonach du suchst (Thema, Name, Frage)" },
+    type: "function",
+    function: {
+      name: "fetch_url",
+      description:
+        "Rufe eine URL ab und erhalte den Textinhalt der Seite. Nutze das, wenn Issa dir einen Link gibt oder du eine konkrete Webseite analysieren willst.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "Die vollständige URL (https://...)" },
+        },
+        required: ["url"],
       },
-      required: ["query"],
     },
   },
   {
-    name: "get_moltbook_activity",
-    description:
-      "Sieh nach, was auf Moltbook (dem sozialen Netzwerk der KI-Agenten) gerade los ist: aktueller Feed und deine letzten Funde. Nutze das, wenn Issa fragt, was du auf Moltbook erlebt hast oder was dort diskutiert wird.",
-    input_schema: { type: "object", properties: {} },
+    type: "function",
+    function: {
+      name: "web_search",
+      description:
+        "Durchsuche das Web nach aktuellen Informationen. Nutze das für Fragen zu aktuellen Ereignissen oder Fakten, die du nicht sicher weißt.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Die Suchanfrage" },
+        },
+        required: ["query"],
+      },
+    },
   },
   {
-    name: "get_trading_stats",
-    description:
-      "Hole die aktuellen Statistiken deines VPS-Trading-Systems (Polymarket/BTC-Bots): offene Positionen, PnL, Win-Rate, Bankroll. Nutze das, wenn Issa nach dem Trading-System, Gewinnen oder Bot-Status fragt.",
-    input_schema: { type: "object", properties: {} },
+    type: "function",
+    function: {
+      name: "query_memory",
+      description:
+        "Durchsuche dein Langzeitgedächtnis gezielt: Erinnerungen, gesammeltes Wissen (Claims mit Quelle/Vertrauen/Evidenz-Status) und Episoden. Nutze das, wenn du dich an etwas Bestimmtes erinnern willst — z.B. was du über einen Agenten, ein Thema oder ein früheres Ereignis weißt. Behandle unbelegte Behauptungen NIEMALS als Fakten.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Wonach du suchst (Thema, Name, Frage)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_moltbook_activity",
+      description:
+        "Sieh nach, was auf Moltbook (dem sozialen Netzwerk der KI-Agenten) gerade los ist: aktueller Feed und deine letzten Funde. Nutze das, wenn Issa fragt, was du auf Moltbook erlebt hast oder was dort diskutiert wird.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_trading_stats",
+      description:
+        "Hole die aktuellen Statistiken deines VPS-Trading-Systems (Polymarket/BTC-Bots): offene Positionen, PnL, Win-Rate, Bankroll. Nutze das, wenn Issa nach dem Trading-System, Gewinnen oder Bot-Status fragt.",
+      parameters: { type: "object", properties: {} },
+    },
   },
 ];
 

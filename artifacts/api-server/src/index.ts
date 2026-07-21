@@ -29,7 +29,7 @@ app.listen(port, (err) => {
   const envStatus = Object.fromEntries(
     [
       "DATABASE_URL",
-      "AI_INTEGRATIONS_ANTHROPIC_API_KEY",
+      "AI_INTEGRATIONS_OPENAI_API_KEY",
       "LUKAS_API_TOKEN",
       "ELEVENLABS_API_KEY",
       "ELEVENLABS_LLM_TOKEN",
@@ -40,9 +40,9 @@ app.listen(port, (err) => {
     ].map((k) => [k, process.env[k] ? "gesetzt" : "FEHLT"]),
   );
   logger.info(envStatus, "Env-Status");
-  if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY) {
+  if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
     logger.warn(
-      "AI_INTEGRATIONS_ANTHROPIC_API_KEY fehlt — Server läuft, aber Lukas kann nicht denken (Chat/Reflexion/Moltbook liefern Fehler), bis der Key gesetzt ist.",
+      "AI_INTEGRATIONS_OPENAI_API_KEY fehlt — Server läuft, aber Lukas kann nicht denken (Chat/Reflexion/Moltbook liefern Fehler), bis der Key gesetzt ist.",
     );
   }
   if (!process.env.LUKAS_API_TOKEN) {

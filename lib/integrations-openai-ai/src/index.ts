@@ -1,2 +1,2 @@
-export { anthropic } from "./client";
+export { openai } from "./client";
 export { batchProcess, batchProcessWithSSE, isRateLimitError, type BatchOptions } from "./batch";

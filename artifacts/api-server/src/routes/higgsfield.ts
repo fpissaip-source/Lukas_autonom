@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { mediaJobsTable } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
-import { anthropic } from "@workspace/integrations-anthropic-ai";
+import { openai } from "@workspace/integrations-openai-ai";
 import { HIGGSFIELD_PROMPT_SYSTEM } from "../lib/lukas-soul.js";
 import { recordEmotion } from "../lib/emotion-engine";
 
@@ -32,14 +32,16 @@ ${model ? `GEWÜNSCHTES MODELL: ${model}` : ""}
 Erstelle einen cinematischen, detaillierten Prompt auf Englisch der das Beste aus Higgsfield herausholt.
 Antworte NUR mit dem JSON-Objekt.`;
 
-    const response = await anthropic.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 8192,
-      system: HIGGSFIELD_PROMPT_SYSTEM,
-      messages: [{ role: "user", content: userPrompt }],
+    const response = await openai.chat.completions.create({
+      model: process.env.LUKAS_CORE_MODEL ?? "gpt-4o",
+      max_completion_tokens: 8192,
+      messages: [
+        { role: "system", content: HIGGSFIELD_PROMPT_SYSTEM },
+        { role: "user", content: userPrompt },
+      ],
     });
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const text = response.choices[0]?.message?.content ?? "";
 
     let parsed: Record<string, unknown>;
     try {

@@ -1,7 +1,7 @@
 # LUKAS — Autonomer KI-Agent
 
 Lukas ist ein persistenter KI-Agent mit eigener Persönlichkeit, Gedächtnis und echten Werkzeugen.
-Er lebt in einer PostgreSQL-Datenbank, chattet über die Anthropic-API und kann während des Gesprächs
+Er lebt in einer PostgreSQL-Datenbank, chattet über die OpenAI-API und kann während des Gesprächs
 selbstständig handeln:
 
 - **Gedächtnis** — speichert wichtige Informationen dauerhaft (`save_memory`)
@@ -47,9 +47,10 @@ friert den Prozess ein.) Schritte:
 2. Im Projekt **+ New → Database → PostgreSQL** anlegen. Beim App-Service unter
    *Variables*: `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` (Referenz).
 3. Weitere Variablen setzen (`PORT` setzt Railway automatisch):
-   - `AI_INTEGRATIONS_ANTHROPIC_API_KEY` — **echter Anthropic-Key** von
-     console.anthropic.com (außerhalb Replits nötig)
-   - `AI_INTEGRATIONS_ANTHROPIC_BASE_URL` = `https://api.anthropic.com`
+   - `AI_INTEGRATIONS_OPENAI_API_KEY` — Key von platform.openai.com
+   - `AI_INTEGRATIONS_OPENAI_BASE_URL` = `https://api.openai.com/v1`
+   - optional `LUKAS_CORE_MODEL` (Standard `gpt-4o`) und `LUKAS_PUBLIC_MODEL`
+     (Standard `gpt-4o-mini`), falls andere Modelle gewünscht/verfügbar sind
    - `LUKAS_API_TOKEN` (Pflicht — schützt die private API)
    - `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_AGENT_ID`, `ELEVENLABS_LLM_TOKEN`
    - optional: `MOLTBOOK_API_KEY`, `VOYAGE_API_KEY`, `VPS_DATABASE_URL`, `HIGGSFIELD_API_KEY`
@@ -94,7 +95,7 @@ Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
    Direkt nach `Server listening` steht eine **Env-Status**-Zeile: welche Variablen
    gesetzt sind und welche FEHLEN.
 2. **Pflicht zum Booten**: nur `DATABASE_URL` (Railway setzt `PORT` selbst).
-   Ohne `AI_INTEGRATIONS_ANTHROPIC_API_KEY` startet der Server trotzdem — Lukas kann
+   Ohne `AI_INTEGRATIONS_OPENAI_API_KEY` startet der Server trotzdem — Lukas kann
    dann nur nicht denken (Chat liefert Fehler), bis der Key nachgetragen ist.
 3. **DB-Verbindung**: Hostname `…railway.internal` funktioniert NUR, wenn Lukas im
    selben Railway-Projekt wie die Postgres läuft; sonst die `DATABASE_PUBLIC_URL`
@@ -109,7 +110,8 @@ Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
 | --- | --- |
 | `PORT` | Port des API-Servers |
 | `DATABASE_URL` | Postgres für Lukas (Gedächtnis, Ziele, Tagebuch, Chats) |
-| `AI_INTEGRATIONS_ANTHROPIC_API_KEY` / `_BASE_URL` | Anthropic-Zugang (Replit-Integration oder eigener Key) |
+| `AI_INTEGRATIONS_OPENAI_API_KEY` / `_BASE_URL` | OpenAI-Zugang (Key von platform.openai.com) |
+| `LUKAS_CORE_MODEL` | Modell für Lukas' "Gehirn" — Chat, Reflexion, Moltbook, Higgsfield-Prompts (Standard `gpt-4o`) |
 | `HIGGSFIELD_API_KEY` | Optional: Higgsfield Media-Generierung |
 | `LUKAS_API_TOKEN` | Optional: schützt alle `/api`-Routen (außer `/api/healthz`) per Bearer-Token. Im Browser: `localStorage.setItem("lukas_token", "<token>")` |
 | `VPS_DATABASE_URL` | Optional: Postgres des VPS-Trading-Systems (Fallback: `DATABASE_URL`) |
@@ -117,7 +119,7 @@ Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
 | `ELEVENLABS_VOICE_ID` | Deine gewählte Stimme aus dem ElevenLabs VoiceLab |
 | `ELEVENLABS_AGENT_ID` | ElevenLabs-Agent für die Sprach-Konversation (Issas Agent „L.U.K.A.S.": `agent_4501ky1q2tgvepx906k5waew8bwk`) |
 | `ELEVENLABS_LLM_TOKEN` | Selbst erzeugter Zufallsstring; schützt den Custom-LLM-Endpoint `/api/public/llm/v1` — denselben Wert in der ElevenLabs-Konsole als API-Key eintragen |
-| `LUKAS_PUBLIC_MODEL` | Modell für den öffentlichen Widget-Chat (Standard `claude-haiku-4-5` für minimale Latenz) |
+| `LUKAS_PUBLIC_MODEL` | Modell für den öffentlichen Widget-Chat (Standard `gpt-4o-mini` für minimale Latenz) |
 
 ## Portfolio-Widget (issahareb.me)
 
@@ -159,7 +161,8 @@ schreiben **und sprechen** (Mikrofon → Web Speech API, Antwort → ElevenLabs-
 - Fallback `data-voice="classic"`: Browser-Spracherkennung + `GET /api/public/tts`
   (progressives Streaming — spielt ab, während noch geladen wird).
 - Endpoints: `POST /api/public/chat` (SSE), `GET|POST /api/public/tts`,
-  `POST /api/public/llm/v1/chat/completions` (OpenAI-kompatibel, Bearer-Token) — alle
+  `POST /api/public/llm/v1/chat/completions` (OpenAI-kompatibel — und seit der
+  Umstellung auf die OpenAI-API auch tatsächlich OpenAI dahinter, Bearer-Token) — alle
   rate-limitiert, Keys bleiben serverseitig.
 - **Was Besucher wissen dürfen**, steuerst du über Erinnerungen mit Kategorie `public` — nur die fließen in den öffentlichen System-Prompt. Private Memories bleiben privat.
 - Die Portfolio-Seite braucht HTTPS (Mikrofon-Zugriff).
@@ -195,7 +198,9 @@ Obsidian als Vault öffnen (Graph-Ansicht zeigt das Netzwerk). Neu erzeugen:
 ```bash
 pip install graphifyy
 graphify update .            # Graph bauen (ohne API-Key, nur Code-AST)
-graphify label .             # optional: Communities per LLM benennen (braucht ANTHROPIC_API_KEY)
+graphify label .             # optional: Communities per LLM benennen (braucht eigenen ANTHROPIC_API_KEY —
+                              # separates Drittanbieter-Tool, nicht unser LLM-Unterbau; ohne Key bleibt
+                              # dieser Schritt einfach aus, kein Blocker)
 ```
 
 Interaktive HTML-Ansicht: `graphify-out/graph.html` im Browser öffnen.
@@ -207,7 +212,7 @@ Interaktive HTML-Ansicht: `graphify-out/graph.html` im Browser öffnen.
 - `lib/db` — Drizzle-Schema (Postgres)
 - `lib/api-spec` — OpenAPI-Spec (Quelle der Wahrheit) + Orval-Codegen
 - `lib/api-zod` / `lib/api-client-react` — generierte Clients
-- `lib/integrations-anthropic-ai` — Anthropic-Client
+- `lib/integrations-openai-ai` — OpenAI-Client
 
 ## VPS-Trading-System (die 99 Dateien)
 

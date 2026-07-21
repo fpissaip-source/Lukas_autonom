@@ -1,10 +1,10 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import type Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
 import { db } from "@workspace/db";
 import { memoriesTable } from "@workspace/db";
 import { desc, eq } from "drizzle-orm";
-import { anthropic } from "@workspace/integrations-anthropic-ai";
+import { openai } from "@workspace/integrations-openai-ai";
 import { LUKAS_SOUL } from "../lib/lukas-soul";
 import { getLukasStatus } from "../lib/lukas-status";
 import { logger } from "../lib/logger";
@@ -12,8 +12,8 @@ import { logger } from "../lib/logger";
 const router = Router();
 
 // Schnelles Modell für den öffentlichen Widget (Portfolio-Besucher erwarten
-// Antworten in Sekundenbruchteilen); per Env auf z.B. claude-opus-4-8 umstellbar.
-const PUBLIC_MODEL = process.env.LUKAS_PUBLIC_MODEL ?? "claude-haiku-4-5";
+// Antworten in Sekundenbruchteilen); per Env auf ein anderes Modell umstellbar.
+const PUBLIC_MODEL = process.env.LUKAS_PUBLIC_MODEL ?? "gpt-4o-mini";
 
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 
@@ -79,7 +79,7 @@ router.post("/public/chat", async (req, res) => {
       return void res.status(400).json({ error: "messages required" });
     }
 
-    const convo: Anthropic.MessageParam[] = raw
+    const convo: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = raw
       .slice(-20)
       .filter(
         (m: unknown): m is { role: string; content: string } =>
@@ -104,17 +104,16 @@ router.post("/public/chat", async (req, res) => {
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
 
-    const stream = anthropic.messages.stream({
+    const stream = await openai.chat.completions.create({
       model: PUBLIC_MODEL,
-      max_tokens: 400,
-      system: systemPrompt,
-      messages: convo,
+      max_completion_tokens: 400,
+      messages: [{ role: "system", content: systemPrompt }, ...convo],
+      stream: true,
     });
 
     for await (const chunk of stream) {
-      if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
-        res.write(`data: ${JSON.stringify({ content: chunk.delta.text })}\n\n`);
-      }
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) res.write(`data: ${JSON.stringify({ content: delta })}\n\n`);
     }
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
@@ -277,7 +276,7 @@ router.post("/public/llm/v1/chat/completions", async (req, res) => {
       .join("\n")
       .slice(0, 2000);
 
-    const convo: Anthropic.MessageParam[] = rawMessages
+    const convo: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = rawMessages
       .filter((m: { role?: string }) => m?.role === "user" || m?.role === "assistant")
       .slice(-20)
       .map((m: { role: string; content?: unknown }) => ({
@@ -296,19 +295,23 @@ DU SPRICHST GERADE (Sprach-Konversation über ElevenLabs):
 - Natürliche gesprochene Sprache, wie am Telefon.
 ${extraSystem ? `\nZUSATZKONTEXT DES VOICE-AGENTEN:\n${extraSystem}` : ""}`;
 
+    const messagesForModel: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt },
+      ...convo,
+    ];
+
     const id = `chatcmpl-lukas-${Date.now()}`;
     const created = Math.floor(Date.now() / 1000);
     const model = "lukas";
     const wantsStream = req.body?.stream !== false;
 
     if (!wantsStream) {
-      const response = await anthropic.messages.create({
+      const response = await openai.chat.completions.create({
         model: PUBLIC_MODEL,
-        max_tokens: 300,
-        system: systemPrompt,
-        messages: convo,
+        max_completion_tokens: 300,
+        messages: messagesForModel,
       });
-      const text = response.content[0]?.type === "text" ? response.content[0].text : "";
+      const text = response.choices[0]?.message?.content ?? "";
       return void res.json({
         id,
         object: "chat.completion",
@@ -318,9 +321,9 @@ ${extraSystem ? `\nZUSATZKONTEXT DES VOICE-AGENTEN:\n${extraSystem}` : ""}`;
           { index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" },
         ],
         usage: {
-          prompt_tokens: response.usage.input_tokens,
-          completion_tokens: response.usage.output_tokens,
-          total_tokens: response.usage.input_tokens + response.usage.output_tokens,
+          prompt_tokens: response.usage?.prompt_tokens ?? 0,
+          completion_tokens: response.usage?.completion_tokens ?? 0,
+          total_tokens: response.usage?.total_tokens ?? 0,
         },
       });
     }
@@ -343,17 +346,16 @@ ${extraSystem ? `\nZUSATZKONTEXT DES VOICE-AGENTEN:\n${extraSystem}` : ""}`;
 
     chunk({ role: "assistant" });
 
-    const stream = anthropic.messages.stream({
+    const stream = await openai.chat.completions.create({
       model: PUBLIC_MODEL,
-      max_tokens: 300,
-      system: systemPrompt,
-      messages: convo,
+      max_completion_tokens: 300,
+      messages: messagesForModel,
+      stream: true,
     });
 
     for await (const ev of stream) {
-      if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
-        chunk({ content: ev.delta.text });
-      }
+      const delta = ev.choices[0]?.delta?.content;
+      if (delta) chunk({ content: delta });
     }
 
     chunk({}, "stop");

@@ -12,8 +12,8 @@
   "dependencies": {
     "@workspace/api-zod": "*",
     "@workspace/db": "*",
-    "@workspace/integrations-anthropic-ai": "*",
-    "@anthropic-ai/sdk": "^0.78.0",
+    "@workspace/integrations-openai-ai": "*",
+    "openai": "^6.48.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "drizzle-orm": "^0.45.2",

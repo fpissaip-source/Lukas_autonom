@@ -9,19 +9,18 @@ import pRetry, { AbortError } from "p-retry";
  *
  * USAGE:
  * ```typescript
- * import { batchProcess } from "@workspace/integrations-anthropic-ai/batch";
- * import { anthropic } from "@workspace/integrations-anthropic-ai";
+ * import { batchProcess } from "@workspace/integrations-openai-ai/batch";
+ * import { openai } from "@workspace/integrations-openai-ai";
  *
  * const results = await batchProcess(
  *   artworks,
  *   async (artwork) => {
- *     const message = await anthropic.messages.create({
- *       model: "claude-sonnet-4-6",
+ *     const message = await openai.chat.completions.create({
+ *       model: "gpt-4o",
  *       max_tokens: 8192,
  *       messages: [{ role: "user", content: `Categorize: ${artwork.name}` }],
  *     });
- *     const block = message.content[0];
- *     return block.type === "text" ? block.text : "";
+ *     return message.choices[0]?.message?.content ?? "";
  *   },
  *   { concurrency: 2, retries: 5 }
  * );

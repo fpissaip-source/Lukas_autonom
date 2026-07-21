@@ -15,7 +15,7 @@ import { db } from "@workspace/db";
 import { memoriesTable, strategiesTable } from "@workspace/db";
 import { eq, desc, inArray } from "drizzle-orm";
 import { memActionsTable } from "@workspace/db";
-import { anthropic } from "@workspace/integrations-anthropic-ai";
+import { openai } from "@workspace/integrations-openai-ai";
 import { LUKAS_SOUL } from "./lukas-soul";
 import { recordEmotion, getEmotionalContext, getCharacterContext } from "./emotion-engine";
 import {
@@ -194,13 +194,13 @@ Antworte NUR mit JSON:
 }
 Leere Arrays sind völlig okay — nicht jeder Feed ist spannend.`;
 
-    const response = await anthropic.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 3000,
+    const response = await openai.chat.completions.create({
+      model: process.env.LUKAS_CORE_MODEL ?? "gpt-4o",
+      max_completion_tokens: 3000,
       messages: [{ role: "user", content: prompt }],
     });
 
-    const text = response.content[0]?.type === "text" ? response.content[0].text : "";
+    const text = response.choices[0]?.message?.content ?? "";
     let decision: Decision;
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/);

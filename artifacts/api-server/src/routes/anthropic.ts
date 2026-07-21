@@ -1,5 +1,5 @@
 import { Router } from "express";
-import type Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
 import { db } from "@workspace/db";
 import {
   conversations,
@@ -9,7 +9,7 @@ import {
   diaryTable,
 } from "@workspace/db";
 import { eq, desc, asc, gte } from "drizzle-orm";
-import { anthropic } from "@workspace/integrations-anthropic-ai";
+import { openai } from "@workspace/integrations-openai-ai";
 import { LUKAS_SYSTEM_PROMPT } from "../lib/lukas-soul";
 import { LUKAS_TOOLS, executeLukasTool } from "../lib/lukas-tools";
 import { getLukasStatus, DEFAULT_STATUS } from "../lib/lukas-status";
@@ -19,7 +19,7 @@ import { logger } from "../lib/logger";
 
 const router = Router();
 
-const CHAT_MODEL = "claude-opus-4-8";
+const CHAT_MODEL = process.env.LUKAS_CORE_MODEL ?? "gpt-4o";
 const MAX_TOOL_ITERATIONS = 8;
 
 // ── CONVERSATIONS ──────────────────────────────────────────────────────────
@@ -175,6 +175,8 @@ ${characterContext ? `\n${characterContext}` : ""}
 ${memoryContext}${goalsContext}${diaryContext}${relevantContext}`;
 }
 
+type PendingToolCall = { id: string; name: string; arguments: string };
+
 // SSE streaming message send with a real agentic tool loop
 router.post("/anthropic/conversations/:id/messages", async (req, res) => {
   try {
@@ -200,10 +202,13 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       .where(eq(messages.conversationId, convId))
       .orderBy(asc(messages.createdAt));
 
-    const convo: Anthropic.MessageParam[] = history.map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    }));
+    const convo: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt },
+      ...history.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
+    ];
 
     // SSE headers
     res.setHeader("Content-Type", "text/event-stream");
@@ -214,71 +219,93 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     const textPieces: string[] = [];
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-      const stream = anthropic.messages.stream({
+      const stream = await openai.chat.completions.create({
         model: CHAT_MODEL,
-        max_tokens: 8192,
-        system: systemPrompt,
+        max_completion_tokens: 8192,
         tools: LUKAS_TOOLS,
         messages: convo,
+        stream: true,
       });
 
+      // OpenAI streamt Tool-Call-Argumente als JSON-Fragmente pro Index —
+      // hier über die Chunks hinweg pro Tool-Call akkumulieren.
+      const toolCallsByIndex = new Map<number, PendingToolCall>();
+      let finishReason: string | null = null;
+
       for await (const chunk of stream) {
-        if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
-          textPieces.push(chunk.delta.text);
-          res.write(`data: ${JSON.stringify({ content: chunk.delta.text })}\n\n`);
-        } else if (
-          chunk.type === "content_block_start" &&
-          chunk.content_block.type === "tool_use"
-        ) {
-          // Let the UI show what Lukas is doing
-          res.write(`data: ${JSON.stringify({ tool: chunk.content_block.name })}\n\n`);
+        const choice = chunk.choices[0];
+        if (!choice) continue;
+        const delta = choice.delta;
+
+        if (delta?.content) {
+          textPieces.push(delta.content);
+          res.write(`data: ${JSON.stringify({ content: delta.content })}\n\n`);
         }
+
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            let entry = toolCallsByIndex.get(tc.index);
+            if (!entry) {
+              entry = { id: tc.id ?? "", name: tc.function?.name ?? "", arguments: "" };
+              toolCallsByIndex.set(tc.index, entry);
+              if (entry.name) {
+                // Let the UI show what Lukas is doing
+                res.write(`data: ${JSON.stringify({ tool: entry.name })}\n\n`);
+              }
+            }
+            if (tc.id) entry.id = tc.id;
+            if (tc.function?.name) entry.name = tc.function.name;
+            if (tc.function?.arguments) entry.arguments += tc.function.arguments;
+          }
+        }
+
+        if (choice.finish_reason) finishReason = choice.finish_reason;
       }
 
-      const finalMessage = await stream.finalMessage();
+      if (finishReason !== "tool_calls" || toolCallsByIndex.size === 0) break;
 
-      if (finalMessage.stop_reason !== "tool_use") break;
+      const toolCalls = Array.from(toolCallsByIndex.values());
 
-      const toolUses = finalMessage.content.filter(
-        (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
-      );
+      convo.push({
+        role: "assistant",
+        content: null,
+        tool_calls: toolCalls.map((tc) => ({
+          id: tc.id,
+          type: "function",
+          function: { name: tc.name, arguments: tc.arguments },
+        })),
+      });
 
-      convo.push({ role: "assistant", content: finalMessage.content });
-
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const toolUse of toolUses) {
+      for (const toolCall of toolCalls) {
+        let input: Record<string, unknown> = {};
         try {
-          const result = await executeLukasTool(
-            toolUse.name,
-            (toolUse.input ?? {}) as Record<string, unknown>,
-          );
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: toolUse.id,
-            content: result,
-          });
+          input = toolCall.arguments ? JSON.parse(toolCall.arguments) : {};
+        } catch {
+          // Kaputtes JSON vom Modell — leere Args, das Tool meldet fehlende Felder selbst.
+        }
+        try {
+          const result = await executeLukasTool(toolCall.name, input);
+          convo.push({ role: "tool", tool_call_id: toolCall.id, content: result });
         } catch (err) {
-          logger.warn({ err, tool: toolUse.name }, "Lukas tool failed");
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: toolUse.id,
+          logger.warn({ err, tool: toolCall.name }, "Lukas tool failed");
+          convo.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
             content: `Fehler: ${err instanceof Error ? err.message : String(err)}`,
-            is_error: true,
           });
           // Scheitern nervt — leicht, aber echt (nicht für das feel-Tool selbst).
-          if (toolUse.name !== "feel") {
+          if (toolCall.name !== "feel") {
             recordEmotion({
               emotion: "frustration",
               valence: -0.3,
               intensity: 0.3,
-              cause: `Tool ${toolUse.name} ist fehlgeschlagen`,
+              cause: `Tool ${toolCall.name} ist fehlgeschlagen`,
               source: "tool",
             }).catch(() => {});
           }
         }
       }
 
-      convo.push({ role: "user", content: toolResults });
       // Paragraph break between tool-separated text segments
       if (textPieces.length > 0 && !textPieces[textPieces.length - 1].endsWith("\n")) {
         textPieces.push("\n\n");

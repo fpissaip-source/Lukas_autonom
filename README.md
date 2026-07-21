@@ -115,6 +115,8 @@ Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
 | `VPS_DATABASE_URL` | Optional: Postgres des VPS-Trading-Systems (Fallback: `DATABASE_URL`) |
 | `ELEVENLABS_API_KEY` | Stimme für das Portfolio-Widget (ElevenLabs, Flash v2.5 ≈ 75 ms Latenz) |
 | `ELEVENLABS_VOICE_ID` | Deine gewählte Stimme aus dem ElevenLabs VoiceLab |
+| `ELEVENLABS_AGENT_ID` | ElevenLabs-Agent für die Sprach-Konversation (Issas Agent „L.U.K.A.S.": `agent_4501ky1q2tgvepx906k5waew8bwk`) |
+| `ELEVENLABS_LLM_TOKEN` | Selbst erzeugter Zufallsstring; schützt den Custom-LLM-Endpoint `/api/public/llm/v1` — denselben Wert in der ElevenLabs-Konsole als API-Key eintragen |
 | `LUKAS_PUBLIC_MODEL` | Modell für den öffentlichen Widget-Chat (Standard `claude-haiku-4-5` für minimale Latenz) |
 
 ## Portfolio-Widget (issahareb.me)
@@ -132,11 +134,28 @@ schreiben **und sprechen** (Mikrofon → Web Speech API, Antwort → ElevenLabs-
   volle CSS-Kontrolle über stabile Klassen (`.lukas-btn`, `.lukas-panel`, `.lukas-m`, …) —
   kein Shadow-DOM, die Host-Seite kann alles überschreiben.
 - **Stimme (empfohlen): ElevenLabs Agents** — `data-voice="agent"` + `data-agent-id="…"`.
-  WebRTC mit Sub-Sekunden-Latenz, echtes Turn-Taking. Damit der Agent wirklich Lukas ist,
-  in der ElevenLabs-Konsole unter LLM → Custom LLM eintragen:
-  URL `https://DEINE-DOMAIN/api/public/llm/v1`, API-Key = `ELEVENLABS_LLM_TOKEN` (.env).
+  WebRTC mit Sub-Sekunden-Latenz, echtes Turn-Taking. Issas Agent heißt **L.U.K.A.S.**
+  (Agent-ID `agent_4501ky1q2tgvepx906k5waew8bwk`); fertiges Embed für die Portfolio-Seite:
+
+  ```html
+  <script src="https://DEINE-LUKAS-DOMAIN/widget.js"
+          data-api="https://DEINE-LUKAS-DOMAIN"
+          data-voice="agent"
+          data-agent-id="agent_4501ky1q2tgvepx906k5waew8bwk"
+          defer></script>
+  ```
+
+  Damit der Agent wirklich Lukas ist (und nicht das Standard-LLM von ElevenLabs), einmalig
+  in der ElevenLabs-Konsole → Agent **L.U.K.A.S.** → LLM → **Custom LLM** eintragen:
+  1. Server-URL: `https://DEINE-DOMAIN/api/public/llm/v1`
+  2. Model-ID: `lukas` (beliebig, wird serverseitig ignoriert)
+  3. API-Key: exakt der Wert von `ELEVENLABS_LLM_TOKEN` aus den Railway-Variablen
+     (ohne ihn antwortet der Endpoint mit 401/503)
+
   Private Agents bekommen die Verbindung über `GET /api/public/voice-session` (signed URL,
-  braucht `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID`).
+  braucht `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID`). Alternativ gibt es ElevenLabs'
+  eigenes `<elevenlabs-convai>`-Widget — funktioniert auch, ist aber im Design kaum
+  anpassbar; unser `widget.js` ist die frei gestaltbare Variante.
 - Fallback `data-voice="classic"`: Browser-Spracherkennung + `GET /api/public/tts`
   (progressives Streaming — spielt ab, während noch geladen wird).
 - Endpoints: `POST /api/public/chat` (SSE), `GET|POST /api/public/tts`,

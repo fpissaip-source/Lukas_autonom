@@ -19,7 +19,7 @@
     "typecheck": "npm run typecheck:libs && npm run typecheck --workspaces --if-present",
     "dev:api": "npm run dev --workspace=@workspace/api-server",
     "start:api": "npm run start --workspace=@workspace/api-server",
-    "start:deploy": "npm run db:push || echo 'WARNUNG: db:push fehlgeschlagen — Server startet trotzdem (DB-Fehler erscheinen in den Logs)'; npm run start:api",
+    "start:deploy": "node scripts/db-push-quiet.mjs || echo 'WARNUNG: db:push fehlgeschlagen — Server startet trotzdem (DB-Fehler erscheinen in den Logs)'; npm run start:api",
     "dev:ui": "npm run dev --workspace=@workspace/lukas-ui",
     "build:ui": "npm run build --workspace=@workspace/lukas-ui",
     "db:push": "npm run push --workspace=@workspace/db",

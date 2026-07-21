@@ -88,6 +88,21 @@ Namensräume, null Risiko für die Webseite.
 Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
 (SPA), Widget und die öffentlichen Endpoints.
 
+### Troubleshooting: „Healthcheck failed"
+
+1. **Deploy-Logs öffnen** (Service → Deployments → auf das fehlgeschlagene klicken).
+   Direkt nach `Server listening` steht eine **Env-Status**-Zeile: welche Variablen
+   gesetzt sind und welche FEHLEN.
+2. **Pflicht zum Booten**: nur `DATABASE_URL` (Railway setzt `PORT` selbst).
+   Ohne `AI_INTEGRATIONS_ANTHROPIC_API_KEY` startet der Server trotzdem — Lukas kann
+   dann nur nicht denken (Chat liefert Fehler), bis der Key nachgetragen ist.
+3. **DB-Verbindung**: Hostname `…railway.internal` funktioniert NUR, wenn Lukas im
+   selben Railway-Projekt wie die Postgres läuft; sonst die `DATABASE_PUBLIC_URL`
+   (`…proxy.rlwy.net`) verwenden. Ein db:push-Fehler blockiert den Start nicht mehr,
+   steht aber am Anfang des Logs.
+4. Nach dem Setzen fehlender Variablen: **Redeploy** (Variablenänderung triggert das
+   meist automatisch).
+
 ## Umgebungsvariablen
 
 | Variable | Zweck |

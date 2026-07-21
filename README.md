@@ -58,10 +58,24 @@ schreiben **und sprechen** (Mikrofon → Web Speech API, Antwort → ElevenLabs-
 <script src="https://DEINE-LUKAS-DOMAIN/widget.js" data-api="https://DEINE-LUKAS-DOMAIN" defer></script>
 ```
 
-- Demo lokal: `http://localhost:5000/embed-demo.html`
-- Endpoints: `POST /api/public/chat` (SSE, ohne Auth, Rate-Limit pro IP) und `POST /api/public/tts` (ElevenLabs-Proxy — der Key bleibt auf dem Server)
+- Demo + komplette Design-Doku: `http://localhost:5000/embed-demo.html`
+- **Beliebig designbar**: Theme/Farben/Radius/Position/Texte per `data-`-Attributen
+  (`data-theme`, `data-accent`, `data-radius`, `data-position`, `data-title`, …); zusätzlich
+  volle CSS-Kontrolle über stabile Klassen (`.lukas-btn`, `.lukas-panel`, `.lukas-m`, …) —
+  kein Shadow-DOM, die Host-Seite kann alles überschreiben.
+- **Stimme (empfohlen): ElevenLabs Agents** — `data-voice="agent"` + `data-agent-id="…"`.
+  WebRTC mit Sub-Sekunden-Latenz, echtes Turn-Taking. Damit der Agent wirklich Lukas ist,
+  in der ElevenLabs-Konsole unter LLM → Custom LLM eintragen:
+  URL `https://DEINE-DOMAIN/api/public/llm/v1`, API-Key = `ELEVENLABS_LLM_TOKEN` (.env).
+  Private Agents bekommen die Verbindung über `GET /api/public/voice-session` (signed URL,
+  braucht `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID`).
+- Fallback `data-voice="classic"`: Browser-Spracherkennung + `GET /api/public/tts`
+  (progressives Streaming — spielt ab, während noch geladen wird).
+- Endpoints: `POST /api/public/chat` (SSE), `GET|POST /api/public/tts`,
+  `POST /api/public/llm/v1/chat/completions` (OpenAI-kompatibel, Bearer-Token) — alle
+  rate-limitiert, Keys bleiben serverseitig.
 - **Was Besucher wissen dürfen**, steuerst du über Erinnerungen mit Kategorie `public` — nur die fließen in den öffentlichen System-Prompt. Private Memories bleiben privat.
-- Für Voice braucht die Seite HTTPS (Mikrofon-Zugriff) und Chrome/Edge/Safari (Web Speech API).
+- Die Portfolio-Seite braucht HTTPS (Mikrofon-Zugriff).
 
 ## Gedächtnisarchitektur (Vier Schichten)
 

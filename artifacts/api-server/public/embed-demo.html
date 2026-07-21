@@ -3,24 +3,90 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Lukas Widget — Demo</title>
+  <title>Lukas Widget — Design-Demo</title>
   <style>
-    body { font-family: system-ui, sans-serif; background: #f6f5f2; color: #222; max-width: 720px; margin: 60px auto; padding: 0 20px; line-height: 1.6; }
-    code { background: #e9e7e1; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
-    pre { background: #1d1d33; color: #e5e5f0; padding: 16px; border-radius: 10px; overflow-x: auto; font-size: 0.85em; }
+    body { font-family: system-ui, sans-serif; background: #f6f5f2; color: #222; max-width: 980px; margin: 40px auto; padding: 0 20px 60px; line-height: 1.6; }
+    h1 { margin-bottom: 4px; }
+    .frames { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 24px 0; }
+    iframe { width: 100%; height: 640px; border: 1px solid #ddd; border-radius: 12px; background: #fff; }
+    code { background: #e9e7e1; padding: 2px 6px; border-radius: 4px; font-size: .88em; }
+    pre { background: #1d1d33; color: #e5e5f0; padding: 16px; border-radius: 10px; overflow-x: auto; font-size: .82em; }
+    table { border-collapse: collapse; width: 100%; font-size: .9em; }
+    th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #ddd; vertical-align: top; }
+    @media (max-width: 800px) { .frames { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-  <h1>Demo: Lukas auf deiner Portfolio-Seite</h1>
-  <p>Diese Seite simuliert issahareb.me. Unten rechts schwebt der Lukas-Button —
-     anklicken, dann tippen oder aufs Mikro drücken und sprechen.</p>
-  <p>Einbindung auf der echten Seite mit einer Zeile:</p>
-  <pre>&lt;script src="https://DEINE-LUKAS-DOMAIN/widget.js"
-        data-api="https://DEINE-LUKAS-DOMAIN" defer&gt;&lt;/script&gt;</pre>
-  <p>Öffentlich sichtbares Wissen steuerst du über Erinnerungen mit der Kategorie
-     <code>public</code> (Memory-Seite in der Lukas-UI oder einfach Lukas im Chat bitten,
-     etwas als public zu speichern).</p>
+  <h1>Lukas Widget — beliebig designbar</h1>
+  <p>Zwei Live-Beispiele desselben Widgets, nur über <code>data-</code>-Attribute unterschiedlich gestylt.
+     Unten rechts in jedem Rahmen den Button anklicken.</p>
 
-  <script src="/widget.js" defer></script>
+  <div class="frames">
+    <iframe title="Standard (dark)" srcdoc='
+      <body style="font-family:system-ui;background:#0b0b14;color:#ccc;padding:20px">
+        <h3>Standard (dark)</h3>
+        <p>Nur data-api gesetzt — alles andere Default.</p>
+        <script src="/widget.js" defer></script>
+      </body>'></iframe>
+    <iframe title="Custom (light)" srcdoc='
+      <body style="font-family:Georgia,serif;background:#faf7f2;color:#333;padding:20px">
+        <h3>Komplett umgestylt</h3>
+        <p>Light, Rosé-Akzent, eckig, links unten, eigener Titel.</p>
+        <script src="/widget.js" defer
+          data-theme="light"
+          data-accent="#e11d48"
+          data-accent2="#f97316"
+          data-radius="4px"
+          data-position="bottom-left"
+          data-button-icon="💬"
+          data-title="Frag Lukas"
+          data-subtitle="Der Agent hinter diesem Portfolio"
+          data-greeting="Hi! Ich bin Lukas. Was willst du über Issa wissen?"
+          data-placeholder="Deine Frage…"
+          data-width="340px" data-height="480px"></script>
+      </body>'></iframe>
+  </div>
+
+  <h2>Einbindung</h2>
+  <pre>&lt;script src="https://DEINE-LUKAS-DOMAIN/widget.js"
+        data-api="https://DEINE-LUKAS-DOMAIN"
+        data-accent="#e11d48" data-theme="light"
+        data-voice="agent" data-agent-id="DEINE_ELEVENLABS_AGENT_ID"
+        defer&gt;&lt;/script&gt;</pre>
+
+  <h2>Alle Design-Optionen (data-Attribute)</h2>
+  <table>
+    <tr><th>Attribut</th><th>Bedeutung</th><th>Standard</th></tr>
+    <tr><td><code>data-theme</code></td><td>dark | light</td><td>dark</td></tr>
+    <tr><td><code>data-accent</code> / <code>data-accent2</code></td><td>Hauptfarbe / zweite Gradient-Farbe</td><td>#6d28d9 / #2563eb</td></tr>
+    <tr><td><code>data-bg</code> / <code>data-text</code></td><td>Panel-Hintergrund / Textfarbe</td><td>Theme</td></tr>
+    <tr><td><code>data-radius</code></td><td>Eckenradius (z.B. 0px, 24px)</td><td>16px</td></tr>
+    <tr><td><code>data-position</code></td><td>bottom-right | bottom-left</td><td>bottom-right</td></tr>
+    <tr><td><code>data-width</code> / <code>data-height</code></td><td>Panelgröße</td><td>380px / 520px</td></tr>
+    <tr><td><code>data-font</code></td><td>font-family</td><td>system-ui</td></tr>
+    <tr><td><code>data-button-icon</code></td><td>Emoji des Buttons</td><td>🤖</td></tr>
+    <tr><td><code>data-title</code> / <code>data-subtitle</code></td><td>Kopfzeile</td><td>Lukas / …</td></tr>
+    <tr><td><code>data-greeting</code> / <code>data-placeholder</code></td><td>Begrüßung / Eingabe-Platzhalter</td><td>deutsch</td></tr>
+    <tr><td><code>data-voice</code></td><td>agent (ElevenLabs Agents) | classic | off</td><td>classic</td></tr>
+    <tr><td><code>data-agent-id</code></td><td>ElevenLabs-Agent-ID für data-voice="agent"</td><td>—</td></tr>
+  </table>
+
+  <h2>Voll-Custom per CSS</h2>
+  <p>Das Widget nutzt <b>kein</b> Shadow-DOM — deine Seite kann mit normalem CSS alles überschreiben.
+     Stabile Klassen: <code>.lukas-w .lukas-btn .lukas-panel .lukas-head .lukas-msgs .lukas-m
+     .lukas-m.u .lukas-m.a .lukas-form .lukas-in .lukas-ic .lukas-mic</code>. Beispiel:</p>
+  <pre>.lukas-btn { border-radius: 12px !important; box-shadow: none; }
+.lukas-m.u { background: black; }
+.lukas-panel { backdrop-filter: blur(12px); }</pre>
+
+  <h2>Stimme (ElevenLabs Agents)</h2>
+  <ol>
+    <li>Agent in der ElevenLabs-Konsole anlegen: deutsche Stimme, Sprache Deutsch.</li>
+    <li>Dort unter LLM → <b>Custom LLM</b>: URL <code>https://DEINE-LUKAS-DOMAIN/api/public/llm/v1</code>,
+        API-Key = dein <code>ELEVENLABS_LLM_TOKEN</code> aus der .env → der Agent denkt mit Lukas' Gehirn.</li>
+    <li>Agent-ID kopieren → <code>data-agent-id</code> setzen und <code>data-voice="agent"</code>.</li>
+  </ol>
+
+  <script src="/widget.js" defer data-voice="off" data-title="Lukas (diese Seite)" ></script>
 </body>
 </html>

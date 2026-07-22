@@ -16,10 +16,16 @@ function getClient(): OpenAI {
     );
   }
 
-  _client = new OpenAI({
-    apiKey,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ?? "https://api.openai.com/v1",
-  });
+  // .trim() + Anfuehrungszeichen/Schraegstrich am Rand entfernen: Provider-UIs
+  // (Railway-Variablen-Editor) haengen beim Speichern manchmal Whitespace oder
+  // ein Anfuehrungszeichen an -- das fuehrt sonst zu einer ungueltigen URL und
+  // einer nackten 404 ohne erkennbare Ursache.
+  const rawBaseUrl = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL?.trim();
+  const baseURL = rawBaseUrl
+    ? rawBaseUrl.replace(/^["']+/, "").replace(/["'\s/]+$/, "")
+    : "https://api.openai.com/v1";
+
+  _client = new OpenAI({ apiKey: apiKey.trim(), baseURL });
   return _client;
 }
 

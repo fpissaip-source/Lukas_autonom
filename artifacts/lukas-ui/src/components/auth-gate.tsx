@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { TerminalSquare, Loader2 } from "lucide-react";
+import { TerminalSquare, Loader2, Eye, EyeOff } from "lucide-react";
 
 const STORAGE_KEY = "lukas_token";
 
@@ -22,6 +22,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [tokenInput, setTokenInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [reveal, setReveal] = useState(false);
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -40,7 +41,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         localStorage.setItem(STORAGE_KEY, tokenInput.trim());
         setStatus("ok");
       } else {
-        setError("Falscher Zugangscode.");
+        setError(
+          "Falscher Zugangscode. Tipp: Klick auf das Auge-Symbol, um zu sehen, was du " +
+            "eingetippt hast — oft schleicht sich beim Kopieren ein Leerzeichen ein, oder " +
+            "es wurde versehentlich der ELEVENLABS_LLM_TOKEN statt LUKAS_API_TOKEN eingetragen.",
+        );
       }
     } catch {
       setError("Verbindung zu Lukas fehlgeschlagen — kurz nochmal versuchen.");
@@ -68,14 +73,33 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-3">
-              <Input
-                type="password"
-                autoFocus
-                placeholder="Zugangscode"
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                data-testid="input-access-token"
-              />
+              <div className="relative">
+                <Input
+                  type={reveal ? "text" : "password"}
+                  autoFocus
+                  placeholder="Zugangscode"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="pr-10 font-mono"
+                  data-testid="input-access-token"
+                />
+                <button
+                  type="button"
+                  onClick={() => setReveal((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={reveal ? "Zugangscode verbergen" : "Zugangscode anzeigen"}
+                  data-testid="button-toggle-reveal-token"
+                >
+                  {reveal ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              {tokenInput && (
+                <p className="text-xs text-muted-foreground font-mono">{tokenInput.length} Zeichen eingegeben</p>
+              )}
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>

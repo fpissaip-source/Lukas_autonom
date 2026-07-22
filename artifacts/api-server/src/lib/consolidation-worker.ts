@@ -7,7 +7,7 @@
  */
 import { execFile } from "node:child_process";
 import { db } from "@workspace/db";
-import { claimsTable, memActionsTable, strategiesTable } from "@workspace/db";
+import { claimsTable, memActionsTable, strategiesTable, debugLogTable } from "@workspace/db";
 import { and, eq, lt, isNotNull } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { syncObsidianVault } from "./obsidian-sync";
@@ -63,7 +63,17 @@ async function evaluateStrategies(): Promise<void> {
   }
 }
 
-// 3. Graphify optional über den Vault laufen lassen (nur wenn installiert)
+// 3. Debug-Log begrenzt halten: nur die letzten 30 Tage aufheben
+async function pruneDebugLog(): Promise<number> {
+  const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+  const result = await db
+    .delete(debugLogTable)
+    .where(lt(debugLogTable.createdAt, cutoff))
+    .returning({ id: debugLogTable.id });
+  return result.length;
+}
+
+// 4. Graphify optional über den Vault laufen lassen (nur wenn installiert)
 function runGraphifyIfAvailable(vaultDir: string): void {
   execFile("graphify", ["update", vaultDir, "--no-cluster"], { timeout: 5 * 60 * 1000 }, (err, stdout) => {
     if (err) {
@@ -78,9 +88,10 @@ export async function runConsolidation(): Promise<void> {
   const decayed = await decayUnverifiedClaims();
   await evaluateStrategies();
   const embedded = await embedNewRows();
+  const prunedDebugLogs = await pruneDebugLog();
   const vaultDir = await syncObsidianVault();
   runGraphifyIfAvailable(vaultDir);
-  logger.info({ decayed, embedded }, "Gedächtnis-Konsolidierung abgeschlossen");
+  logger.info({ decayed, embedded, prunedDebugLogs }, "Gedächtnis-Konsolidierung abgeschlossen");
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;

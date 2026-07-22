@@ -352,9 +352,13 @@ router.post("/lukas/reflect", async (req, res) => {
 // ── DEBUG-LOG ──────────────────────────────────────────────────────────────
 // Letzte Fehler aus Chat/Public-Chat/Custom-LLM/TTS/Voice-Session — im
 // Dashboard einsehbar, damit Fehlerursachen (z.B. beim ElevenLabs-Test) ohne
-// Railway-Log-Zugriff sichtbar sind. In-Memory, ueberlebt keinen Neustart.
-router.get("/lukas/debug-log", (req, res) => {
-  res.json(getDebugLog());
+// Railway-Log-Zugriff sichtbar sind. Liegt in der DB, ueberlebt Neustarts.
+router.get("/lukas/debug-log", async (req, res) => {
+  try {
+    res.json(await getDebugLog());
+  } catch (err) {
+    res.status(500).json({ error: "Failed to get debug log" });
+  }
 });
 
 export default router;

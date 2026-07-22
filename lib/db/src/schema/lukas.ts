@@ -80,6 +80,17 @@ export const characterTable = pgTable("lukas_character", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Fehlerprotokoll fuer Chat/Public-Chat/Custom-LLM/TTS/Voice-Session — im
+// Dashboard einsehbar (GET /api/lukas/debug-log). In der DB statt nur im
+// Arbeitsspeicher, damit es Railway-Redeploys uebersteht (die bei jeder
+// Variablenaenderung passieren).
+export const debugLogTable = pgTable("lukas_debug_log", {
+  id: serial("id").primaryKey(),
+  scope: text("scope").notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertMemorySchema = createInsertSchema(memoriesTable).omit({ id: true, createdAt: true });
 export const insertGoalSchema = createInsertSchema(goalsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertDiarySchema = createInsertSchema(diaryTable).omit({ id: true, createdAt: true });
@@ -94,3 +105,4 @@ export type Goal = typeof goalsTable.$inferSelect;
 export type DiaryEntry = typeof diaryTable.$inferSelect;
 export type MediaJob = typeof mediaJobsTable.$inferSelect;
 export type LukasStatusRow = typeof lukasStatusTable.$inferSelect;
+export type DebugLogRow = typeof debugLogTable.$inferSelect;

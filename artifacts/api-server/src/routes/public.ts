@@ -35,23 +35,28 @@ function rateLimit(req: Request, limit: number, windowMs: number): boolean {
 }
 
 // ── TOKEN-CHECK (Diagnose, kein Login noetig) ──────────────────────────────
-// Zeigt NIE den echten Wert, nur ein Fingerabdruck (Laenge, erstes/letztes
+// Zeigt NIE den echten Wert, nur einen Fingerabdruck (Laenge, erstes/letztes
 // Zeichen, Leerzeichen/Anfuehrungszeichen-Warnung) -- damit man im Browser
-// vergleichen kann, ob der eingetippte Zugangscode wirklich dem entspricht,
-// was der Server als LUKAS_API_TOKEN sieht, ohne Railway-Logs zu brauchen.
-router.get("/public/token-check", (req, res) => {
-  const token = process.env.LUKAS_API_TOKEN;
-  if (!token) {
-    return void res.json({ set: false });
-  }
-  res.json({
-    set: true,
+// vergleichen kann, was der Server tatsaechlich als Wert sieht, ohne
+// Railway-Logs zu brauchen. Deckt beide Tokens ab, da Railways
+// Variablen-Editor bei beiden schon einen Zeilenumbruch angehaengt hat.
+function tokenFingerprint(token: string | undefined) {
+  if (!token) return { set: false as const };
+  return {
+    set: true as const,
     length: token.length,
     firstChar: token[0],
     lastChar: token[token.length - 1],
     hasLeadingWhitespace: token !== token.trimStart(),
     hasTrailingWhitespace: token !== token.trimEnd(),
     hasSurroundingQuotes: /^["']/.test(token) || /["']$/.test(token),
+  };
+}
+
+router.get("/public/token-check", (req, res) => {
+  res.json({
+    LUKAS_API_TOKEN: tokenFingerprint(process.env.LUKAS_API_TOKEN),
+    ELEVENLABS_LLM_TOKEN: tokenFingerprint(process.env.ELEVENLABS_LLM_TOKEN),
   });
 });
 
@@ -269,13 +274,16 @@ router.get("/public/voice-session", async (req, res) => {
 // des Custom LLM eintragen).
 router.post("/public/llm/v1/chat/completions", async (req, res) => {
   try {
-    const token = process.env.ELEVENLABS_LLM_TOKEN;
+    // .trim(): Railways Variablen-Editor haengt beim Speichern manchmal einen
+    // Zeilenumbruch an (siehe LUKAS_API_TOKEN-Fix) — hier aus demselben Grund
+    // toleriert.
+    const token = process.env.ELEVENLABS_LLM_TOKEN?.trim();
     if (!token) {
       recordDebugEvent("public/llm", "ELEVENLABS_LLM_TOKEN fehlt — 503 an Aufrufer");
       return void res.status(503).json({ error: "Custom LLM nicht konfiguriert (ELEVENLABS_LLM_TOKEN fehlt)" });
     }
     const header = req.headers.authorization;
-    const provided = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
+    const provided = header?.startsWith("Bearer ") ? header.slice(7).trim() : undefined;
     if (provided !== token) {
       recordDebugEvent(
         "public/llm",

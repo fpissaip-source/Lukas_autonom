@@ -428,10 +428,11 @@ ${extraSystem ? `\nZUSATZKONTEXT DES VOICE-AGENTEN:\n${extraSystem}` : ""}`;
     res.end();
   } catch (err) {
     logger.error({ err }, "Custom LLM error");
-    recordDebugEvent("public/llm", err);
-    const detail = err instanceof Error ? err.message : String(err);
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    const baseUrl = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ?? "(Standard: https://api.openai.com/v1)";
+    recordDebugEvent("public/llm", `${rawMessage} (model="${PUBLIC_MODEL}", baseURL="${baseUrl}")`);
     if (!res.headersSent) {
-      res.status(500).json({ error: "LLM failed", detail });
+      res.status(500).json({ error: "LLM failed", detail: rawMessage });
     } else {
       res.write("data: [DONE]\n\n");
       res.end();

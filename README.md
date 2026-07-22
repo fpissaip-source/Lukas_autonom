@@ -113,7 +113,7 @@ Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
 | `AI_INTEGRATIONS_OPENAI_API_KEY` / `_BASE_URL` | OpenAI-Zugang (Key von platform.openai.com) |
 | `LUKAS_CORE_MODEL` | Modell für Lukas' "Gehirn" — Chat, Reflexion, Moltbook, Higgsfield-Prompts (Standard `gpt-4o`) |
 | `HIGGSFIELD_API_KEY` | Optional: Higgsfield Media-Generierung |
-| `LUKAS_API_TOKEN` | Optional: schützt alle `/api`-Routen (außer `/api/healthz`) per Bearer-Token. Im Browser: `localStorage.setItem("lukas_token", "<token>")` |
+| `LUKAS_API_TOKEN` | Optional: schützt alle `/api`-Routen (außer `/api/healthz` und `/api/public/*`) per Bearer-Token. Sobald gesetzt, zeigt das Dashboard beim Aufruf automatisch einen Login-Screen — dort den Token eingeben, kein Dev-Console-Zugriff nötig. |
 | `VPS_DATABASE_URL` | Optional: Postgres des VPS-Trading-Systems (Fallback: `DATABASE_URL`) |
 | `ELEVENLABS_API_KEY` | Stimme für das Portfolio-Widget (ElevenLabs, Flash v2.5 ≈ 75 ms Latenz) |
 | `ELEVENLABS_VOICE_ID` | Deine gewählte Stimme aus dem ElevenLabs VoiceLab |

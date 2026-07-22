@@ -4,7 +4,7 @@ import App from "./App";
 import "./index.css";
 
 // Optionaler API-Token (wenn der Server mit LUKAS_API_TOKEN geschützt ist):
-// im Browser einmalig setzen mit localStorage.setItem("lukas_token", "<token>")
+// wird über den Login-Screen (AuthGate) gesetzt, sobald er gebraucht wird.
 setAuthTokenGetter(() => localStorage.getItem("lukas_token"));
 
 createRoot(document.getElementById("root")!).render(<App />);

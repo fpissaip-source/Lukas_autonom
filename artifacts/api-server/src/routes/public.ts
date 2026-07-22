@@ -120,10 +120,11 @@ router.post("/public/chat", async (req, res) => {
     res.end();
   } catch (err) {
     logger.error({ err }, "Public chat error");
+    const detail = err instanceof Error ? err.message : String(err);
     if (!res.headersSent) {
-      res.status(500).json({ error: "Chat failed" });
+      res.status(500).json({ error: "Chat failed", detail });
     } else {
-      res.write(`data: ${JSON.stringify({ error: "Stream failed" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ error: "Stream failed", detail })}\n\n`);
       res.end();
     }
   }
@@ -363,8 +364,9 @@ ${extraSystem ? `\nZUSATZKONTEXT DES VOICE-AGENTEN:\n${extraSystem}` : ""}`;
     res.end();
   } catch (err) {
     logger.error({ err }, "Custom LLM error");
+    const detail = err instanceof Error ? err.message : String(err);
     if (!res.headersSent) {
-      res.status(500).json({ error: "LLM failed" });
+      res.status(500).json({ error: "LLM failed", detail });
     } else {
       res.write("data: [DONE]\n\n");
       res.end();

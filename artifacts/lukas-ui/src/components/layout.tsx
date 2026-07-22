@@ -1,14 +1,20 @@
 import { Link, useLocation } from "wouter";
 import { useHealthCheck } from "@workspace/api-client-react";
-import { 
-  Activity, 
-  Brain, 
-  Target, 
-  BookOpen, 
-  MessageSquare, 
+import {
+  Activity,
+  Brain,
+  Target,
+  BookOpen,
+  MessageSquare,
   Film,
-  TerminalSquare
+  TerminalSquare,
+  LogOut
 } from "lucide-react";
+
+function handleLogout() {
+  localStorage.removeItem("lukas_token");
+  window.location.reload();
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
@@ -57,6 +63,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+
+        <div className="p-4 border-t border-border">
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm w-full text-muted-foreground hover:bg-secondary hover:text-secondary-foreground transition-colors duration-200"
+            data-testid="button-logout"
+          >
+            <LogOut className="w-4 h-4" />
+            Abmelden
+          </button>
+        </div>
       </aside>
 
       {/* Main Content */}

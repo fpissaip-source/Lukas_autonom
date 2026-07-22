@@ -8,6 +8,7 @@ import { openai } from "@workspace/integrations-openai-ai";
 import { LUKAS_SOUL } from "../lib/lukas-soul";
 import { getLukasStatus } from "../lib/lukas-status";
 import { logger } from "../lib/logger";
+import { recordDebugEvent } from "../lib/debug-log";
 
 const router = Router();
 
@@ -120,6 +121,7 @@ router.post("/public/chat", async (req, res) => {
     res.end();
   } catch (err) {
     logger.error({ err }, "Public chat error");
+    recordDebugEvent("public/chat", err);
     const detail = err instanceof Error ? err.message : String(err);
     if (!res.headersSent) {
       res.status(500).json({ error: "Chat failed", detail });
@@ -184,6 +186,7 @@ router.post("/public/tts", async (req, res) => {
     await streamTts(text, res);
   } catch (err) {
     logger.error({ err }, "TTS error");
+    recordDebugEvent("public/tts", err);
     if (!res.headersSent) res.status(500).json({ error: "TTS failed" });
     else res.end();
   }
@@ -198,6 +201,7 @@ router.get("/public/tts", async (req, res) => {
     await streamTts(text, res);
   } catch (err) {
     logger.error({ err }, "TTS error");
+    recordDebugEvent("public/tts", err);
     if (!res.headersSent) res.status(500).json({ error: "TTS failed" });
     else res.end();
   }
@@ -232,6 +236,7 @@ router.get("/public/voice-session", async (req, res) => {
     res.json({ signedUrl: data.signed_url ?? null, agentId });
   } catch (err) {
     logger.error({ err }, "Voice-Session error");
+    recordDebugEvent("public/voice-session", err);
     res.status(500).json({ error: "Voice-Session failed" });
   }
 });
@@ -245,11 +250,18 @@ router.post("/public/llm/v1/chat/completions", async (req, res) => {
   try {
     const token = process.env.ELEVENLABS_LLM_TOKEN;
     if (!token) {
+      recordDebugEvent("public/llm", "ELEVENLABS_LLM_TOKEN fehlt — 503 an Aufrufer");
       return void res.status(503).json({ error: "Custom LLM nicht konfiguriert (ELEVENLABS_LLM_TOKEN fehlt)" });
     }
     const header = req.headers.authorization;
     const provided = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
-    if (provided !== token) return void res.status(401).json({ error: "Unauthorized" });
+    if (provided !== token) {
+      recordDebugEvent(
+        "public/llm",
+        `401 Unauthorized — Bearer-Header ${header ? "vorhanden, aber falscher Token" : "fehlt komplett"}`,
+      );
+      return void res.status(401).json({ error: "Unauthorized" });
+    }
 
     if (!rateLimit(req, 60, 5 * 60 * 1000)) {
       return void res.status(429).json({ error: "Rate limit" });
@@ -364,6 +376,7 @@ ${extraSystem ? `\nZUSATZKONTEXT DES VOICE-AGENTEN:\n${extraSystem}` : ""}`;
     res.end();
   } catch (err) {
     logger.error({ err }, "Custom LLM error");
+    recordDebugEvent("public/llm", err);
     const detail = err instanceof Error ? err.message : String(err);
     if (!res.headersSent) {
       res.status(500).json({ error: "LLM failed", detail });

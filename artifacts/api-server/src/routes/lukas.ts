@@ -12,6 +12,7 @@ import { eq, desc, ilike, and } from "drizzle-orm";
 import { getLukasStatus, DEFAULT_STATUS } from "../lib/lukas-status";
 import { getCharacter } from "../lib/emotion-engine";
 import { runReflection } from "../lib/reflection";
+import { getDebugLog } from "../lib/debug-log";
 
 const router = Router();
 
@@ -346,6 +347,14 @@ router.post("/lukas/reflect", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: "Failed to reflect" });
   }
+});
+
+// ── DEBUG-LOG ──────────────────────────────────────────────────────────────
+// Letzte Fehler aus Chat/Public-Chat/Custom-LLM/TTS/Voice-Session — im
+// Dashboard einsehbar, damit Fehlerursachen (z.B. beim ElevenLabs-Test) ohne
+// Railway-Log-Zugriff sichtbar sind. In-Memory, ueberlebt keinen Neustart.
+router.get("/lukas/debug-log", (req, res) => {
+  res.json(getDebugLog());
 });
 
 export default router;

@@ -8,7 +8,8 @@ import {
   MessageSquare,
   Film,
   TerminalSquare,
-  LogOut
+  LogOut,
+  AlertTriangle
 } from "lucide-react";
 
 function handleLogout() {
@@ -27,6 +28,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/memory", label: "Memory Bank", icon: Brain },
     { href: "/goals", label: "Directives", icon: Target },
     { href: "/diary", label: "Logs", icon: BookOpen },
+    { href: "/diagnostics", label: "Diagnose", icon: AlertTriangle },
   ];
 
   return (

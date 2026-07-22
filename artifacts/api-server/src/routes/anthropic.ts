@@ -16,6 +16,7 @@ import { getLukasStatus, DEFAULT_STATUS } from "../lib/lukas-status";
 import { getEmotionalContext, getCharacterContext, recordEmotion } from "../lib/emotion-engine";
 import { maybeReflect } from "../lib/reflection";
 import { logger } from "../lib/logger";
+import { recordDebugEvent } from "../lib/debug-log";
 
 const router = Router();
 
@@ -330,6 +331,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     maybeReflect();
   } catch (err: unknown) {
     logger.error({ err }, "Chat error");
+    recordDebugEvent("chat", err);
     if (!res.headersSent) {
       res.status(500).json({ error: "Failed to send message" });
     } else {

@@ -12,6 +12,7 @@ import Memory from "@/pages/memory";
 import Goals from "@/pages/goals";
 import Diary from "@/pages/diary";
 import Studio from "@/pages/studio";
+import Diagnostics from "@/pages/diagnostics";
 
 const queryClient = new QueryClient();
 
@@ -25,6 +26,7 @@ function Router() {
         <Route path="/goals" component={Goals} />
         <Route path="/diary" component={Diary} />
         <Route path="/studio" component={Studio} />
+        <Route path="/diagnostics" component={Diagnostics} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

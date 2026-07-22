@@ -34,6 +34,27 @@ function rateLimit(req: Request, limit: number, windowMs: number): boolean {
   return bucket.count <= limit;
 }
 
+// ── TOKEN-CHECK (Diagnose, kein Login noetig) ──────────────────────────────
+// Zeigt NIE den echten Wert, nur ein Fingerabdruck (Laenge, erstes/letztes
+// Zeichen, Leerzeichen/Anfuehrungszeichen-Warnung) -- damit man im Browser
+// vergleichen kann, ob der eingetippte Zugangscode wirklich dem entspricht,
+// was der Server als LUKAS_API_TOKEN sieht, ohne Railway-Logs zu brauchen.
+router.get("/public/token-check", (req, res) => {
+  const token = process.env.LUKAS_API_TOKEN;
+  if (!token) {
+    return void res.json({ set: false });
+  }
+  res.json({
+    set: true,
+    length: token.length,
+    firstChar: token[0],
+    lastChar: token[token.length - 1],
+    hasLeadingWhitespace: token !== token.trimStart(),
+    hasTrailingWhitespace: token !== token.trimEnd(),
+    hasSurroundingQuotes: /^["']/.test(token) || /["']$/.test(token),
+  });
+});
+
 async function buildPublicSystemPrompt(): Promise<string> {
   // Besucher bekommen NUR kuratierte Fakten: Erinnerungen mit Kategorie "public".
   const publicMemories = await db

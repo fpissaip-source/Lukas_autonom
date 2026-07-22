@@ -354,6 +354,14 @@ ${extraSystem ? `\nZUSATZKONTEXT DES VOICE-AGENTEN:\n${extraSystem}` : ""}`;
         messages: messagesForModel,
       });
       const text = response.choices[0]?.message?.content ?? "";
+      if (!text.trim()) {
+        const lastUserMsg = String(convo[convo.length - 1]?.content ?? "").slice(0, 200);
+        recordDebugEvent(
+          "public/llm",
+          `Leere Antwort von OpenAI (model=${PUBLIC_MODEL}, finish_reason=${response.choices[0]?.finish_reason}, ` +
+            `nachrichten=${messagesForModel.length}, letzte_user_message="${lastUserMsg}")`,
+        );
+      }
       return void res.json({
         id,
         object: "chat.completion",
@@ -395,9 +403,24 @@ ${extraSystem ? `\nZUSATZKONTEXT DES VOICE-AGENTEN:\n${extraSystem}` : ""}`;
       stream: true,
     });
 
+    let receivedAnyContent = false;
+    let lastFinishReason: string | null | undefined;
     for await (const ev of stream) {
       const delta = ev.choices[0]?.delta?.content;
-      if (delta) chunk({ content: delta });
+      if (delta) {
+        receivedAnyContent = true;
+        chunk({ content: delta });
+      }
+      if (ev.choices[0]?.finish_reason) lastFinishReason = ev.choices[0].finish_reason;
+    }
+
+    if (!receivedAnyContent) {
+      const lastUserMsg = String(convo[convo.length - 1]?.content ?? "").slice(0, 200);
+      recordDebugEvent(
+        "public/llm",
+        `Leerer Stream von OpenAI (model=${PUBLIC_MODEL}, finish_reason=${lastFinishReason}, ` +
+          `nachrichten=${messagesForModel.length}, letzte_user_message="${lastUserMsg}")`,
+      );
     }
 
     chunk({}, "stop");

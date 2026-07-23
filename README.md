@@ -188,6 +188,13 @@ schreiben **und sprechen**:
   (ElevenLabs ruft ihn server-seitig auf, ohne Browser-Origin — er bleibt über
   `ELEVENLABS_LLM_TOKEN` geschützt).
 - **Was Besucher wissen dürfen**, steuerst du über Erinnerungen mit Kategorie `public` — nur die fließen in den öffentlichen System-Prompt. Private Memories bleiben privat.
+  Eine erste Runde konkreter Projekt-Fakten (inkl. SEO-Details zu TaxiBB Essen, GuardianGrid,
+  StudyForge, Cho Time, TENSA. etc.) wird beim Serverstart automatisch importiert
+  (`lib/seed-public-facts.ts`, pro Fakt idempotent — läuft bei jedem Redeploy gefahrlos erneut).
+  Weitere Fakten jederzeit über `POST /api/lukas/memories` (Kategorie `public`) ergänzen.
+- **Vorschlags-Chips**: Beim ersten Öffnen zeigt das Widget ein paar Starter-Fragen; nach
+  jeder Antwort schlägt der Server (kurzer Zusatz-Call, `suggestFollowUp` in `routes/public.ts`)
+  EINE zur gerade gegebenen Antwort passende Folgefrage vor, die als Chip erscheint.
 - Die Portfolio-Seite braucht HTTPS (Mikrofon-Zugriff).
 
 ## Gedächtnisarchitektur (Vier Schichten)

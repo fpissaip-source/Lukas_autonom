@@ -128,6 +128,35 @@ REGELN FÜR DEN ÖFFENTLICHEN MODUS:
 - Kein Markdown, keine Listen — natürliche gesprochene Sätze.`;
 }
 
+// Kurzer, günstiger Zusatz-Call NACH der eigentlichen Antwort: schlägt EINE
+// natürliche Folgefrage vor, passend zum gerade geführten Austausch — nicht
+// generisch, sondern spezifisch auf das an, was Lukas gerade beantwortet hat.
+// Fehler hier dürfen den Chat nie kaputt machen (siehe .catch am Call-Ort).
+async function suggestFollowUp(
+  convo: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  answer: string,
+): Promise<string | null> {
+  const lastUser = convo[convo.length - 1];
+  const resp = await openai.chat.completions.create({
+    model: PUBLIC_MODEL,
+    max_completion_tokens: 40,
+    messages: [
+      {
+        role: "system",
+        content:
+          "Du schlägst EINE kurze, natürliche Folgefrage vor (max. 12 Wörter), die ein Website-Besucher als " +
+          "Nächstes an Lukas stellen könnte — passend zum gerade geführten Austausch, nicht generisch. " +
+          "Antworte NUR mit der Frage selbst (keine Anführungszeichen, kein Präfix), in derselben Sprache " +
+          "wie das Gespräch (Deutsch oder Englisch).",
+      },
+      { role: "user", content: `Besucher fragte: "${lastUser?.content ?? ""}"` },
+      { role: "assistant", content: answer.slice(0, 800) },
+    ],
+  });
+  const suggestion = resp.choices[0]?.message?.content?.trim() ?? "";
+  return suggestion.length > 0 && suggestion.length < 160 ? suggestion : null;
+}
+
 // ── PUBLIC CHAT (SSE) ──────────────────────────────────────────────────────
 // Stateless: der Client schickt die bisherige Konversation mit.
 router.post("/public/chat", async (req, res) => {
@@ -174,9 +203,18 @@ router.post("/public/chat", async (req, res) => {
       stream: true,
     });
 
+    let full = "";
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta?.content;
-      if (delta) res.write(`data: ${JSON.stringify({ content: delta })}\n\n`);
+      if (delta) {
+        full += delta;
+        res.write(`data: ${JSON.stringify({ content: delta })}\n\n`);
+      }
+    }
+
+    if (full.trim()) {
+      const suggestion = await suggestFollowUp(convo, full).catch(() => null);
+      if (suggestion) res.write(`data: ${JSON.stringify({ suggestion })}\n\n`);
     }
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);

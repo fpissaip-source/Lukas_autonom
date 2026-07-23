@@ -102,6 +102,10 @@
     ".lukas-ic:disabled{opacity:.4;cursor:default}" +
     ".lukas-ic.rec{background:#dc2626;border-color:#dc2626;color:#fff;animation:lukas-pulse 1s infinite}" +
     ".lukas-status{font-size:11px;color:var(--lukas-muted);text-align:center;padding:2px 0}" +
+    ".lukas-suggest{display:flex;flex-wrap:wrap;gap:6px;padding:0 14px 10px}" +
+    ".lukas-suggest:empty{display:none;padding:0}" +
+    ".lukas-chip{border:1px solid var(--lukas-border);background:var(--lukas-bubble);color:var(--lukas-text);border-radius:999px;padding:6px 12px;font-size:12px;line-height:1.3;cursor:pointer;text-align:left;transition:border-color .15s,background .15s}" +
+    ".lukas-chip:hover{border-color:var(--lukas-accent);background:var(--lukas-panel-bg)}" +
     "@keyframes lukas-pulse{50%{opacity:.55}}";
   var style = document.createElement("style");
   style.textContent = css;
@@ -114,6 +118,7 @@
     '<div class="lukas-panel">' +
     '<div class="lukas-head"><div class="lukas-dot"></div><div><b></b><br><span></span></div></div>' +
     '<div class="lukas-msgs"></div>' +
+    '<div class="lukas-suggest"></div>' +
     '<div class="lukas-status" style="display:none"></div>' +
     '<form class="lukas-form">' +
     '<input class="lukas-in" autocomplete="off">' +
@@ -128,6 +133,7 @@
   root.querySelector(".lukas-btn").textContent = cfg.buttonIcon;
   var panel = root.querySelector(".lukas-panel");
   var msgs = root.querySelector(".lukas-msgs");
+  var suggestBox = root.querySelector(".lukas-suggest");
   var statusBar = root.querySelector(".lukas-status");
   var form = root.querySelector(".lukas-form");
   var input = root.querySelector(".lukas-in");
@@ -140,12 +146,49 @@
   var busy = false;
   var voiceMode = false;
 
+  // ── Vorschlags-Chips: ein paar Starter-Fragen beim ersten Öffnen, danach
+  // je EINE konkrete Folgefrage passend zur letzten Antwort (kommt vom
+  // Server mit, siehe `suggestion` im SSE-Stream unten).
+  var isEnglish = document.documentElement.lang && document.documentElement.lang.indexOf("en") === 0;
+  var STARTER_QUESTIONS = isEnglish
+    ? [
+        "What is TaxiBB Essen?",
+        "Tell me about GuardianGrid",
+        "What are you working on right now?",
+        "How did you build this portfolio?",
+      ]
+    : [
+        "Was ist TaxiBB Essen?",
+        "Erzähl mir von GuardianGrid",
+        "Woran arbeitest du gerade?",
+        "Wie hast du das Portfolio gebaut?",
+      ];
+
+  function renderChips(questions) {
+    suggestBox.innerHTML = "";
+    (questions || []).forEach(function (q) {
+      if (!q) return;
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "lukas-chip";
+      b.textContent = q;
+      b.addEventListener("click", function () {
+        voiceMode = false;
+        send(q);
+      });
+      suggestBox.appendChild(b);
+    });
+  }
+
   mainBtn.addEventListener("click", function () {
     var open = panel.style.display === "flex";
     panel.style.display = open ? "none" : "flex";
     if (!open) {
       input.focus();
-      if (!history.length) addMsg("a", cfg.greeting);
+      if (!history.length) {
+        addMsg("a", cfg.greeting);
+        renderChips(STARTER_QUESTIONS);
+      }
     }
   });
 
@@ -191,12 +234,14 @@
     if (busy || !text.trim()) return;
     busy = true;
     sendBtn.disabled = true;
+    renderChips(null);
     addMsg("user", text);
     history.push({ role: "user", content: text });
 
     var el = addMsg("a", "…");
     var full = "";
     var spoken = 0;
+    var followUp = null;
 
     fetch(API + "/api/public/chat", {
       method: "POST",
@@ -228,6 +273,8 @@
                       speak(m[0]);
                       spoken += m[0].length;
                     }
+                  } else if (p.suggestion) {
+                    followUp = p.suggestion;
                   }
                 } catch (e) {}
               });
@@ -244,6 +291,7 @@
           if (spoken < full.length) speak(full.slice(spoken));
           history.push({ role: "assistant", content: full });
           if (history.length > 20) history = history.slice(-20);
+          if (followUp) renderChips([followUp]);
         }
       })
       .catch(function () {

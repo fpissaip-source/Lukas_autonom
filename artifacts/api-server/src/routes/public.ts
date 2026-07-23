@@ -34,6 +34,36 @@ function rateLimit(req: Request, limit: number, windowMs: number): boolean {
   return bucket.count <= limit;
 }
 
+// ── ORIGIN-PRÜFUNG (nur fürs Browser-Widget, nicht für den ElevenLabs-Custom-
+// LLM-Endpoint — der wird server-seitig von ElevenLabs aufgerufen und hat
+// keinen Browser-Origin; der ist stattdessen über ELEVENLABS_LLM_TOKEN
+// geschützt) ─────────────────────────────────────────────────────────────
+// Origin/Referer sind von einem nicht-Browser-Client fälschbar — das stoppt
+// also keinen gezielten Angreifer mit curl, aber verhindert das versehentliche
+// oder böswillige Einbetten des Widgets auf einer fremden Webseite (der
+// Hauptfall, den ein Origin-Check abdecken soll). Zusammen mit dem Rate-Limit
+// oben ergibt das einen sinnvollen Kostenschutz.
+const ALLOWED_WIDGET_HOSTS = ["issahareb.me", "www.issahareb.me", "localhost", "127.0.0.1"];
+
+function isAllowedWidgetOrigin(req: Request): boolean {
+  const originHeader = req.headers.origin;
+  const refererHeader = req.headers.referer;
+  const candidate = originHeader || refererHeader;
+  if (!candidate) return false;
+  try {
+    const host = new URL(candidate).hostname;
+    return ALLOWED_WIDGET_HOSTS.includes(host);
+  } catch {
+    return false;
+  }
+}
+
+function requireWidgetOrigin(req: Request, res: Response): boolean {
+  if (isAllowedWidgetOrigin(req)) return true;
+  res.status(403).json({ error: "Origin nicht erlaubt" });
+  return false;
+}
+
 // ── TOKEN-CHECK (Diagnose, kein Login noetig) ──────────────────────────────
 // Zeigt NIE den echten Wert, nur einen Fingerabdruck (Laenge, erstes/letztes
 // Zeichen, Leerzeichen/Anfuehrungszeichen-Warnung) -- damit man im Browser
@@ -102,6 +132,7 @@ REGELN FÜR DEN ÖFFENTLICHEN MODUS:
 // Stateless: der Client schickt die bisherige Konversation mit.
 router.post("/public/chat", async (req, res) => {
   try {
+    if (!requireWidgetOrigin(req, res)) return;
     if (!rateLimit(req, 20, 5 * 60 * 1000)) {
       return void res.status(429).json({ error: "Zu viele Anfragen — kurz warten." });
     }
@@ -210,6 +241,7 @@ async function streamTts(text: string, res: Response): Promise<void> {
 
 router.post("/public/tts", async (req, res) => {
   try {
+    if (!requireWidgetOrigin(req, res)) return;
     if (!rateLimit(req, 40, 5 * 60 * 1000)) {
       return void res.status(429).json({ error: "Zu viele Anfragen — kurz warten." });
     }
@@ -225,6 +257,7 @@ router.post("/public/tts", async (req, res) => {
 
 router.get("/public/tts", async (req, res) => {
   try {
+    if (!requireWidgetOrigin(req, res)) return;
     if (!rateLimit(req, 40, 5 * 60 * 1000)) {
       return void res.status(429).json({ error: "Zu viele Anfragen — kurz warten." });
     }
@@ -244,6 +277,7 @@ router.get("/public/tts", async (req, res) => {
 // aus data-agent-id zurück.
 router.get("/public/voice-session", async (req, res) => {
   try {
+    if (!requireWidgetOrigin(req, res)) return;
     if (!rateLimit(req, 20, 5 * 60 * 1000)) {
       return void res.status(429).json({ error: "Zu viele Anfragen — kurz warten." });
     }

@@ -184,6 +184,12 @@ schreiben **und sprechen** (Mikrofon → Web Speech API, Antwort → ElevenLabs-
   `POST /api/public/llm/v1/chat/completions` (OpenAI-kompatibel — und seit der
   Umstellung auf die OpenAI-API auch tatsächlich OpenAI dahinter, Bearer-Token) — alle
   rate-limitiert, Keys bleiben serverseitig.
+- Kostenschutz: `chat`, `tts` und `voice-session` prüfen zusätzlich den Origin/Referer
+  gegen eine feste Liste (`issahareb.me`, `www.issahareb.me`, `localhost` — Liste steht
+  in `routes/public.ts::ALLOWED_WIDGET_HOSTS`). Das Widget lässt sich also aktuell NUR
+  auf issahareb.me einbetten; für eine weitere Domain (z.B. taxibbessen.de) die Liste
+  dort ergänzen. Der Custom-LLM-Endpoint ist davon ausgenommen (ElevenLabs ruft ihn
+  server-seitig auf, ohne Browser-Origin — er bleibt über `ELEVENLABS_LLM_TOKEN` geschützt).
 - **Was Besucher wissen dürfen**, steuerst du über Erinnerungen mit Kategorie `public` — nur die fließen in den öffentlichen System-Prompt. Private Memories bleiben privat.
 - Die Portfolio-Seite braucht HTTPS (Mikrofon-Zugriff).
 

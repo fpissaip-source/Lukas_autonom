@@ -121,7 +121,7 @@ Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
 | `ELEVENLABS_LLM_TOKEN` | Selbst erzeugter Zufallsstring; schützt den Custom-LLM-Endpoint `/api/public/llm/v1` — denselben Wert in der ElevenLabs-Konsole als API-Key eintragen |
 | `LUKAS_PUBLIC_MODEL` | Modell für den öffentlichen Widget-Chat (Standard `gpt-4o-mini` für minimale Latenz) |
 | `LUKAS_REALTIME_MODEL` | Modell für den privaten Sprachchat im Dashboard (Standard `gpt-realtime-2.1`, Speech-to-Speech, ~200-300ms Latenz). Nutzt denselben `AI_INTEGRATIONS_OPENAI_API_KEY`. |
-| `LUKAS_REALTIME_VOICE` | Stimme für den privaten Sprachchat (Standard `cedar` = männlich; `marin` = weiblich; weitere: `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`) |
+| `LUKAS_REALTIME_VOICE` | Stimme für den privaten Sprachchat (Standard `ash` = männlich, neutral). `cedar`/`marin` sind neue charakterstarke Stimmen mit ausgeprägtem, auf Deutsch ungewohnt wirkendem Timbre. Weitere: `alloy`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse` |
 
 ## Sprachchat im Dashboard (privat)
 

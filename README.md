@@ -115,36 +115,44 @@ Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
 | `HIGGSFIELD_API_KEY` | Optional: Higgsfield Media-Generierung |
 | `LUKAS_API_TOKEN` | Optional: schützt alle `/api`-Routen (außer `/api/healthz` und `/api/public/*`) per Bearer-Token. Sobald gesetzt, zeigt das Dashboard beim Aufruf automatisch einen Login-Screen — dort den Token eingeben, kein Dev-Console-Zugriff nötig. |
 | `VPS_DATABASE_URL` | Optional: Postgres des VPS-Trading-Systems (Fallback: `DATABASE_URL`) |
-| `ELEVENLABS_API_KEY` | Stimme für das Portfolio-Widget (ElevenLabs, Flash v2.5 ≈ 75 ms Latenz) |
-| `ELEVENLABS_VOICE_ID` | Deine gewählte Stimme aus dem ElevenLabs VoiceLab |
-| `ELEVENLABS_AGENT_ID` | ElevenLabs-Agent für die Sprach-Konversation (Issas Agent „L.U.K.A.S.": `agent_4501ky1q2tgvepx906k5waew8bwk`) |
-| `ELEVENLABS_LLM_TOKEN` | Selbst erzeugter Zufallsstring; schützt den Custom-LLM-Endpoint `/api/public/llm/v1` — denselben Wert in der ElevenLabs-Konsole als API-Key eintragen |
-| `LUKAS_PUBLIC_MODEL` | Modell für den öffentlichen Widget-Chat (Standard `gpt-4o-mini` für minimale Latenz) |
-| `LUKAS_REALTIME_MODEL` | Modell für den privaten Sprachchat im Dashboard (Standard `gpt-realtime-2.1`, Speech-to-Speech, ~200-300ms Latenz). Nutzt denselben `AI_INTEGRATIONS_OPENAI_API_KEY`. |
-| `LUKAS_REALTIME_VOICE` | Stimme für den privaten Sprachchat (Standard `ash` = männlich, neutral). `cedar`/`marin` sind neue charakterstarke Stimmen mit ausgeprägtem, auf Deutsch ungewohnt wirkendem Timbre. Weitere: `alloy`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse` |
+| `ELEVENLABS_API_KEY` | Optional/Legacy: nur noch für `ELEVENLABS_VOICE_ID`-TTS und den ungenutzten `/api/public/voice-session`-Endpoint (siehe unten) |
+| `ELEVENLABS_VOICE_ID` | Deine gewählte Stimme aus dem ElevenLabs VoiceLab (nur für `data-voice="classic"`-TTS) |
+| `ELEVENLABS_AGENT_ID` | Legacy, aktuell ungenutzt (siehe `/api/public/voice-session` unten) |
+| `ELEVENLABS_LLM_TOKEN` | Nur falls du zusätzlich einen ElevenLabs-Agent (Custom LLM) betreiben willst — schützt `/api/public/llm/v1` |
+| `LUKAS_PUBLIC_MODEL` | Modell für den öffentlichen Widget-**Text**-Chat (Standard `gpt-4o-mini` für minimale Latenz) |
+| `LUKAS_REALTIME_MODEL` | Modell für **beide** Sprachkanäle — privater Dashboard-Chat UND öffentliches Widget (Standard `gpt-realtime-2.1`, Speech-to-Speech, ~200-300ms Latenz). Nutzt denselben `AI_INTEGRATIONS_OPENAI_API_KEY`. |
+| `LUKAS_REALTIME_VOICE` | Stimme für beide Sprachkanäle (Standard `ash` = männlich, neutral). `cedar`/`marin` sind neue charakterstarke Stimmen mit ausgeprägtem, auf Deutsch ungewohnt wirkendem Timbre. Weitere: `alloy`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse` |
 
-## Sprachchat im Dashboard (privat)
+## Sprachchat: OpenAI Realtime (privat UND öffentlich)
 
-Auf der Comm-Link-Seite des Dashboards gibt es oben einen "Sprechen"-Button, der direkt
-mit Lukas per Sprache spricht — über die **OpenAI Realtime API** (Speech-to-Speech,
-`gpt-realtime-2.1`), nicht über ElevenLabs. Grund: Realtime spricht und hört gleichzeitig
-im selben Modell, ohne Umweg über separate STT/TTS-Schritte, und antwortet dadurch im
-Millisekunden- statt Sekundenbereich.
+Sowohl der "Sprechen"-Button im privaten Dashboard (Comm-Link-Seite) als auch die Stimme
+im öffentlichen Portfolio-Widget laufen über die **OpenAI Realtime API**
+(Speech-to-Speech, `gpt-realtime-2.1`) — nicht mehr über ElevenLabs. Grund: Realtime
+spricht und hört gleichzeitig im selben Modell, ohne Umweg über separate STT/TTS-Schritte,
+und antwortet dadurch im Millisekunden- statt Sekundenbereich.
 
-Ablauf: Der Browser holt sich über `POST /api/lukas/realtime-session` ein kurzlebiges
-Client-Secret (`ek_...`, 10 Minuten gültig). Lukas' vollständiger privater System-Prompt
-(Erinnerungen, Ziele, Tagebuch, Emotionen, Charakter) wird dabei serverseitig in die
-Session-Konfiguration eingebettet — der Browser bekommt nur das Secret, nie den
-Prompt-Text selbst. Das Frontend verbindet sich damit direkt per WebRTC zu OpenAI
-(`@openai/agents-realtime`).
+Beide Kanäle funktionieren nach demselben Muster: Der Browser holt sich ein kurzlebiges
+Client-Secret vom Server, das SDK verbindet sich damit direkt per WebRTC zu OpenAI
+(`@openai/agents-realtime`) — der eigentliche Prompt-Text verlässt nie den Server:
 
-Das **öffentliche Portfolio-Widget** bleibt bewusst auf ElevenLabs Agents (siehe unten) —
-das ist bereits gut eingespielt und dort nicht Teil dieser Umstellung.
+- **Privat** (`POST /api/lukas/realtime-session`, hinter `lukasAuth`): bettet Lukas'
+  vollständigen privaten System-Prompt (Erinnerungen, Ziele, Tagebuch, Emotionen,
+  Charakter) serverseitig ein. Client-Secret 10 Minuten gültig.
+- **Öffentlich** (`POST /api/public/realtime-session`, im Widget): bettet nur den
+  öffentlichen System-Prompt ein (kuratierte `public`-Erinnerungen) — nie private Daten.
+  Client-Secret 5 Minuten gültig, zusätzlich Origin-Check + Rate-Limit (siehe unten).
+  Da ein einmal verbundenes Realtime-Gespräch sonst beliebig lange laufen und damit
+  beliebig teuer werden könnte, kappt das Widget selbst jedes Gespräch nach ein paar
+  Minuten hart (`SESSION_MAX_MS` in `widget.js`).
+
+`ELEVENLABS_API_KEY`/`ELEVENLABS_AGENT_ID` und der Endpoint `GET /api/public/voice-session`
+sind dadurch aktuell ungenutzt (Legacy) — der bleibt im Code, falls du ElevenLabs Agents
+später doch wieder brauchst, wird aber vom Widget nicht mehr aufgerufen.
 
 ## Portfolio-Widget (issahareb.me)
 
 Lukas lässt sich mit einer Zeile auf jeder Webseite einbetten — Besucher können mit ihm
-schreiben **und sprechen** (Mikrofon → Web Speech API, Antwort → ElevenLabs-Stimme):
+schreiben **und sprechen**:
 
 ```html
 <script src="https://DEINE-LUKAS-DOMAIN/widget.js" data-api="https://DEINE-LUKAS-DOMAIN" defer></script>
@@ -155,41 +163,30 @@ schreiben **und sprechen** (Mikrofon → Web Speech API, Antwort → ElevenLabs-
   (`data-theme`, `data-accent`, `data-radius`, `data-position`, `data-title`, …); zusätzlich
   volle CSS-Kontrolle über stabile Klassen (`.lukas-btn`, `.lukas-panel`, `.lukas-m`, …) —
   kein Shadow-DOM, die Host-Seite kann alles überschreiben.
-- **Stimme (empfohlen): ElevenLabs Agents** — `data-voice="agent"` + `data-agent-id="…"`.
-  WebRTC mit Sub-Sekunden-Latenz, echtes Turn-Taking. Issas Agent heißt **L.U.K.A.S.**
-  (Agent-ID `agent_4501ky1q2tgvepx906k5waew8bwk`); fertiges Embed für die Portfolio-Seite:
+- **Stimme (empfohlen): OpenAI Realtime** — `data-voice="agent"`. WebRTC, Millisekunden-
+  Latenz, echtes Turn-Taking. Braucht keine Agent-ID mehr (nur noch `AI_INTEGRATIONS_OPENAI_API_KEY`
+  serverseitig):
 
   ```html
   <script src="https://DEINE-LUKAS-DOMAIN/widget.js"
           data-api="https://DEINE-LUKAS-DOMAIN"
           data-voice="agent"
-          data-agent-id="agent_4501ky1q2tgvepx906k5waew8bwk"
           defer></script>
   ```
 
-  Damit der Agent wirklich Lukas ist (und nicht das Standard-LLM von ElevenLabs), einmalig
-  in der ElevenLabs-Konsole → Agent **L.U.K.A.S.** → LLM → **Custom LLM** eintragen:
-  1. Server-URL: `https://DEINE-DOMAIN/api/public/llm/v1`
-  2. Model-ID: `lukas` (beliebig, wird serverseitig ignoriert)
-  3. API-Key: exakt der Wert von `ELEVENLABS_LLM_TOKEN` aus den Railway-Variablen
-     (ohne ihn antwortet der Endpoint mit 401/503)
-
-  Private Agents bekommen die Verbindung über `GET /api/public/voice-session` (signed URL,
-  braucht `ELEVENLABS_API_KEY` + `ELEVENLABS_AGENT_ID`). Alternativ gibt es ElevenLabs'
-  eigenes `<elevenlabs-convai>`-Widget — funktioniert auch, ist aber im Design kaum
-  anpassbar; unser `widget.js` ist die frei gestaltbare Variante.
-- Fallback `data-voice="classic"`: Browser-Spracherkennung + `GET /api/public/tts`
-  (progressives Streaming — spielt ab, während noch geladen wird).
+- Fallback/Standard `data-voice="classic"`: Browser-Spracherkennung + `GET /api/public/tts`
+  (progressives Streaming — spielt ab, während noch geladen wird). Braucht keine Konfiguration.
 - Endpoints: `POST /api/public/chat` (SSE), `GET|POST /api/public/tts`,
-  `POST /api/public/llm/v1/chat/completions` (OpenAI-kompatibel — und seit der
-  Umstellung auf die OpenAI-API auch tatsächlich OpenAI dahinter, Bearer-Token) — alle
-  rate-limitiert, Keys bleiben serverseitig.
-- Kostenschutz: `chat`, `tts` und `voice-session` prüfen zusätzlich den Origin/Referer
-  gegen eine feste Liste (`issahareb.me`, `www.issahareb.me`, `localhost` — Liste steht
-  in `routes/public.ts::ALLOWED_WIDGET_HOSTS`). Das Widget lässt sich also aktuell NUR
-  auf issahareb.me einbetten; für eine weitere Domain (z.B. taxibbessen.de) die Liste
-  dort ergänzen. Der Custom-LLM-Endpoint ist davon ausgenommen (ElevenLabs ruft ihn
-  server-seitig auf, ohne Browser-Origin — er bleibt über `ELEVENLABS_LLM_TOKEN` geschützt).
+  `POST /api/public/realtime-session` (OpenAI-Realtime-Client-Secret fürs Voice-Widget),
+  `POST /api/public/llm/v1/chat/completions` (OpenAI-kompatibel, für einen optionalen
+  ElevenLabs-Agent als Custom LLM) — alle rate-limitiert, Keys bleiben serverseitig.
+- Kostenschutz: `chat`, `tts`, `voice-session` und `realtime-session` prüfen zusätzlich
+  den Origin/Referer gegen eine feste Liste (`issahareb.me`, `www.issahareb.me`,
+  `localhost` — Liste steht in `routes/public.ts::ALLOWED_WIDGET_HOSTS`). Das Widget lässt
+  sich also aktuell NUR auf issahareb.me einbetten; für eine weitere Domain (z.B.
+  taxibbessen.de) die Liste dort ergänzen. Der Custom-LLM-Endpoint ist davon ausgenommen
+  (ElevenLabs ruft ihn server-seitig auf, ohne Browser-Origin — er bleibt über
+  `ELEVENLABS_LLM_TOKEN` geschützt).
 - **Was Besucher wissen dürfen**, steuerst du über Erinnerungen mit Kategorie `public` — nur die fließen in den öffentlichen System-Prompt. Private Memories bleiben privat.
 - Die Portfolio-Seite braucht HTTPS (Mikrofon-Zugriff).
 

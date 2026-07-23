@@ -27,11 +27,13 @@
  * --lukas-height --lukas-font
  *
  * ── Stimme ─────────────────────────────────────────────────────────────────
- *   data-voice="agent"   + data-agent-id="…": ElevenLabs Agents (WebRTC,
- *                        Sub-Sekunden-Latenz, echtes Turn-Taking). SDK wird
- *                        erst beim ersten Mikro-Klick geladen.
- *   data-voice="classic" Browser-Spracherkennung + Server-TTS (Fallback,
- *                        automatisch wenn keine agent-id vorhanden).
+ *   data-voice="agent"   OpenAI Realtime API (WebRTC, echtes Speech-to-
+ *                        Speech, Millisekunden-Latenz). SDK wird erst beim
+ *                        ersten Mikro-Klick per CDN geladen; das Gespräch
+ *                        ist aus Kostenschutz-Gründen auf ein paar Minuten
+ *                        pro Session gedeckelt.
+ *   data-voice="classic" Browser-Spracherkennung + Server-TTS (Standard,
+ *                        braucht keine Konfiguration).
  *   data-voice="off"     Mikro-Button ausblenden.
  */
 (function () {
@@ -59,8 +61,7 @@
       ds.greeting ||
       "Hey! Ich bin Lukas, Issas KI-Agent. Frag mich etwas über ihn oder seine Projekte — tippen oder aufs Mikro drücken.",
     placeholder: ds.placeholder || "Frag mich etwas über Issa…",
-    voice: ds.voice || (ds.agentId ? "agent" : "classic"),
-    agentId: ds.agentId || "",
+    voice: ds.voice || "classic",
   };
 
   var themes = {
@@ -266,30 +267,54 @@
   if (cfg.voice === "off") {
     micBtn.style.display = "none";
   } else if (cfg.voice === "agent") {
-    // ElevenLabs Agents: WebRTC-Konversation mit Lukas' Gehirn (Custom LLM)
-    var conversation = null;
+    // OpenAI Realtime API: echtes Speech-to-Speech, Millisekunden-Latenz
+    // statt ElevenLabs' Cloud-Turnaround. Ephemeres Client-Secret kommt vom
+    // Server (nur der öffentliche System-Prompt fließt dort ein).
+    var session = null;
     var sdkPromise = null;
+    var sessionTimer = null;
+    var seenHistoryIds = {};
+    var SESSION_MAX_MS = 3 * 60 * 1000; // Kostenschutz: harte Kappung pro Gespräch
 
     function loadSdk() {
       if (!sdkPromise) {
-        sdkPromise = import("https://cdn.jsdelivr.net/npm/@elevenlabs/client/+esm");
+        sdkPromise = import("https://cdn.jsdelivr.net/npm/@openai/agents-realtime/+esm");
       }
       return sdkPromise;
     }
 
     function stopAgent() {
-      if (conversation) {
-        var c = conversation;
-        conversation = null;
-        c.endSession().catch(function () {});
+      if (sessionTimer) {
+        window.clearTimeout(sessionTimer);
+        sessionTimer = null;
+      }
+      if (session) {
+        var s = session;
+        session = null;
+        try { s.close(); } catch (e) {}
       }
       micBtn.classList.remove("rec");
       mainBtn.classList.remove("lukas-live");
       setStatus("");
     }
 
+    function handleHistory(history) {
+      (history || []).forEach(function (item) {
+        var id = item.itemId || item.id;
+        if (item.type !== "message" || item.role === "system" || !id || seenHistoryIds[id]) return;
+        var text = "";
+        (item.content || []).forEach(function (c) {
+          text += c.text || c.transcript || "";
+        });
+        text = text.trim();
+        if (!text) return;
+        seenHistoryIds[id] = true;
+        addMsg(item.role === "user" ? "user" : "a", text);
+      });
+    }
+
     micBtn.addEventListener("click", function () {
-      if (conversation) return stopAgent();
+      if (session) return stopAgent();
       micBtn.classList.add("rec");
       setStatus("Verbinde…");
 
@@ -315,40 +340,41 @@
       Promise.all([
         micPromise,
         loadSdk(),
-        fetch(API + "/api/public/voice-session" + (cfg.agentId ? "?agent_id=" + encodeURIComponent(cfg.agentId) : ""))
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .catch(function () { return null; }),
+        fetch(API + "/api/public/realtime-session", { method: "POST" }).then(function (r) {
+          if (!r.ok) throw new Error("Session " + r.status);
+          return r.json();
+        }),
       ])
         .then(function (results) {
           var micOk = results[0];
           var sdk = results[1];
-          var session = results[2];
+          var s = results[2];
           if (!micOk) throw new Error("Mikrofonzugriff verweigert");
-          var opts = {
-            onConnect: function () {
-              mainBtn.classList.add("lukas-live");
-              setStatus("Sprich einfach — Lukas hört zu.");
-            },
-            onDisconnect: function () { stopAgent(); },
-            onError: function () { stopAgent(); addMsg("a", "Sprachverbindung fehlgeschlagen."); },
-            onModeChange: function (m) {
-              setStatus(m && m.mode === "speaking" ? "Lukas spricht…" : "Lukas hört zu…");
-            },
-            onMessage: function (msg) {
-              if (!msg) return;
-              var srcUser = msg.source === "user";
-              var text = msg.message || "";
-              if (text) addMsg(srcUser ? "user" : "a", text);
-            },
-          };
-          if (session && session.signedUrl) opts.signedUrl = session.signedUrl;
-          else if (cfg.agentId) opts.agentId = cfg.agentId;
-          else if (session && session.agentId) opts.agentId = session.agentId;
-          else throw new Error("Keine Agent-ID konfiguriert");
-          return sdk.Conversation.startSession(opts);
-        })
-        .then(function (conv) {
-          conversation = conv;
+
+          var agent = new sdk.RealtimeAgent({ name: "Lukas" });
+          var rt = new sdk.RealtimeSession(agent, { model: s.model });
+
+          rt.on("audio_start", function () {
+            mainBtn.classList.add("lukas-live");
+            setStatus("Lukas spricht…");
+          });
+          rt.on("audio_stopped", function () {
+            setStatus("Lukas hört zu…");
+          });
+          rt.on("history_updated", handleHistory);
+          rt.on("error", function () {
+            stopAgent();
+            addMsg("a", "Sprachverbindung fehlgeschlagen.");
+          });
+
+          return rt.connect({ apiKey: s.value }).then(function () {
+            session = rt;
+            setStatus("Sprich einfach — Lukas hört zu.");
+            sessionTimer = window.setTimeout(function () {
+              stopAgent();
+              addMsg("a", "Die Zeit für dieses Gespräch ist um — gerne nochmal starten!");
+            }, SESSION_MAX_MS);
+          });
         })
         .catch(function (err) {
           stopAgent();

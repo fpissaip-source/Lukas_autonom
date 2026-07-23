@@ -271,10 +271,11 @@ router.get("/public/tts", async (req, res) => {
   }
 });
 
-// ── VOICE-SESSION (ElevenLabs Agents) ──────────────────────────────────────
+// ── VOICE-SESSION (ElevenLabs Agents, Legacy) ──────────────────────────────
+// widget.js ruft das seit der Umstellung auf OpenAI Realtime (siehe
+// /public/realtime-session unten) nicht mehr auf. Bleibt bestehen, falls
+// ElevenLabs Agents als Stimme später wieder gebraucht werden.
 // Liefert dem Widget eine signed_url für private Agents (Key bleibt hier).
-// Ohne API-Key/Agent-ID: 404 → das Widget fällt auf die öffentliche Agent-ID
-// aus data-agent-id zurück.
 router.get("/public/voice-session", async (req, res) => {
   try {
     if (!requireWidgetOrigin(req, res)) return;
@@ -303,6 +304,41 @@ router.get("/public/voice-session", async (req, res) => {
     logger.error({ err }, "Voice-Session error");
     recordDebugEvent("public/voice-session", err);
     res.status(500).json({ error: "Voice-Session failed" });
+  }
+});
+
+// ── REALTIME-SESSION (OpenAI Realtime, öffentliches Widget) ────────────────
+// Liefert dem Widget ein kurzlebiges Client-Secret für echtes Speech-to-
+// Speech (Millisekunden-Latenz statt ElevenLabs' Cloud-Turnaround). Nur der
+// ÖFFENTLICHE System-Prompt (kuratierte public-Memories) wandert in die
+// Session-Konfiguration — nie der private Kontext. Das Secret selbst läuft
+// nach wenigen Minuten ab; die eigentliche Gesprächsdauer deckelt zusätzlich
+// das Widget selbst (siehe widget.js, harte Kappung nach ein paar Minuten),
+// da ein einmal verbundenes Realtime-Gespräch sonst beliebig lang und damit
+// beliebig teuer laufen könnte.
+router.post("/public/realtime-session", async (req, res) => {
+  try {
+    if (!requireWidgetOrigin(req, res)) return;
+    if (!rateLimit(req, 15, 5 * 60 * 1000)) {
+      return void res.status(429).json({ error: "Zu viele Anfragen — kurz warten." });
+    }
+    const instructions = await buildPublicSystemPrompt();
+    const model = process.env.LUKAS_REALTIME_MODEL ?? "gpt-realtime-2.1";
+    const clientSecret = await openai.realtime.clientSecrets.create({
+      session: {
+        type: "realtime",
+        model,
+        instructions,
+        audio: { output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "ash" } },
+      },
+      expires_after: { anchor: "created_at", seconds: 300 },
+    });
+    res.json({ value: clientSecret.value, expiresAt: clientSecret.expires_at, model });
+  } catch (err) {
+    logger.error({ err }, "Public-Realtime-Session error");
+    recordDebugEvent("public/realtime-session", err);
+    const detail = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: "Realtime session failed", detail });
   }
 });
 

@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Trash2, Send, MessageSquare, Loader2, ArrowLeft } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { VoicePanel } from "@/components/voice-panel";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -117,7 +118,9 @@ export default function Chat() {
   const showChat = !isMobile || activeId !== null;
 
   return (
-    <div className="flex h-full min-w-0">
+    <div className="flex flex-col h-full min-w-0">
+      <VoicePanel />
+      <div className="flex flex-1 min-h-0 min-w-0">
       {/* Conversations sidebar */}
       {showList && (
         <div className="w-full md:w-64 border-r border-border flex flex-col bg-card/30 shrink-0">
@@ -246,6 +249,7 @@ export default function Chat() {
         )}
       </div>
       )}
+      </div>
     </div>
   );
 }

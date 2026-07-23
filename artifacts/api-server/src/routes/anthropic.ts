@@ -100,56 +100,56 @@ router.get("/anthropic/conversations/:id/messages", async (req, res) => {
 });
 
 async function buildSystemPrompt(userQuery?: string): Promise<string> {
-  const status = (await getLukasStatus()) ?? { ...DEFAULT_STATUS, updatedAt: new Date() };
+  // Alle unabhängigen DB-/Kontext-Abfragen gleichzeitig starten statt
+  // nacheinander zu warten — spart bei ~7 Roundtrips spürbar Zeit, bevor
+  // der eigentliche (viel teurere) Modell-Aufruf überhaupt losgeht.
+  const [
+    statusRow,
+    importantMemories,
+    recentMemories,
+    activeGoals,
+    recentDiary,
+    emotionalContext,
+    characterContext,
+    relevantContext,
+  ] = await Promise.all([
+    getLukasStatus(),
+    db
+      .select()
+      .from(memoriesTable)
+      .where(gte(memoriesTable.importance, 7))
+      .orderBy(desc(memoriesTable.importance), desc(memoriesTable.createdAt))
+      .limit(10),
+    db.select().from(memoriesTable).orderBy(desc(memoriesTable.createdAt)).limit(10),
+    db.select().from(goalsTable).where(eq(goalsTable.status, "active")).limit(5),
+    db.select().from(diaryTable).orderBy(desc(diaryTable.createdAt)).limit(2),
+    getEmotionalContext(),
+    getCharacterContext(),
+    userQuery
+      ? import("../lib/memory-retrieval")
+          .then(({ memoryContextFor }) => memoryContextFor(userQuery, 6))
+          .then((block) =>
+            block
+              ? `\n\nRELEVANTES WISSEN ZU DIESER NACHRICHT (mit Evidenz-Status — unbelegtes NIE als Fakt behandeln):\n${block}`
+              : "",
+          )
+          .catch((err) => {
+            logger.warn({ err }, "Memory-Retrieval fehlgeschlagen");
+            return "";
+          })
+      : Promise.resolve(""),
+  ]);
+
+  const status = statusRow ?? { ...DEFAULT_STATUS, updatedAt: new Date() };
 
   // Wichtige Erinnerungen (importance ≥ 7) UND die neuesten — nicht nur die
   // neuesten, sonst fallen alte wichtige Erinnerungen aus dem Kontext.
-  const importantMemories = await db
-    .select()
-    .from(memoriesTable)
-    .where(gte(memoriesTable.importance, 7))
-    .orderBy(desc(memoriesTable.importance), desc(memoriesTable.createdAt))
-    .limit(10);
-
-  const recentMemories = await db
-    .select()
-    .from(memoriesTable)
-    .orderBy(desc(memoriesTable.createdAt))
-    .limit(10);
-
   const seen = new Set<number>();
   const memories = [...importantMemories, ...recentMemories].filter((m) => {
     if (seen.has(m.id)) return false;
     seen.add(m.id);
     return true;
   });
-
-  const activeGoals = await db
-    .select()
-    .from(goalsTable)
-    .where(eq(goalsTable.status, "active"))
-    .limit(5);
-
-  const recentDiary = await db
-    .select()
-    .from(diaryTable)
-    .orderBy(desc(diaryTable.createdAt))
-    .limit(2);
-
-  const emotionalContext = await getEmotionalContext();
-  const characterContext = await getCharacterContext();
-
-  // Zur aktuellen Frage passendes Wissen (Claims/Episoden/Memories, bewertet)
-  let relevantContext = "";
-  if (userQuery) {
-    try {
-      const { memoryContextFor } = await import("../lib/memory-retrieval");
-      const block = await memoryContextFor(userQuery, 6);
-      if (block) relevantContext = `\n\nRELEVANTES WISSEN ZU DIESER NACHRICHT (mit Evidenz-Status — unbelegtes NIE als Fakt behandeln):\n${block}`;
-    } catch (err) {
-      logger.warn({ err }, "Memory-Retrieval fehlgeschlagen");
-    }
-  }
 
   const memoryContext = memories.length > 0
     ? `\n\nDEINE ERINNERUNGEN (wichtigste und neueste):\n${memories

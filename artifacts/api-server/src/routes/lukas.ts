@@ -12,7 +12,10 @@ import { eq, desc, ilike, and } from "drizzle-orm";
 import { getLukasStatus, DEFAULT_STATUS } from "../lib/lukas-status";
 import { getCharacter } from "../lib/emotion-engine";
 import { runReflection } from "../lib/reflection";
-import { getDebugLog } from "../lib/debug-log";
+import { getDebugLog, recordDebugEvent } from "../lib/debug-log";
+import { buildSystemPrompt } from "../lib/system-prompt";
+import { openai } from "@workspace/integrations-openai-ai";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -358,6 +361,38 @@ router.get("/lukas/debug-log", async (req, res) => {
     res.json(await getDebugLog());
   } catch (err) {
     res.status(500).json({ error: "Failed to get debug log" });
+  }
+});
+
+// ── REALTIME-SESSION (privater Sprachkanal, OpenAI Realtime) ────────────────
+// Erzeugt ein kurzlebiges Client-Secret fuer OpenAIs Realtime API (Speech-to-
+// Speech, gpt-realtime-2.1) MIT Lukas' vollem privaten Kontext (Erinnerungen,
+// Ziele, Tagebuch, Emotion) als serverseitig hinterlegte Session-Instructions.
+// Der echte OpenAI-Key bleibt auf dem Server; der Browser bekommt nur das
+// kurzlebige Secret (ek_...) und verbindet direkt per WebRTC zu OpenAI --
+// dadurch entfaellt der Umweg ueber unseren Server waehrend des Gesprächs,
+// was fuer echtes Conversational-Tempo (wie ChatGPTs Sprachmodus) noetig ist.
+// Diese Route liegt unter /api (nicht /public/*) und ist damit durch
+// LUKAS_API_TOKEN geschuetzt -- anders als der oeffentliche Custom-LLM-Pfad
+// bekommt dieser Kanal Lukas' VOLLES privates Wissen zu hoeren.
+router.post("/lukas/realtime-session", async (req, res) => {
+  try {
+    const instructions = await buildSystemPrompt();
+    const clientSecret = await openai.realtime.clientSecrets.create({
+      session: {
+        type: "realtime",
+        model: process.env.LUKAS_REALTIME_MODEL ?? "gpt-realtime-2.1",
+        instructions,
+        audio: { output: { voice: "marin" } },
+      },
+      expires_after: { anchor: "created_at", seconds: 600 },
+    });
+    res.json({ value: clientSecret.value, expiresAt: clientSecret.expires_at });
+  } catch (err) {
+    logger.error({ err }, "Realtime-Session error");
+    recordDebugEvent("realtime-session", err);
+    const detail = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: "Realtime session failed", detail });
   }
 });
 

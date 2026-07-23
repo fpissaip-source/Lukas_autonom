@@ -120,6 +120,25 @@ Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
 | `ELEVENLABS_AGENT_ID` | ElevenLabs-Agent für die Sprach-Konversation (Issas Agent „L.U.K.A.S.": `agent_4501ky1q2tgvepx906k5waew8bwk`) |
 | `ELEVENLABS_LLM_TOKEN` | Selbst erzeugter Zufallsstring; schützt den Custom-LLM-Endpoint `/api/public/llm/v1` — denselben Wert in der ElevenLabs-Konsole als API-Key eintragen |
 | `LUKAS_PUBLIC_MODEL` | Modell für den öffentlichen Widget-Chat (Standard `gpt-4o-mini` für minimale Latenz) |
+| `LUKAS_REALTIME_MODEL` | Modell für den privaten Sprachchat im Dashboard (Standard `gpt-realtime-2.1`, Speech-to-Speech, ~200-300ms Latenz). Nutzt denselben `AI_INTEGRATIONS_OPENAI_API_KEY`. |
+
+## Sprachchat im Dashboard (privat)
+
+Auf der Comm-Link-Seite des Dashboards gibt es oben einen "Sprechen"-Button, der direkt
+mit Lukas per Sprache spricht — über die **OpenAI Realtime API** (Speech-to-Speech,
+`gpt-realtime-2.1`), nicht über ElevenLabs. Grund: Realtime spricht und hört gleichzeitig
+im selben Modell, ohne Umweg über separate STT/TTS-Schritte, und antwortet dadurch im
+Millisekunden- statt Sekundenbereich.
+
+Ablauf: Der Browser holt sich über `POST /api/lukas/realtime-session` ein kurzlebiges
+Client-Secret (`ek_...`, 10 Minuten gültig). Lukas' vollständiger privater System-Prompt
+(Erinnerungen, Ziele, Tagebuch, Emotionen, Charakter) wird dabei serverseitig in die
+Session-Konfiguration eingebettet — der Browser bekommt nur das Secret, nie den
+Prompt-Text selbst. Das Frontend verbindet sich damit direkt per WebRTC zu OpenAI
+(`@openai/agents-realtime`).
+
+Das **öffentliche Portfolio-Widget** bleibt bewusst auf ElevenLabs Agents (siehe unten) —
+das ist bereits gut eingespielt und dort nicht Teil dieser Umstellung.
 
 ## Portfolio-Widget (issahareb.me)
 

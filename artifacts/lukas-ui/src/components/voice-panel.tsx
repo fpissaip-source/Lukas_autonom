@@ -1,15 +1,17 @@
 import { useRef, useState } from "react";
+import { RealtimeAgent, RealtimeSession, type RealtimeItem } from "@openai/agents-realtime";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Mic, MicOff, Loader2, Volume2, Ear } from "lucide-react";
 
-// Gleiche Technik wie im Portfolio-Widget (public/widget.js, data-voice="agent"):
-// ElevenLabs Agents per WebRTC, Sub-Sekunden-Latenz, echtes Turn-Taking. Die
-// signierte URL kommt von /api/public/voice-session (nutzt serverseitig
-// ELEVENLABS_AGENT_ID). WICHTIG: Der Agent spricht mit Lukas' OEFFENTLICHER
-// Persona (nur "public"-Erinnerungen, siehe Custom-LLM-Endpoint) — genau wie
-// auf der Portfolio-Seite, nicht mit dem vollen privaten Gedächtnis des
-// Comm-Link-Text-Chats.
+// Echter privater Sprachkanal: OpenAIs Realtime API (Speech-to-Speech,
+// gpt-realtime-2.1). Der Browser verbindet per WebRTC DIREKT zu OpenAI mit
+// einem kurzlebigen Client-Secret von /api/lukas/realtime-session -- kein
+// Umweg mehr ueber unseren Server waehrend des Gespraechs (anders als beim
+// ElevenLabs-Custom-LLM-Pfad des oeffentlichen Widgets). Lukas' volles
+// privates Gedaechtnis (Erinnerungen, Ziele, Emotion) steckt bereits als
+// Instructions im Client-Secret -- der Browser sieht diesen Text nie, nur
+// das Secret selbst.
 
 type VoiceStatus = "idle" | "connecting" | "connected" | "speaking" | "listening" | "error";
 
@@ -18,68 +20,67 @@ interface TranscriptEntry {
   text: string;
 }
 
-interface ElevenLabsConversation {
-  endSession: () => Promise<void>;
-}
-
-interface ElevenLabsSdk {
-  Conversation: { startSession: (o: Record<string, unknown>) => Promise<ElevenLabsConversation> };
-}
-
-let sdkPromise: Promise<ElevenLabsSdk> | null = null;
-function loadElevenLabsSdk(): Promise<ElevenLabsSdk> {
-  // CDN-ESM-Import ohne Typdeklarationen (wie im Portfolio-Widget, public/widget.js).
-  // @ts-expect-error -- externe URL, kein lokales Modul, keine Typen verfuegbar
-  sdkPromise ??= import(/* @vite-ignore */ "https://cdn.jsdelivr.net/npm/@elevenlabs/client/+esm");
-  return sdkPromise;
-}
-
 export function VoicePanel() {
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const conversationRef = useRef<ElevenLabsConversation | null>(null);
+  const sessionRef = useRef<RealtimeSession | null>(null);
 
   async function start() {
     setStatus("connecting");
     setErrorMsg(null);
     try {
-      const [sdk, sessionRes] = await Promise.all([loadElevenLabsSdk(), fetch("/api/public/voice-session")]);
-      const session = sessionRes.ok ? await sessionRes.json() : null;
+      const token = localStorage.getItem("lukas_token");
+      const res = await fetch("/api/lukas/realtime-session", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || body?.error || `HTTP ${res.status}`);
+      }
+      const { value: apiKey } = (await res.json()) as { value: string };
 
-      const opts: Record<string, unknown> = {
-        onConnect: () => setStatus("connected"),
-        onDisconnect: () => {
-          setStatus("idle");
-          conversationRef.current = null;
-        },
-        onError: () => {
-          setStatus("error");
-          setErrorMsg("Sprachverbindung fehlgeschlagen.");
-          conversationRef.current = null;
-        },
-        onModeChange: (m: { mode?: string }) => setStatus(m?.mode === "speaking" ? "speaking" : "listening"),
-        onMessage: (msg: { source?: string; message?: string }) => {
-          if (!msg?.message) return;
-          setTranscript((prev) => [...prev, { role: msg.source === "user" ? "user" : "assistant", text: msg.message! }]);
-        },
-      };
-      if (session?.signedUrl) opts.signedUrl = session.signedUrl;
-      else if (session?.agentId) opts.agentId = session.agentId;
-      else throw new Error("Kein ElevenLabs-Agent konfiguriert (ELEVENLABS_AGENT_ID fehlt serverseitig)");
+      const agent = new RealtimeAgent({ name: "Lukas" });
+      const session = new RealtimeSession(agent, { model: "gpt-realtime-2.1" });
 
-      conversationRef.current = await sdk.Conversation.startSession(opts);
+      // audio_start/audio_stopped = Lukas beginnt/beendet das Sprechen. Ein
+      // explizites "verbunden"-Event gibt es nicht -- das Aufloesen von
+      // connect() weiter unten IST das Verbindungssignal.
+      session.on("audio_start", () => setStatus("speaking"));
+      session.on("audio_stopped", () => setStatus("listening"));
+      session.on("history_updated", (history: RealtimeItem[]) => {
+        const lines: TranscriptEntry[] = [];
+        for (const item of history) {
+          if (item.type !== "message" || item.role === "system") continue;
+          const text = item.content
+            .map((c) => ("text" in c ? c.text : "transcript" in c ? c.transcript : ""))
+            .filter((s): s is string => !!s)
+            .join(" ");
+          if (text) lines.push({ role: item.role === "user" ? "user" : "assistant", text });
+        }
+        if (lines.length) setTranscript(lines);
+      });
+      session.on("error", ({ error }) => {
+        setStatus("error");
+        setErrorMsg(error instanceof Error ? error.message : "Sprachverbindung fehlgeschlagen.");
+        sessionRef.current = null;
+      });
+
+      await session.connect({ apiKey });
+      sessionRef.current = session;
+      setStatus("connected");
     } catch (err) {
       setStatus("error");
       setErrorMsg(err instanceof Error ? err.message : "Unbekannter Fehler");
+      sessionRef.current = null;
     }
   }
 
-  async function stop() {
-    const c = conversationRef.current;
-    conversationRef.current = null;
+  function stop() {
+    sessionRef.current?.close();
+    sessionRef.current = null;
     setStatus("idle");
-    if (c) await c.endSession().catch(() => {});
   }
 
   const isActive = status === "connected" || status === "speaking" || status === "listening";

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { RealtimeAgent, RealtimeSession, type RealtimeItem } from "@openai/agents-realtime";
+import { RealtimeAgent, RealtimeSession, OpenAIRealtimeWebRTC, type RealtimeItem } from "@openai/agents-realtime";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Mic, MicOff, Loader2, Volume2, Ear } from "lucide-react";
@@ -25,6 +25,7 @@ export function VoicePanel() {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const sessionRef = useRef<RealtimeSession | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
 
   async function start() {
     setStatus("connecting");
@@ -41,8 +42,21 @@ export function VoicePanel() {
       }
       const { value: apiKey } = (await res.json()) as { value: string };
 
+      // Eigener Stream mit expliziter Echo-/Rauschunterdrückung statt den
+      // SDK-eigenen zu nutzen — ohne echoCancellation hört das Mikro (v.a.
+      // am Laptop-/Handylautsprecher ohne Headset) Lukas' eigene Stimme mit,
+      // was zu Phantom-"Antworten" und einer Selbstunterbrechungs-Schleife
+      // führt.
+      const micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      micStreamRef.current = micStream;
+
       const agent = new RealtimeAgent({ name: "Lukas" });
-      const session = new RealtimeSession(agent, { model: "gpt-realtime-2.1" });
+      const session = new RealtimeSession(agent, {
+        model: "gpt-realtime-2.1",
+        transport: new OpenAIRealtimeWebRTC({ mediaStream: micStream }),
+      });
 
       // audio_start/audio_stopped = Lukas beginnt/beendet das Sprechen. Ein
       // explizites "verbunden"-Event gibt es nicht -- das Aufloesen von
@@ -65,6 +79,8 @@ export function VoicePanel() {
         setStatus("error");
         setErrorMsg(error instanceof Error ? error.message : "Sprachverbindung fehlgeschlagen.");
         sessionRef.current = null;
+        micStreamRef.current?.getTracks().forEach((t) => t.stop());
+        micStreamRef.current = null;
       });
 
       await session.connect({ apiKey });
@@ -74,12 +90,16 @@ export function VoicePanel() {
       setStatus("error");
       setErrorMsg(err instanceof Error ? err.message : "Unbekannter Fehler");
       sessionRef.current = null;
+      micStreamRef.current?.getTracks().forEach((t) => t.stop());
+      micStreamRef.current = null;
     }
   }
 
   function stop() {
     sessionRef.current?.close();
     sessionRef.current = null;
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
     setStatus("idle");
   }
 

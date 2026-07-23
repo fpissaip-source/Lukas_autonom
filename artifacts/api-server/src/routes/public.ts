@@ -367,7 +367,15 @@ router.post("/public/realtime-session", async (req, res) => {
         type: "realtime",
         model,
         instructions,
-        audio: { output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "ash" } },
+        audio: {
+          output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "ash" },
+          // far_field: filtert Umgebungs-/Lautsprecher-Rückkopplung heraus,
+          // bevor sie an die Spracherkennung geht — ohne das (und ohne
+          // echoCancellation im Widget) hört das Mikro auf Handys Lukas'
+          // eigene Stimme über den Lautsprecher mit und "antwortet" sich
+          // selbst in einer Endlosschleife.
+          input: { noise_reduction: { type: "far_field" } },
+        },
       },
       expires_after: { anchor: "created_at", seconds: 300 },
     });

@@ -392,7 +392,12 @@ deutschen Wörtern. Ruhiger, männlicher, conversational-natürlicher Tonfall.`;
         type: "realtime",
         model: process.env.LUKAS_REALTIME_MODEL ?? "gpt-realtime-2.1",
         instructions,
-        audio: { output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "ash" } },
+        audio: {
+          output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "ash" },
+          // far_field: reduziert Lautsprecher-Rückkopplung (Handy/Laptop ohne
+          // Headset) in die Spracherkennung — siehe public.ts für Details.
+          input: { noise_reduction: { type: "far_field" } },
+        },
       },
       expires_after: { anchor: "created_at", seconds: 600 },
     });

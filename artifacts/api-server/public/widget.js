@@ -319,6 +319,7 @@
     // statt ElevenLabs' Cloud-Turnaround. Ephemeres Client-Secret kommt vom
     // Server (nur der öffentliche System-Prompt fließt dort ein).
     var session = null;
+    var micStream = null;
     var sdkPromise = null;
     var sessionTimer = null;
     var seenHistoryIds = {};
@@ -340,6 +341,10 @@
         var s = session;
         session = null;
         try { s.close(); } catch (e) {}
+      }
+      if (micStream) {
+        micStream.getTracks().forEach(function (tr) { tr.stop(); });
+        micStream = null;
       }
       micBtn.classList.remove("rec");
       mainBtn.classList.remove("lukas-live");
@@ -372,14 +377,19 @@
       // getUserMedia direkt auf eine Nutzergeste folgt; nach async Arbeit
       // dazwischen wird die Anfrage sonst stillschweigend blockiert — das
       // ließ die Stimme auf dem Desktop funktionieren, mobil aber nicht.
-      // Der Stream selbst wird nicht gebraucht (das SDK holt sich seinen
-      // eigenen), nur die bereits erteilte Berechtigung zählt.
+      // Diesen Stream (mit expliziter Echo-Unterdrückung) geben wir dem SDK
+      // direkt weiter (statt es seinen eigenen holen zu lassen) — ohne
+      // echoCancellation hört das Mikro (v.a. am Handylautsprecher) Lukas'
+      // eigene Stimme mit, das führte zu Phantom-"Antworten" und einer
+      // Endlosschleife aus sich selbst unterbrechenden Reaktionen.
       var micPromise =
         navigator.mediaDevices && navigator.mediaDevices.getUserMedia
           ? navigator.mediaDevices
-              .getUserMedia({ audio: true })
+              .getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+              })
               .then(function (stream) {
-                stream.getTracks().forEach(function (tr) { tr.stop(); });
+                micStream = stream;
                 return true;
               })
               .catch(function () { return false; })
@@ -397,10 +407,13 @@
           var micOk = results[0];
           var sdk = results[1];
           var s = results[2];
-          if (!micOk) throw new Error("Mikrofonzugriff verweigert");
+          if (!micOk || !micStream) throw new Error("Mikrofonzugriff verweigert");
 
           var agent = new sdk.RealtimeAgent({ name: "Lukas" });
-          var rt = new sdk.RealtimeSession(agent, { model: s.model });
+          var rt = new sdk.RealtimeSession(agent, {
+            model: s.model,
+            transport: new sdk.OpenAIRealtimeWebRTC({ mediaStream: micStream }),
+          });
 
           rt.on("audio_start", function () {
             mainBtn.classList.add("lukas-live");

@@ -293,15 +293,37 @@
       micBtn.classList.add("rec");
       setStatus("Verbinde…");
 
+      // Mikro-Berechtigung SOFORT anfragen, im selben Tick wie der Klick —
+      // nicht erst nachdem das SDK per Netzwerk geladen und eine Session
+      // abgefragt wurde. Mobile Browser (v.a. iOS Safari) verlangen, dass
+      // getUserMedia direkt auf eine Nutzergeste folgt; nach async Arbeit
+      // dazwischen wird die Anfrage sonst stillschweigend blockiert — das
+      // ließ die Stimme auf dem Desktop funktionieren, mobil aber nicht.
+      // Der Stream selbst wird nicht gebraucht (das SDK holt sich seinen
+      // eigenen), nur die bereits erteilte Berechtigung zählt.
+      var micPromise =
+        navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+          ? navigator.mediaDevices
+              .getUserMedia({ audio: true })
+              .then(function (stream) {
+                stream.getTracks().forEach(function (tr) { tr.stop(); });
+                return true;
+              })
+              .catch(function () { return false; })
+          : Promise.resolve(true);
+
       Promise.all([
+        micPromise,
         loadSdk(),
         fetch(API + "/api/public/voice-session" + (cfg.agentId ? "?agent_id=" + encodeURIComponent(cfg.agentId) : ""))
           .then(function (r) { return r.ok ? r.json() : null; })
           .catch(function () { return null; }),
       ])
         .then(function (results) {
-          var sdk = results[0];
-          var session = results[1];
+          var micOk = results[0];
+          var sdk = results[1];
+          var session = results[2];
+          if (!micOk) throw new Error("Mikrofonzugriff verweigert");
           var opts = {
             onConnect: function () {
               mainBtn.classList.add("lukas-live");

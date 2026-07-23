@@ -377,13 +377,22 @@ router.get("/lukas/debug-log", async (req, res) => {
 // bekommt dieser Kanal Lukas' VOLLES privates Wissen zu hoeren.
 router.post("/lukas/realtime-session", async (req, res) => {
   try {
-    const instructions = await buildSystemPrompt();
+    const basePrompt = await buildSystemPrompt();
+    // Sprachspezifischer Zusatz: die Realtime-Stimmen sind primär auf Englisch
+    // trainiert und klingen auf Deutsch sonst leicht "durchgefärbt" — das hier
+    // gilt nur fürs Sprechen, nicht für den Text-Chat (dort keine Aussprache).
+    const instructions = `${basePrompt}
+
+SPRACHAUSGABE (WICHTIG, nur für diesen Sprachkanal):
+Du sprichst gerade per Stimme, nicht per Text. Sprich fließendes, natives,
+akzentfreies Deutsch — keine englische Aussprache oder englischer Akzent bei
+deutschen Wörtern. Ruhiger, männlicher, conversational-natürlicher Tonfall.`;
     const clientSecret = await openai.realtime.clientSecrets.create({
       session: {
         type: "realtime",
         model: process.env.LUKAS_REALTIME_MODEL ?? "gpt-realtime-2.1",
         instructions,
-        audio: { output: { voice: "marin" } },
+        audio: { output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "cedar" } },
       },
       expires_after: { anchor: "created_at", seconds: 600 },
     });

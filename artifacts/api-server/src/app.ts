@@ -32,6 +32,14 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// widget.js ändert sich während aktiver Entwicklung häufig — Browser dürfen
+// es nie ungefragt aus dem Cache servieren, sonst testet man versehentlich
+// eine alte Version (genau das hat schon zu falschen Fehlerbildern geführt).
+app.use("/widget.js", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  next();
+});
+
 // Statische Widget-Dateien (widget.js, embed-demo.html); __dirname kommt aus
 // dem esbuild-Banner und zeigt auf artifacts/api-server/dist.
 app.use(express.static(path.join(__dirname, "..", "public")));

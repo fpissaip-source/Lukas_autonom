@@ -186,6 +186,53 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: { type: "object", properties: {} },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "github_list_repos",
+      description:
+        "Liste Issas GitHub-Repositories auf (Name, Beschreibung, Sprache, letzte Änderung). Nutze das als ersten Schritt, wenn Issa nach einem Projekt/Repo fragt und du dir nicht sicher bist, wie es genau heißt.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "github_read_path",
+      description:
+        "Lies eine Datei oder liste ein Verzeichnis in einem GitHub-Repo (nur lesend). Ohne Pfad wird das Root-Verzeichnis gelistet. Nutze das, um Code, Konfiguration oder Inhalte konkret zu prüfen — z.B. für eine Code-Review oder SEO-Check.",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: {
+            type: "string",
+            description: "Repo-Name, z.B. 'taxibbessen' (Owner = Issa) oder 'owner/repo' für fremde Repos",
+          },
+          path: { type: "string", description: "Datei- oder Verzeichnispfad im Repo, leer = Root" },
+        },
+        required: ["repo"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "github_search_code",
+      description:
+        "Durchsuche den Code eines GitHub-Repos nach einem Suchbegriff (GitHub Code Search). Nutze das, um bestimmte Stellen (Funktionen, Texte, Meta-Tags etc.) in einem Repo zu finden, ohne jede Datei einzeln zu lesen.",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: {
+            type: "string",
+            description: "Repo-Name, z.B. 'taxibbessen' (Owner = Issa) oder 'owner/repo' für fremde Repos",
+          },
+          query: { type: "string", description: "Suchbegriff" },
+        },
+        required: ["repo", "query"],
+      },
+    },
+  },
 ];
 
 function stripHtml(html: string): string {
@@ -279,6 +326,88 @@ async function getTradingStats(): Promise<string> {
     lines.push(`- ${row.bot}: ${row.balance} (PnL: ${row.pnl ?? "0"}, Stand: ${row.recorded_at ?? "?"})`);
   }
   return lines.join("\n");
+}
+
+async function githubRequest(path: string): Promise<unknown> {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    throw new Error(
+      "GITHUB_TOKEN ist nicht gesetzt — Issa muss einen GitHub Personal Access Token (read-only, Scope 'repo' bzw. für private Repos 'Contents: Read-only') in den Railway-Variablen hinterlegen.",
+    );
+  }
+  const res = await fetch(`https://api.github.com${path}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "LukasAgent/1.0",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`GitHub API ${res.status}: ${body.slice(0, 300)}`);
+  }
+  return res.json();
+}
+
+let cachedGithubLogin: string | null = null;
+
+async function resolveGithubOwner(repoInput: string): Promise<{ owner: string; repo: string }> {
+  if (repoInput.includes("/")) {
+    const [owner, repo] = repoInput.split("/");
+    return { owner, repo };
+  }
+  if (!cachedGithubLogin) {
+    const me = (await githubRequest("/user")) as { login: string };
+    cachedGithubLogin = me.login;
+  }
+  return { owner: cachedGithubLogin, repo: repoInput };
+}
+
+async function githubListRepos(): Promise<string> {
+  const repos = (await githubRequest("/user/repos?per_page=100&sort=updated")) as Array<{
+    full_name: string;
+    private: boolean;
+    description: string | null;
+    language: string | null;
+    updated_at: string;
+  }>;
+  if (repos.length === 0) return "Keine Repos gefunden.";
+  return repos
+    .map(
+      (r) =>
+        `- ${r.full_name}${r.private ? " (privat)" : ""}: ${r.description ?? "keine Beschreibung"} [${r.language ?? "?"}] — zuletzt aktualisiert ${r.updated_at}`,
+    )
+    .join("\n");
+}
+
+async function githubReadPath(repoInput: string, path: string): Promise<string> {
+  const { owner, repo } = await resolveGithubOwner(repoInput);
+  const cleanPath = path.replace(/^\/+/, "");
+  const url = `/repos/${owner}/${repo}/contents${cleanPath ? "/" + cleanPath.split("/").map(encodeURIComponent).join("/") : ""}`;
+  const data = await githubRequest(url);
+  if (Array.isArray(data)) {
+    const entries = data as Array<{ type: string; name: string }>;
+    return (
+      `Verzeichnis ${cleanPath || "/"} in ${owner}/${repo}:\n` +
+      entries.map((e) => `- ${e.type === "dir" ? "[dir] " : ""}${e.name}`).join("\n")
+    );
+  }
+  const file = data as { type: string; content?: string; encoding?: string };
+  if (file.type !== "file" || !file.content) throw new Error("Kein Datei-Inhalt verfügbar (evtl. zu groß oder kein reguläres Textfile).");
+  const content = Buffer.from(file.content, file.encoding === "base64" ? "base64" : "utf-8").toString("utf-8");
+  return content.length > 15000 ? content.slice(0, 15000) + "\n\n[... gekürzt]" : content;
+}
+
+async function githubSearchCode(repoInput: string, query: string): Promise<string> {
+  const { owner, repo } = await resolveGithubOwner(repoInput);
+  const q = `${query} repo:${owner}/${repo}`;
+  const data = (await githubRequest(`/search/code?q=${encodeURIComponent(q)}`)) as {
+    items: Array<{ path: string }>;
+  };
+  if (!data.items || data.items.length === 0) return "Keine Treffer.";
+  return data.items.slice(0, 15).map((it) => `- ${it.path}`).join("\n");
 }
 
 export async function executeLukasTool(
@@ -385,6 +514,12 @@ export async function executeLukasTool(
     }
     case "get_trading_stats":
       return await getTradingStats();
+    case "github_list_repos":
+      return await githubListRepos();
+    case "github_read_path":
+      return await githubReadPath(String(input.repo), typeof input.path === "string" ? input.path : "");
+    case "github_search_code":
+      return await githubSearchCode(String(input.repo), String(input.query));
     default:
       throw new Error(`Unbekanntes Tool: ${name}`);
   }

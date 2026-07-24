@@ -58,21 +58,23 @@ export function VoicePanel({ autoStart = false }: { autoStart?: boolean }) {
         transport: new OpenAIRealtimeWebRTC({ mediaStream: micStream }),
       });
 
-      // audio_start/audio_stopped = Lukas beginnt/beendet das Sprechen. Ein
-      // explizites "verbunden"-Event gibt es nicht -- das Aufloesen von
-      // connect() weiter unten IST das Verbindungssignal.
-      // Mikro stummschalten, solange Lukas spricht — echoCancellation allein
-      // reicht auf vielen Geräten (v.a. ohne Headset/Bluetooth) nicht, das
-      // Mikro hört dann Lukas' eigene Stimme über den Lautsprecher mit, was
-      // dazu führt, dass er sich selbst unterbricht bzw. auf sich selbst
-      // antwortet.
-      session.on("audio_start", () => {
-        setStatus("speaking");
-        session.mute(true);
-      });
-      session.on("audio_stopped", () => {
-        setStatus("listening");
-        session.mute(false);
+      // WICHTIG: session.on("audio_start", ...) NICHT verwenden -- laut SDK-
+      // Typdefinition (transportLayerEvents.d.ts) wird das "audio"-Event "might
+      // not be triggered if the transport layer handles the audio internally
+      // (WebRTC)" -- und genau das ist hier der Fall (OpenAIRealtimeWebRTC).
+      // Dadurch feuerte session.mute(true) nie, das Mikro blieb während Lukas'
+      // gesamter Antwort offen -> er hat sich selbst gehört, unterbrochen und
+      // beantwortet. Stattdessen auf die rohen, WebRTC-spezifischen Server-
+      // Events output_audio_buffer.started/stopped hören (kommen zuverlässig
+      // über den Data-Channel, siehe public/widget.js für dieselbe Technik).
+      session.on("transport_event", (event) => {
+        if (event.type === "output_audio_buffer.started") {
+          setStatus("speaking");
+          session.mute(true);
+        } else if (event.type === "output_audio_buffer.stopped") {
+          setStatus("listening");
+          session.mute(false);
+        }
       });
       session.on("history_updated", (history: RealtimeItem[]) => {
         const lines: TranscriptEntry[] = [];

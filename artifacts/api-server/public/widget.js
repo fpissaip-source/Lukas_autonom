@@ -223,7 +223,15 @@
     if (pendingSession && age < SESSION_PREFETCH_MAX_AGE_MS) return pendingSession;
     pendingSessionAt = Date.now();
     pendingSession = fetch(API + "/api/public/realtime-session", { method: "POST" }).then(function (r) {
-      if (!r.ok) throw new Error("Session " + r.status);
+      if (!r.ok) {
+        return r
+          .json()
+          .catch(function () { return null; })
+          .then(function (body) {
+            var detail = body && (body.detail || body.error);
+            throw new Error(detail || "Session " + r.status);
+          });
+      }
       return r.json();
     });
     pendingSession.catch(function () {

@@ -406,6 +406,8 @@ ${basePrompt}`;
             // ist in den TS-Typen optional, die echte API verlangt es aber
             // zwingend sobald `transcription` gesetzt ist (sonst 400).
             transcription: { model: "gpt-4o-mini-transcribe", language: "de" },
+            // semantic_vad statt fixem Stille-Timer — siehe public.ts für Details.
+            turn_detection: { type: "semantic_vad", eagerness: "auto" },
           },
         },
       },

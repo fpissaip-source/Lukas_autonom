@@ -394,6 +394,12 @@ ${basePrompt}`;
             // verlangt es aber zwingend, sobald `transcription` überhaupt
             // gesetzt ist (sonst 400 "Missing required parameter").
             transcription: { model: "gpt-4o-mini-transcribe", language: "de" },
+            // semantic_vad statt des festen Stille-Timers (server_vad): das
+            // Modell selbst beurteilt, ob der Nutzer wirklich fertig
+            // gesprochen hat, statt starr nach z.B. 500ms Stille abzubrechen
+            // — robuster gegen Sprechpausen, die sonst als Gesprächsende
+            // gewertet werden und zu ausbleibenden Antworten führen.
+            turn_detection: { type: "semantic_vad", eagerness: "auto" },
           },
         },
       },

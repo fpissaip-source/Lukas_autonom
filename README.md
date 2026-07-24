@@ -149,6 +149,23 @@ Client-Secret vom Server, das SDK verbindet sich damit direkt per WebRTC zu Open
 sind dadurch aktuell ungenutzt (Legacy) — der bleibt im Code, falls du ElevenLabs Agents
 später doch wieder brauchst, wird aber vom Widget nicht mehr aufgerufen.
 
+**Deutsche Aussprache**: Die Realtime-Stimmen sind primär auf Englisch trainiert und färben
+deutsche Wörter sonst mit englischer Betonung/Klangfärbung ein. Beide Endpoints setzen
+deshalb `audio.input.transcription.language: "de"` und eine explizite, ganz vorne in
+`instructions` platzierte Anweisung ("sprich AUSSCHLIESSLICH mit nativer, akzentfreier
+deutscher Aussprache"). Das ist ein Best-Effort-Nudge, kein hartes Garantie-Flag — die
+Realtime-API hat (anders als die separate "Translation Session") kein Feld, das die
+Ausgabesprache/den Akzent für normale Konversationen erzwingt; hilft die Aussprache
+trotzdem nicht genug, ist der nächste Hebel eine andere Stimme auszuprobieren
+(`LUKAS_REALTIME_VOICE`).
+
+**Latenz beim Verbindungsaufbau**: Das Widget lädt das SDK (CDN) und holt sich ein
+Client-Secret schon beim Öffnen des Panels vor (`loadSdk()`/`prefetchSession()` in
+`widget.js`), nicht erst beim Mikro-Klick — sonst zieht sich "Verbinde…" spürbar hin,
+weil dann beides erst nachträglich passieren müsste, bevor die WebRTC-Verbindung
+überhaupt starten kann. Das Client-Secret ist Einweg; nach Gebrauch (oder nach 4 von
+5 Minuten Gültigkeit) wird beim nächsten Öffnen automatisch neu vorgeladen.
+
 ## Portfolio-Widget (issahareb.me)
 
 Lukas lässt sich mit einer Zeile auf jeder Webseite einbetten — Besucher können mit ihm

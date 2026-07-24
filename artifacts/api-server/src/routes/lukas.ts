@@ -379,14 +379,16 @@ router.post("/lukas/realtime-session", async (req, res) => {
   try {
     const basePrompt = await buildSystemPrompt();
     // Sprachspezifischer Zusatz: die Realtime-Stimmen sind primär auf Englisch
-    // trainiert und klingen auf Deutsch sonst leicht "durchgefärbt" — das hier
-    // gilt nur fürs Sprechen, nicht für den Text-Chat (dort keine Aussprache).
-    const instructions = `${basePrompt}
+    // trainiert und färben deutsche Wörter sonst mit englischer Aussprache/
+    // Betonung ein — das hier gilt nur fürs Sprechen, nicht für den Text-Chat
+    // (dort keine Aussprache). Ganz oben platziert (nicht nur angehängt),
+    // damit das Modell es als wichtigste Verhaltensregel gewichtet.
+    const instructions = `SPRACHAUSGABE (WICHTIGSTE REGEL): Du sprichst AUSSCHLIESSLICH mit nativer, akzentfreier
+deutscher Aussprache — jedes Wort so, wie ein deutscher Muttersprachler es sagen würde,
+auch Namen und Fremdwörter. Keine englische Betonung, keine englische Klangfärbung.
+Ruhiger, männlicher, conversational-natürlicher Tonfall.
 
-SPRACHAUSGABE (WICHTIG, nur für diesen Sprachkanal):
-Du sprichst gerade per Stimme, nicht per Text. Sprich fließendes, natives,
-akzentfreies Deutsch — keine englische Aussprache oder englischer Akzent bei
-deutschen Wörtern. Ruhiger, männlicher, conversational-natürlicher Tonfall.`;
+${basePrompt}`;
     const clientSecret = await openai.realtime.clientSecrets.create({
       session: {
         type: "realtime",
@@ -394,9 +396,13 @@ deutschen Wörtern. Ruhiger, männlicher, conversational-natürlicher Tonfall.`;
         instructions,
         audio: {
           output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "ash" },
-          // far_field: reduziert Lautsprecher-Rückkopplung (Handy/Laptop ohne
-          // Headset) in die Spracherkennung — siehe public.ts für Details.
-          input: { noise_reduction: { type: "far_field" } },
+          input: {
+            // far_field: reduziert Lautsprecher-Rückkopplung (Handy/Laptop ohne
+            // Headset) in die Spracherkennung — siehe public.ts für Details.
+            noise_reduction: { type: "far_field" },
+            // Expliziter Sprach-Hinweis für die Eingabe-Transkription.
+            transcription: { language: "de" },
+          },
         },
       },
       expires_after: { anchor: "created_at", seconds: 600 },

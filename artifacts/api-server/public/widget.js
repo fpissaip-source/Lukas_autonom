@@ -180,6 +180,36 @@
     });
   }
 
+  // ── Vorladen für Sprache (Latenz): SDK-Modul (CDN) und Realtime-
+  // Client-Secret schon beim Öffnen des Panels anfordern, nicht erst beim
+  // Mikro-Klick — sonst zieht sich das "Verbinden…" spürbar hin, weil dann
+  // erst noch das SDK aus dem Netz geladen UND eine Session vom Server
+  // geholt werden muss, bevor die eigentliche WebRTC-Verbindung überhaupt
+  // starten kann.
+  var sdkPromise = null;
+  function loadSdk() {
+    if (!sdkPromise) {
+      sdkPromise = import("https://cdn.jsdelivr.net/npm/@openai/agents-realtime/+esm");
+    }
+    return sdkPromise;
+  }
+  var pendingSession = null;
+  var pendingSessionAt = 0;
+  var SESSION_PREFETCH_MAX_AGE_MS = 4 * 60 * 1000; // Secret läuft nach 5min ab
+  function prefetchSession() {
+    var age = Date.now() - pendingSessionAt;
+    if (pendingSession && age < SESSION_PREFETCH_MAX_AGE_MS) return pendingSession;
+    pendingSessionAt = Date.now();
+    pendingSession = fetch(API + "/api/public/realtime-session", { method: "POST" }).then(function (r) {
+      if (!r.ok) throw new Error("Session " + r.status);
+      return r.json();
+    });
+    pendingSession.catch(function () {
+      pendingSession = null;
+    });
+    return pendingSession;
+  }
+
   mainBtn.addEventListener("click", function () {
     var open = panel.style.display === "flex";
     panel.style.display = open ? "none" : "flex";
@@ -188,6 +218,10 @@
       if (!history.length) {
         addMsg("a", cfg.greeting);
         renderChips(STARTER_QUESTIONS);
+      }
+      if (cfg.voice === "agent") {
+        loadSdk();
+        prefetchSession();
       }
     }
   });
@@ -320,17 +354,9 @@
     // Server (nur der öffentliche System-Prompt fließt dort ein).
     var session = null;
     var micStream = null;
-    var sdkPromise = null;
     var sessionTimer = null;
     var seenHistoryIds = {};
     var SESSION_MAX_MS = 3 * 60 * 1000; // Kostenschutz: harte Kappung pro Gespräch
-
-    function loadSdk() {
-      if (!sdkPromise) {
-        sdkPromise = import("https://cdn.jsdelivr.net/npm/@openai/agents-realtime/+esm");
-      }
-      return sdkPromise;
-    }
 
     function stopAgent() {
       if (sessionTimer) {
@@ -395,18 +421,12 @@
               .catch(function () { return false; })
           : Promise.resolve(true);
 
-      Promise.all([
-        micPromise,
-        loadSdk(),
-        fetch(API + "/api/public/realtime-session", { method: "POST" }).then(function (r) {
-          if (!r.ok) throw new Error("Session " + r.status);
-          return r.json();
-        }),
-      ])
+      Promise.all([micPromise, loadSdk(), prefetchSession()])
         .then(function (results) {
           var micOk = results[0];
           var sdk = results[1];
           var s = results[2];
+          pendingSession = null; // Client-Secret ist Einweg — nächstes Mal frisch holen
           if (!micOk || !micStream) throw new Error("Mikrofonzugriff verweigert");
 
           var agent = new sdk.RealtimeAgent({ name: "Lukas" });

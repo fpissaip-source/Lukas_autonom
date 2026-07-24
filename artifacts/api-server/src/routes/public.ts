@@ -360,7 +360,17 @@ router.post("/public/realtime-session", async (req, res) => {
     if (!rateLimit(req, 15, 5 * 60 * 1000)) {
       return void res.status(429).json({ error: "Zu viele Anfragen — kurz warten." });
     }
-    const instructions = await buildPublicSystemPrompt();
+    const basePrompt = await buildPublicSystemPrompt();
+    // Sprachspezifischer Zusatz (nur fürs Sprechen, siehe lukas.ts): die
+    // Realtime-Stimmen sind primär auf Englisch trainiert und färben
+    // deutsche Wörter sonst mit englischer Aussprache/Betonung ein. Ganz
+    // oben platziert (nicht nur angehängt), damit das Modell es als
+    // wichtigste Verhaltensregel gewichtet.
+    const instructions = `SPRACHAUSGABE (WICHTIGSTE REGEL): Du sprichst AUSSCHLIESSLICH mit nativer, akzentfreier
+deutscher Aussprache — jedes Wort so, wie ein deutscher Muttersprachler es sagen würde,
+auch Namen und Fremdwörter. Keine englische Betonung, keine englische Klangfärbung.
+
+${basePrompt}`;
     const model = process.env.LUKAS_REALTIME_MODEL ?? "gpt-realtime-2.1";
     const clientSecret = await openai.realtime.clientSecrets.create({
       session: {
@@ -369,12 +379,17 @@ router.post("/public/realtime-session", async (req, res) => {
         instructions,
         audio: {
           output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "ash" },
-          // far_field: filtert Umgebungs-/Lautsprecher-Rückkopplung heraus,
-          // bevor sie an die Spracherkennung geht — ohne das (und ohne
-          // echoCancellation im Widget) hört das Mikro auf Handys Lukas'
-          // eigene Stimme über den Lautsprecher mit und "antwortet" sich
-          // selbst in einer Endlosschleife.
-          input: { noise_reduction: { type: "far_field" } },
+          input: {
+            // far_field: filtert Umgebungs-/Lautsprecher-Rückkopplung heraus,
+            // bevor sie an die Spracherkennung geht — ohne das (und ohne
+            // echoCancellation im Widget) hört das Mikro auf Handys Lukas'
+            // eigene Stimme über den Lautsprecher mit und "antwortet" sich
+            // selbst in einer Endlosschleife.
+            noise_reduction: { type: "far_field" },
+            // Expliziter Sprach-Hinweis für die Eingabe-Transkription — hilft
+            // zusätzlich, das Gespräch durchgehend als Deutsch zu erkennen.
+            transcription: { language: "de" },
+          },
         },
       },
       expires_after: { anchor: "created_at", seconds: 300 },

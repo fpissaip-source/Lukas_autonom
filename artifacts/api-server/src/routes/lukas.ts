@@ -400,8 +400,10 @@ ${basePrompt}`;
             // far_field: reduziert Lautsprecher-Rückkopplung (Handy/Laptop ohne
             // Headset) in die Spracherkennung — siehe public.ts für Details.
             noise_reduction: { type: "far_field" },
-            // Expliziter Sprach-Hinweis für die Eingabe-Transkription.
-            transcription: { language: "de" },
+            // Expliziter Sprach-Hinweis für die Eingabe-Transkription. model
+            // ist in den TS-Typen optional, die echte API verlangt es aber
+            // zwingend sobald `transcription` gesetzt ist (sonst 400).
+            transcription: { model: "gpt-4o-mini-transcribe", language: "de" },
           },
         },
       },

@@ -388,7 +388,10 @@ ${basePrompt}`;
             noise_reduction: { type: "far_field" },
             // Expliziter Sprach-Hinweis für die Eingabe-Transkription — hilft
             // zusätzlich, das Gespräch durchgehend als Deutsch zu erkennen.
-            transcription: { language: "de" },
+            // model ist in den TS-Typen als optional markiert, die echte API
+            // verlangt es aber zwingend, sobald `transcription` überhaupt
+            // gesetzt ist (sonst 400 "Missing required parameter").
+            transcription: { model: "gpt-4o-mini-transcribe", language: "de" },
           },
         },
       },

@@ -112,6 +112,7 @@ export default function Chat() {
     }
   };
 
+  const autoVoice = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("voice") === "auto";
   const allMessages = activeConv?.messages ?? [];
   const isMobile = useIsMobile();
   const showList = !isMobile || activeId === null;
@@ -119,7 +120,7 @@ export default function Chat() {
 
   return (
     <div className="flex flex-col h-full min-w-0">
-      <VoicePanel />
+      <VoicePanel autoStart={autoVoice} />
       <div className="flex flex-1 min-h-0 min-w-0">
       {/* Conversations sidebar */}
       {showList && (

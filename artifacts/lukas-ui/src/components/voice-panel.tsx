@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RealtimeAgent, RealtimeSession, OpenAIRealtimeWebRTC, type RealtimeItem } from "@openai/agents-realtime";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -20,7 +20,7 @@ interface TranscriptEntry {
   text: string;
 }
 
-export function VoicePanel() {
+export function VoicePanel({ autoStart = false }: { autoStart?: boolean }) {
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -94,6 +94,15 @@ export function VoicePanel() {
       micStreamRef.current = null;
     }
   }
+
+  // Fuer den "Hey Siri, Lukas"-Weg: eine iOS-Kurzbefehl-Aktion oeffnet
+  // /chat?voice=auto, das Gespraech startet dann ohne weiteren Klick. Echtes
+  // Wake-Word im gesperrten Zustand ist ueber eine Website technisch nicht
+  // moeglich -- das muss Siri selbst (per Kurzbefehl) uebernehmen.
+  useEffect(() => {
+    if (autoStart) start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function stop() {
     sessionRef.current?.close();

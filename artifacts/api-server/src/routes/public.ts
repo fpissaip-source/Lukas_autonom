@@ -378,7 +378,7 @@ ${basePrompt}`;
         model,
         instructions,
         audio: {
-          output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "ash" },
+          output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "marin" },
           input: {
             // far_field: filtert Umgebungs-/Lautsprecher-Rückkopplung heraus,
             // bevor sie an die Spracherkennung geht — ohne das (und ohne

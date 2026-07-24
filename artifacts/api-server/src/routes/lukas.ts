@@ -395,7 +395,7 @@ ${basePrompt}`;
         model: process.env.LUKAS_REALTIME_MODEL ?? "gpt-realtime-2.1",
         instructions,
         audio: {
-          output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "ash" },
+          output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "marin" },
           input: {
             // far_field: reduziert Lautsprecher-Rückkopplung (Handy/Laptop ohne
             // Headset) in die Spracherkennung — siehe public.ts für Details.

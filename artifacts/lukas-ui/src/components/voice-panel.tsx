@@ -61,8 +61,19 @@ export function VoicePanel({ autoStart = false }: { autoStart?: boolean }) {
       // audio_start/audio_stopped = Lukas beginnt/beendet das Sprechen. Ein
       // explizites "verbunden"-Event gibt es nicht -- das Aufloesen von
       // connect() weiter unten IST das Verbindungssignal.
-      session.on("audio_start", () => setStatus("speaking"));
-      session.on("audio_stopped", () => setStatus("listening"));
+      // Mikro stummschalten, solange Lukas spricht — echoCancellation allein
+      // reicht auf vielen Geräten (v.a. ohne Headset/Bluetooth) nicht, das
+      // Mikro hört dann Lukas' eigene Stimme über den Lautsprecher mit, was
+      // dazu führt, dass er sich selbst unterbricht bzw. auf sich selbst
+      // antwortet.
+      session.on("audio_start", () => {
+        setStatus("speaking");
+        session.mute(true);
+      });
+      session.on("audio_stopped", () => {
+        setStatus("listening");
+        session.mute(false);
+      });
       session.on("history_updated", (history: RealtimeItem[]) => {
         const lines: TranscriptEntry[] = [];
         for (const item of history) {

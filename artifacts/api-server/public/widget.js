@@ -471,6 +471,15 @@
             if (evt.type === "response.created") {
               mainBtn.classList.add("lukas-live");
               setStatus("Lukas spricht…");
+            } else if (evt.type === "output_audio_buffer.started") {
+              // Mikro stummschalten, solange Lukas' eigene Stimme über den
+              // Lautsprecher läuft — echoCancellation allein reicht auf vielen
+              // Geräten (v.a. ohne Headset/Bluetooth) nicht aus, das Mikro hört
+              // dann Lukas mit, der sich selbst "hört" und sich unterbricht
+              // bzw. auf sich selbst antwortet.
+              if (micStream) micStream.getAudioTracks().forEach(function (t) { t.enabled = false; });
+            } else if (evt.type === "output_audio_buffer.stopped") {
+              if (micStream) micStream.getAudioTracks().forEach(function (t) { t.enabled = true; });
             } else if (evt.type === "response.done") {
               setStatus("Lukas hört zu…");
             } else if (evt.type === "response.output_audio_transcript.done" && evt.transcript) {

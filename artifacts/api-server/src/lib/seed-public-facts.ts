@@ -47,6 +47,7 @@ const PUBLIC_FACTS: { content: string; importance: number }[] = [
   { content: "Issa nutzt KI aktiv als Entwicklungswerkzeug: für Architektur, Code, Fehleranalyse, Prototyping und Automatisierung — nicht nur zum Text erzeugen.", importance: 5 },
 
   { content: "Issa bietet Leistungen wie moderne Unternehmenswebseiten, Local SEO, KI-Chatbots, Voice Interfaces, cinematic Web-Erlebnisse und API-/Datenbankintegrationen an.", importance: 6 },
+  { content: "Issa baut außerdem Telefon- und Support-KI-Agenten: Sprachassistenten, die in Echtzeit zuhören und im Millisekundenbereich antworten, mit natürlicher Gesprächsführung statt starrem Skript-Bot — wahlweise per Chat oder direkt am Telefon, ideal für Kundensupport, Terminvereinbarung oder Erstberatung rund um die Uhr.", importance: 7 },
   { content: "Issa interessiert sich für Destiny 2, Gaming allgemein und Musik von Juice WRLD.", importance: 4 },
   { content: "Issa sieht eine Ausbildung oder Berufserfahrung als Absicherung, sein eigentliches Ziel bleibt aber der Aufbau eigener digitaler Projekte.", importance: 5 },
 ];

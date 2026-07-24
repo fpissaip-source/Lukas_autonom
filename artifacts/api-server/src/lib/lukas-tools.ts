@@ -6,6 +6,7 @@ import { setLukasStatus } from "./lukas-status";
 import { recordEmotion } from "./emotion-engine";
 import { queryRows } from "./vps-db";
 import { searchEmails, readEmail, sendEmail, userConfirmedSend } from "./email";
+import { executeCommand, resetSandbox } from "./code-sandbox";
 
 export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -280,6 +281,31 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "execute_command",
+      description:
+        "Führe einen beliebigen Shell-Befehl in deiner eigenen Ausführungsumgebung aus (root, volles Internet, Linux). Die Umgebung bleibt über das Gespräch hinweg erhalten (Dateien, installierte Pakete etc.), bis sie zurückgesetzt wird. Nutze das, um Code zu schreiben, zu testen, Pakete zu installieren, Daten zu verarbeiten oder Recherchen technisch zu untermauern.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "Der auszuführende Shell-Befehl" },
+          timeoutSeconds: { type: "integer", description: "Timeout in Sekunden, Standard 60, max 280" },
+        },
+        required: ["command"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "reset_sandbox",
+      description:
+        "Setze deine Ausführungsumgebung zurück (frischer Container, alle Dateien/Zustand weg). Nutze das, wenn die Umgebung in einem kaputten Zustand hängt oder du komplett neu anfangen willst.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
 ];
 
 function stripHtml(html: string): string {
@@ -460,7 +486,7 @@ async function githubSearchCode(repoInput: string, query: string): Promise<strin
 export async function executeLukasTool(
   name: string,
   input: Record<string, unknown>,
-  ctx: { rawUserMessage?: string } = {},
+  ctx: { rawUserMessage?: string; conversationId?: number } = {},
 ): Promise<string> {
   switch (name) {
     case "save_memory": {
@@ -580,6 +606,18 @@ export async function executeLukasTool(
         return "NICHT gesendet: Issa hat das Versenden in seiner aktuellen Nachricht nicht ausdrücklich bestätigt (z.B. mit 'senden'). Zeige ihm den Entwurf im Chat und frage nach Bestätigung.";
       }
       return await sendEmail(String(input.to), String(input.subject), String(input.body));
+    }
+    case "execute_command": {
+      if (!ctx.conversationId) throw new Error("Keine Conversation-ID für die Sandbox verfügbar.");
+      return await executeCommand(
+        ctx.conversationId,
+        String(input.command),
+        typeof input.timeoutSeconds === "number" ? input.timeoutSeconds : 60,
+      );
+    }
+    case "reset_sandbox": {
+      if (!ctx.conversationId) throw new Error("Keine Conversation-ID für die Sandbox verfügbar.");
+      return resetSandbox(ctx.conversationId);
     }
     default:
       throw new Error(`Unbekanntes Tool: ${name}`);

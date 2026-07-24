@@ -203,6 +203,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         try {
           const result = await executeLukasTool(toolCall.name, input, {
             rawUserMessage: String(content),
+            conversationId: convId,
           });
           convo.push({ role: "tool", tool_call_id: toolCall.id, content: result });
         } catch (err) {

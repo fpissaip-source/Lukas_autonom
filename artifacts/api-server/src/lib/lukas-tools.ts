@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { setLukasStatus } from "./lukas-status";
 import { recordEmotion } from "./emotion-engine";
 import { queryRows } from "./vps-db";
+import { searchEmails, readEmail, sendEmail, userConfirmedSend } from "./email";
 
 export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -233,6 +234,52 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "email_search",
+      description:
+        "Durchsuche Issas E-Mail-Postfach (Betreff/Absender/Inhalt) und erhalte eine Liste von Treffern mit uid. Nutze uid danach mit email_read, um eine konkrete Mail vollständig zu lesen.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Suchbegriff, leer = neueste Mails" },
+          limit: { type: "integer", description: "Max. Anzahl Treffer, Standard 10" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "email_read",
+      description: "Lies eine konkrete E-Mail vollständig anhand ihrer uid (aus email_search).",
+      parameters: {
+        type: "object",
+        properties: {
+          uid: { type: "string", description: "Die uid der Mail aus email_search" },
+        },
+        required: ["uid"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "email_send",
+      description:
+        "Verschicke eine E-Mail in Issas Namen. WICHTIG: Rufe dieses Tool NUR auf, wenn Issa in seiner aktuellen Nachricht ausdrücklich das Versenden bestätigt hat (z.B. 'senden', 'schick das ab'). Andernfalls zeige den Entwurf stattdessen nur im Chat-Text und frage nach Bestätigung — rufe das Tool in diesem Fall nicht auf. Ein serverseitiger Schutz blockt den Versand zusätzlich, falls die Bestätigung fehlt.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Empfänger-E-Mail-Adresse" },
+          subject: { type: "string", description: "Betreff" },
+          body: { type: "string", description: "Mailtext (Klartext)" },
+        },
+        required: ["to", "subject", "body"],
+      },
+    },
+  },
 ];
 
 function stripHtml(html: string): string {
@@ -413,6 +460,7 @@ async function githubSearchCode(repoInput: string, query: string): Promise<strin
 export async function executeLukasTool(
   name: string,
   input: Record<string, unknown>,
+  ctx: { rawUserMessage?: string } = {},
 ): Promise<string> {
   switch (name) {
     case "save_memory": {
@@ -520,6 +568,19 @@ export async function executeLukasTool(
       return await githubReadPath(String(input.repo), typeof input.path === "string" ? input.path : "");
     case "github_search_code":
       return await githubSearchCode(String(input.repo), String(input.query));
+    case "email_search":
+      return await searchEmails(
+        typeof input.query === "string" ? input.query : "",
+        typeof input.limit === "number" ? input.limit : 10,
+      );
+    case "email_read":
+      return await readEmail(String(input.uid));
+    case "email_send": {
+      if (!userConfirmedSend(ctx.rawUserMessage ?? "")) {
+        return "NICHT gesendet: Issa hat das Versenden in seiner aktuellen Nachricht nicht ausdrücklich bestätigt (z.B. mit 'senden'). Zeige ihm den Entwurf im Chat und frage nach Bestätigung.";
+      }
+      return await sendEmail(String(input.to), String(input.subject), String(input.body));
+    }
     default:
       throw new Error(`Unbekanntes Tool: ${name}`);
   }

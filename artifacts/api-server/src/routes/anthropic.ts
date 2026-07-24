@@ -201,7 +201,9 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
           // Kaputtes JSON vom Modell — leere Args, das Tool meldet fehlende Felder selbst.
         }
         try {
-          const result = await executeLukasTool(toolCall.name, input);
+          const result = await executeLukasTool(toolCall.name, input, {
+            rawUserMessage: String(content),
+          });
           convo.push({ role: "tool", tool_call_id: toolCall.id, content: result });
         } catch (err) {
           logger.warn({ err, tool: toolCall.name }, "Lukas tool failed");

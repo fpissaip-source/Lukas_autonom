@@ -378,14 +378,16 @@ ${basePrompt}`;
         model,
         instructions,
         audio: {
-          output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "marin" },
+          output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "ash" },
           input: {
-            // far_field: filtert Umgebungs-/Lautsprecher-Rückkopplung heraus,
-            // bevor sie an die Spracherkennung geht — ohne das (und ohne
-            // echoCancellation im Widget) hört das Mikro auf Handys Lukas'
-            // eigene Stimme über den Lautsprecher mit und "antwortet" sich
-            // selbst in einer Endlosschleife.
-            noise_reduction: { type: "far_field" },
+            // near_field statt far_field: das Widget läuft auf Handy/Laptop
+            // dicht am Nutzer (nicht als Konferenz-Speakerphone quer durchs
+            // Zimmer, wofür far_field gedacht ist) — far_field hat dadurch
+            // echte Sprache mit-weggefiltert und die Spracherkennung teils
+            // gar nicht ausgelöst ("antwortet manchmal nicht"). Die
+            // Rückkopplungs-Gefahr, die far_field ursprünglich abfangen
+            // sollte, übernimmt bereits echoCancellation im Widget selbst.
+            noise_reduction: { type: "near_field" },
             // Expliziter Sprach-Hinweis für die Eingabe-Transkription — hilft
             // zusätzlich, das Gespräch durchgehend als Deutsch zu erkennen.
             // model ist in den TS-Typen als optional markiert, die echte API

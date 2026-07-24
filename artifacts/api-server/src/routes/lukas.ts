@@ -395,11 +395,13 @@ ${basePrompt}`;
         model: process.env.LUKAS_REALTIME_MODEL ?? "gpt-realtime-2.1",
         instructions,
         audio: {
-          output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "marin" },
+          output: { voice: process.env.LUKAS_REALTIME_VOICE ?? "ash" },
           input: {
-            // far_field: reduziert Lautsprecher-Rückkopplung (Handy/Laptop ohne
-            // Headset) in die Spracherkennung — siehe public.ts für Details.
-            noise_reduction: { type: "far_field" },
+            // near_field statt far_field — siehe public.ts für Details: far_field
+            // ist für Konferenz-Mikros aus der Distanz gedacht, nicht für ein
+            // Handy/Laptop dicht am Nutzer, und hat dabei echte Sprache
+            // mit-weggefiltert ("antwortet manchmal nicht").
+            noise_reduction: { type: "near_field" },
             // Expliziter Sprach-Hinweis für die Eingabe-Transkription. model
             // ist in den TS-Typen optional, die echte API verlangt es aber
             // zwingend sobald `transcription` gesetzt ist (sonst 400).

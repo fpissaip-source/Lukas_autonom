@@ -132,8 +132,16 @@ spricht und hört gleichzeitig im selben Modell, ohne Umweg über separate STT/T
 und antwortet dadurch im Millisekunden- statt Sekundenbereich.
 
 Beide Kanäle funktionieren nach demselben Muster: Der Browser holt sich ein kurzlebiges
-Client-Secret vom Server, das SDK verbindet sich damit direkt per WebRTC zu OpenAI
-(`@openai/agents-realtime`) — der eigentliche Prompt-Text verlässt nie den Server:
+Client-Secret vom Server und verbindet sich damit direkt per WebRTC zu OpenAI — der
+eigentliche Prompt-Text verlässt nie den Server:
+- **Dashboard** (`voice-panel.tsx`): nutzt das echte `@openai/agents-realtime`-SDK
+  (npm-Abhängigkeit, per Vite gebündelt).
+- **Widget** (`widget.js`): baut die WebRTC-Verbindung selbst auf (`RTCPeerConnection`
+  + `POST https://api.openai.com/v1/realtime/calls` mit der SDP-Offer, exakt nach dem
+  Protokoll aus dem echten SDK-Quellcode übernommen), bewusst OHNE das SDK per CDN
+  nachzuladen — ein früherer Versuch mit dynamischem CDN-Import
+  (`import("https://cdn.jsdelivr.net/.../+esm")`) erwies sich in freier Wildbahn als
+  unzuverlässig (Mikro blinkte kurz auf, Verbindung kam nie zustande, ohne Fehlermeldung).
 
 - **Privat** (`POST /api/lukas/realtime-session`, hinter `lukasAuth`): bettet Lukas'
   vollständigen privaten System-Prompt (Erinnerungen, Ziele, Tagebuch, Emotionen,
@@ -159,12 +167,16 @@ Ausgabesprache/den Akzent für normale Konversationen erzwingt; hilft die Ausspr
 trotzdem nicht genug, ist der nächste Hebel eine andere Stimme auszuprobieren
 (`LUKAS_REALTIME_VOICE`).
 
-**Latenz beim Verbindungsaufbau**: Das Widget lädt das SDK (CDN) und holt sich ein
-Client-Secret schon beim Öffnen des Panels vor (`loadSdk()`/`prefetchSession()` in
-`widget.js`), nicht erst beim Mikro-Klick — sonst zieht sich "Verbinde…" spürbar hin,
-weil dann beides erst nachträglich passieren müsste, bevor die WebRTC-Verbindung
-überhaupt starten kann. Das Client-Secret ist Einweg; nach Gebrauch (oder nach 4 von
-5 Minuten Gültigkeit) wird beim nächsten Öffnen automatisch neu vorgeladen.
+**Latenz beim Verbindungsaufbau**: Das Widget holt sich ein Client-Secret schon beim
+Öffnen des Panels vor (`prefetchSession()` in `widget.js`), nicht erst beim Mikro-Klick
+— sonst zieht sich "Verbinde…" spürbar hin. Das Client-Secret ist Einweg; nach Gebrauch
+(oder nach 4 von 5 Minuten Gültigkeit) wird beim nächsten Öffnen automatisch neu vorgeladen.
+
+**Mobile Ansicht**: Das Panel ist unter 640px Breite ein vollflächiges Overlay
+(`position:fixed;inset:0`) statt eines kleinen schwebenden Fensters — sonst passten auf
+schmalen Bildschirmen nicht alle Elemente gleichzeitig ins Bild. Eingabefelder haben
+mindestens 16px Schrift, sonst zoomt iOS Safari beim Fokussieren automatisch in die
+Seite hinein (der Effekt, der sich wie ein kaputtes/verzerrtes Layout anfühlt).
 
 ## Portfolio-Widget (issahareb.me)
 

@@ -30,6 +30,7 @@ import {
 import {
   moltbookEnabled,
   getFeed,
+  searchFeed,
   createPost,
   createComment,
   upvotePost,
@@ -318,12 +319,32 @@ Leere Arrays sind völlig okay — nicht jeder Feed ist spannend.`;
   }
 }
 
-// Zusammenfassung für das Chat-Tool get_moltbook_activity.
-export async function getMoltbookActivitySummary(): Promise<string> {
+// Zusammenfassung für das Chat-Tool get_moltbook_activity. Mit query wird
+// statt des "hot"-Ausschnitts (nur die meist-upvoteten Posts, frische Posts
+// fallen da raus) der "new"-Feed nach Autor/Stichwort durchsucht — z.B. um
+// einen bestimmten, gerade erst geposteten Beitrag zu finden.
+export async function getMoltbookActivitySummary(query?: string): Promise<string> {
   if (!moltbookEnabled()) {
     return "Moltbook ist nicht verbunden (MOLTBOOK_API_KEY fehlt). Sag Issa, er soll das Registrierungs-Skript laufen lassen: npm run moltbook:register";
   }
   const lines: string[] = [];
+  if (query && query.trim()) {
+    try {
+      const matches = await searchFeed(query, 100);
+      lines.push(`SUCHE NACH "${query}" (im "new"-Feed, letzte 100 Posts):`);
+      if (matches.length === 0) {
+        lines.push("Keine Treffer. Entweder ist der Post älter als die letzten 100 Posts, oder Autor/Stichwort weicht ab.");
+      }
+      for (const p of matches.slice(0, 10)) {
+        lines.push(
+          `- [m/${p.submolt ?? "?"}] "${p.title ?? "(ohne Titel)"}" von ${p.author ?? "?"} (▲${p.upvotes ?? 0}, ${p.commentCount ?? 0} Kommentare, id=${p.id})\n  ${(p.content ?? "").slice(0, 300)}`,
+        );
+      }
+    } catch (err) {
+      lines.push(`Suche fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return lines.join("\n");
+  }
   try {
     const posts = await getFeed("hot", 8);
     lines.push("AKTUELLER MOLTBOOK-FEED (hot):");

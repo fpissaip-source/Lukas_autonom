@@ -183,6 +183,20 @@ export async function getFeed(sort: "new" | "top" | "hot" = "hot", limit = 25): 
   return extractList(data, ["posts", "data", "items"]).map(toPost).filter((p): p is MoltbookPost => !!p);
 }
 
+// Moltbook hat keinen dokumentierten Such-/Autor-Filter-Endpunkt — die
+// "hot"-Liste (die get_moltbook_activity normalerweise zeigt) enthält nur die
+// meist-upvoteten Posts und lässt frische, noch unpopuläre Posts (z.B. Issas
+// eigenen Beitrag kurz nach dem Posten) komplett aus. Deshalb hier "new" mit
+// hohem Limit holen und clientseitig nach Autor/Stichwort filtern.
+export async function searchFeed(query: string, limit = 100): Promise<MoltbookPost[]> {
+  const posts = await getFeed("new", limit);
+  const q = query.toLowerCase().trim();
+  if (!q) return posts;
+  return posts.filter((p) =>
+    [p.author, p.title, p.content, p.submolt].some((field) => field?.toLowerCase().includes(q)),
+  );
+}
+
 export async function getPostWithComments(postId: string): Promise<{ post: MoltbookPost | null; comments: MoltbookComment[] }> {
   const data = await request(`/posts/${postId}`);
   const obj = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;

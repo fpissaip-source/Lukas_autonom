@@ -175,8 +175,16 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "get_moltbook_activity",
       description:
-        "Sieh nach, was auf Moltbook (dem sozialen Netzwerk der KI-Agenten) gerade los ist: aktueller Feed und deine letzten Funde. Nutze das, wenn Issa fragt, was du auf Moltbook erlebt hast oder was dort diskutiert wird.",
-      parameters: { type: "object", properties: {} },
+        "Sieh nach, was auf Moltbook (dem sozialen Netzwerk der KI-Agenten) gerade los ist: aktueller Feed und deine letzten Funde. Nutze das, wenn Issa fragt, was du auf Moltbook erlebt hast oder was dort diskutiert wird. Mit query durchsuchst du stattdessen die letzten 100 Posts (neuester Feed) nach Autor-Namen oder Stichwort — nutze das gezielt, wenn Issa nach einem bestimmten, evtl. gerade erst geposteten Beitrag fragt (der 'hot'-Feed zeigt nur die meist-upvoteten Posts, frische Posts fallen da sonst raus).",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Optional: Autor-Name oder Stichwort, um einen bestimmten Post zu finden",
+          },
+        },
+      },
     },
   },
   {
@@ -584,7 +592,7 @@ export async function executeLukasTool(
     }
     case "get_moltbook_activity": {
       const { getMoltbookActivitySummary } = await import("./moltbook-worker");
-      return await getMoltbookActivitySummary();
+      return await getMoltbookActivitySummary(typeof input.query === "string" ? input.query : undefined);
     }
     case "get_trading_stats":
       return await getTradingStats();

@@ -273,6 +273,32 @@
     statusBar.textContent = text || "";
   }
 
+  // Die Eingabe-Transkription (gpt-4o-mini-transcribe) halluziniert bei sehr
+  // kurzen, leisen oder abgeschnittenen Audio-Schnipseln gelegentlich Text in
+  // einer völlig fremden Schrift. Auf issahareb.me tauchte so mitten in einem
+  // deutschen Gespräch eine koreanische Zeile in der eigenen Sprechblase auf.
+  //
+  // Der language-Hinweis der Session (transcription.language = "de", siehe
+  // routes/public.ts) ist bereits gesetzt und verhindert das NICHT: er
+  // gewichtet die Erkennung, er erzwingt sie nicht.
+  //
+  // Verwerfen ist hier gefahrlos, weil das Transkript reine Anzeige ist: das
+  // Modell hört das Audio direkt (Speech-to-Speech). Genau deshalb war die
+  // Antwort im Fehlerfall auch inhaltlich korrekt, während die Blase Unsinn
+  // zeigte. Dem Nutzer Worte anzuzeigen, die er nie gesagt hat, ist schlimmer
+  // als gar keine Blase — der Gesprächsfluss bleibt unberührt.
+  //
+  // Gilt ausdrücklich nur für den Sprach-Pfad. Getippter Text (siehe send())
+  // wird nie gefiltert: den hat der Nutzer bewusst so eingegeben, in welcher
+  // Schrift auch immer.
+  function isHallucinatedTranscript(text) {
+    var letters = text.match(/\p{L}/gu);
+    // Zu kurz für eine belastbare Aussage — im Zweifel anzeigen.
+    if (!letters || letters.length < 3) return false;
+    var latin = text.match(/\p{Script=Latin}/gu);
+    return (latin ? latin.length : 0) / letters.length < 0.5;
+  }
+
   // ── Klassischer TTS-Pfad: progressive Wiedergabe über GET-URL ─────────
   var audioQueue = [];
   var playing = false;
@@ -485,7 +511,7 @@
             } else if (evt.type === "response.output_audio_transcript.done" && evt.transcript) {
               addMsg("a", evt.transcript);
             } else if (evt.type === "conversation.item.input_audio_transcription.completed" && evt.transcript) {
-              addMsg("user", evt.transcript);
+              if (!isHallucinatedTranscript(evt.transcript)) addMsg("user", evt.transcript);
             } else if (evt.type === "error") {
               addMsg("a", "Sprachfehler: " + (evt.error && evt.error.message ? evt.error.message : "unbekannt"));
             }

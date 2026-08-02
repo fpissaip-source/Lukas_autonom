@@ -196,7 +196,7 @@ Antworte NUR mit JSON:
 Leere Arrays sind völlig okay — nicht jeder Feed ist spannend.`;
 
     const response = await openai.chat.completions.create({
-      model: process.env.LUKAS_CORE_MODEL ?? "gpt-4o",
+      model: process.env.LUKAS_CORE_MODEL ?? "gpt-5.6-sol",
       max_completion_tokens: 3000,
       messages: [{ role: "user", content: prompt }],
     });

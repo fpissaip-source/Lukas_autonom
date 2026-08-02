@@ -13,7 +13,7 @@ import { recordDebugEvent } from "../lib/debug-log";
 
 const router = Router();
 
-const CHAT_MODEL = process.env.LUKAS_CORE_MODEL ?? "gpt-4o";
+const CHAT_MODEL = process.env.LUKAS_CORE_MODEL ?? "gpt-5.6-sol";
 const MAX_TOOL_ITERATIONS = 8;
 
 // ── CONVERSATIONS ──────────────────────────────────────────────────────────

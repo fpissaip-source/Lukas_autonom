@@ -14,7 +14,7 @@ const router = Router();
 
 // Schnelles Modell für den öffentlichen Widget (Portfolio-Besucher erwarten
 // Antworten in Sekundenbruchteilen); per Env auf ein anderes Modell umstellbar.
-const PUBLIC_MODEL = process.env.LUKAS_PUBLIC_MODEL ?? "gpt-4o-mini";
+const PUBLIC_MODEL = process.env.LUKAS_PUBLIC_MODEL ?? "gpt-5.6-terra";
 
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 

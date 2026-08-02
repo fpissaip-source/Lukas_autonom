@@ -33,7 +33,7 @@ Erstelle einen cinematischen, detaillierten Prompt auf Englisch der das Beste au
 Antworte NUR mit dem JSON-Objekt.`;
 
     const response = await openai.chat.completions.create({
-      model: process.env.LUKAS_CORE_MODEL ?? "gpt-5.6-sol",
+      model: process.env.LUKAS_CORE_MODEL ?? "gpt-4o",
       max_completion_tokens: 8192,
       messages: [
         { role: "system", content: HIGGSFIELD_PROMPT_SYSTEM },

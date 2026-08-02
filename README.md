@@ -49,8 +49,8 @@ friert den Prozess ein.) Schritte:
 3. Weitere Variablen setzen (`PORT` setzt Railway automatisch):
    - `AI_INTEGRATIONS_OPENAI_API_KEY` — Key von platform.openai.com
    - `AI_INTEGRATIONS_OPENAI_BASE_URL` = `https://api.openai.com/v1`
-   - optional `LUKAS_CORE_MODEL` (Standard `gpt-5.6-sol`) und `LUKAS_PUBLIC_MODEL`
-     (Standard `gpt-5.6-terra`), falls andere Modelle gewünscht/verfügbar sind
+   - optional `LUKAS_CORE_MODEL` (Standard `gpt-4o`) und `LUKAS_PUBLIC_MODEL`
+     (Standard `gpt-4o-mini`), falls andere Modelle gewünscht/verfügbar sind
    - `LUKAS_API_TOKEN` (Pflicht — schützt die private API)
    - `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_AGENT_ID`, `ELEVENLABS_LLM_TOKEN`
    - optional: `MOLTBOOK_API_KEY`, `VOYAGE_API_KEY`, `VPS_DATABASE_URL`, `HIGGSFIELD_API_KEY`
@@ -111,7 +111,7 @@ Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
 | `PORT` | Port des API-Servers |
 | `DATABASE_URL` | Postgres für Lukas (Gedächtnis, Ziele, Tagebuch, Chats) |
 | `AI_INTEGRATIONS_OPENAI_API_KEY` / `_BASE_URL` | OpenAI-Zugang (Key von platform.openai.com) |
-| `LUKAS_CORE_MODEL` | Modell für Lukas' "Gehirn" — Chat, Reflexion, Moltbook, Higgsfield-Prompts (Standard `gpt-5.6-sol`) |
+| `LUKAS_CORE_MODEL` | Modell für Lukas' "Gehirn" — Chat, Reflexion, Moltbook, Higgsfield-Prompts (Standard `gpt-4o`) |
 | `HIGGSFIELD_API_KEY` | Optional: Higgsfield Media-Generierung |
 | `LUKAS_API_TOKEN` | Optional: schützt alle `/api`-Routen (außer `/api/healthz` und `/api/public/*`) per Bearer-Token. Sobald gesetzt, zeigt das Dashboard beim Aufruf automatisch einen Login-Screen — dort den Token eingeben, kein Dev-Console-Zugriff nötig. |
 | `VPS_DATABASE_URL` | Optional: Postgres des VPS-Trading-Systems (Fallback: `DATABASE_URL`) |
@@ -119,7 +119,7 @@ Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
 | `ELEVENLABS_VOICE_ID` | Deine gewählte Stimme aus dem ElevenLabs VoiceLab (nur für `data-voice="classic"`-TTS) |
 | `ELEVENLABS_AGENT_ID` | Legacy, aktuell ungenutzt (siehe `/api/public/voice-session` unten) |
 | `ELEVENLABS_LLM_TOKEN` | Nur falls du zusätzlich einen ElevenLabs-Agent (Custom LLM) betreiben willst — schützt `/api/public/llm/v1` |
-| `LUKAS_PUBLIC_MODEL` | Modell für den öffentlichen Widget-**Text**-Chat (Standard `gpt-5.6-terra` für minimale Latenz) |
+| `LUKAS_PUBLIC_MODEL` | Modell für den öffentlichen Widget-**Text**-Chat (Standard `gpt-4o-mini` für minimale Latenz) |
 | `LUKAS_REALTIME_MODEL` | Modell für **beide** Sprachkanäle — privater Dashboard-Chat UND öffentliches Widget (Standard `gpt-realtime-2.1`, Speech-to-Speech, ~200-300ms Latenz). Nutzt denselben `AI_INTEGRATIONS_OPENAI_API_KEY`. |
 | `LUKAS_REALTIME_VOICE` | Stimme für beide Sprachkanäle (aktuell `marin` — wird gerade getestet). `cedar` ist die männliche Variante, klang beim Testen z.T. irisch auf Deutsch. `ash` ist eine neutralere männliche Alternative. Weitere: `alloy`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse` |
 

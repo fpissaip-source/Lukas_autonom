@@ -140,7 +140,7 @@ Antworte NUR mit einem JSON-Objekt, kein Markdown:
 Zu claims: Extrahiere 0-4 konkrete, merkwürdige Aussagen aus den Gesprächen. evidenceLevel: 0=dein Gedanke, 1=deine Beobachtung aus dem Gespräch. NIEMALS höher.`;
 
   const response = await openai.chat.completions.create({
-    model: process.env.LUKAS_CORE_MODEL ?? "gpt-5.6-sol",
+    model: process.env.LUKAS_CORE_MODEL ?? "gpt-4o",
     max_completion_tokens: 2048,
     messages: [{ role: "user", content: prompt }],
   });

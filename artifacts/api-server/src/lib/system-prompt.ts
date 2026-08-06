@@ -1,6 +1,7 @@
 import { db } from "@workspace/db";
 import { memoriesTable, goalsTable, diaryTable } from "@workspace/db";
-import { eq, desc, gte } from "drizzle-orm";
+import { eq, desc, gte, ne } from "drizzle-orm";
+import { CONVERSATION_CATEGORY } from "./conversation-memory";
 import { LUKAS_SYSTEM_PROMPT } from "./lukas-soul";
 import { getLukasStatus, DEFAULT_STATUS } from "./lukas-status";
 import { getEmotionalContext, getCharacterContext } from "./emotion-engine";
@@ -32,7 +33,17 @@ export async function buildSystemPrompt(userQuery?: string): Promise<string> {
       .where(gte(memoriesTable.importance, 7))
       .orderBy(desc(memoriesTable.importance), desc(memoriesTable.createdAt))
       .limit(10),
-    db.select().from(memoriesTable).orderBy(desc(memoriesTable.createdAt)).limit(10),
+    // Gespraechsmitschnitte (Kategorie "conversation") sind hier bewusst
+    // ausgeschlossen: seit jede Chat-Nachricht automatisch gespeichert wird,
+    // wuerden sie sonst die "neuesten Erinnerungen" komplett fuellen und die
+    // kuratierten Fakten ueber Issa verdraengen. Auffindbar bleiben sie ueber
+    // die gezielte Gedaechtnissuche weiter unten (relevantContext).
+    db
+      .select()
+      .from(memoriesTable)
+      .where(ne(memoriesTable.category, CONVERSATION_CATEGORY))
+      .orderBy(desc(memoriesTable.createdAt))
+      .limit(10),
     db.select().from(goalsTable).where(eq(goalsTable.status, "active")).limit(5),
     db.select().from(diaryTable).orderBy(desc(diaryTable.createdAt)).limit(2),
     getEmotionalContext(),

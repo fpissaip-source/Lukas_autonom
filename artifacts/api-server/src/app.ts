@@ -29,7 +29,16 @@ app.use(
   }),
 );
 app.use(cors());
-app.use(express.json());
+// Rohen Body mitschneiden: die WhatsApp-Webhook-Signatur (HMAC-SHA256) wird
+// ueber die exakten Bytes gebildet — nach dem JSON-Parsen laesst sie sich
+// nicht mehr zuverlaessig nachrechnen.
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true }));
 
 // widget.js ändert sich während aktiver Entwicklung häufig — Browser dürfen

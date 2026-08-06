@@ -12,6 +12,7 @@ import { logger } from "../lib/logger";
 import { recordDebugEvent } from "../lib/debug-log";
 import { attachmentKind } from "./attachments";
 import { extractVideoFrames } from "../lib/video-frames";
+import { rememberUserMessage } from "../lib/conversation-memory";
 
 const router = Router();
 
@@ -194,6 +195,10 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       .insert(messages)
       .values({ conversationId: convId, role: "user", content })
       .returning();
+
+    // Zusaetzlich ins Langzeitgedaechtnis (Issas Wunsch: alles behalten).
+    // Bewusst nicht awaited — das Gespraech soll nicht darauf warten.
+    rememberUserMessage(String(content), "dashboard");
 
     // Noch nicht zugeordnete Anhaenge gehoeren zu genau dieser Nachricht: sie
     // wurden hochgeladen, waehrend Issa den Text getippt hat.

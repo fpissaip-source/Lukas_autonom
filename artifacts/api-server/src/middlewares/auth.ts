@@ -10,7 +10,16 @@ export function lukasAuth(req: Request, res: Response, next: NextFunction): void
   // statt Nutzer:innen daran verzweifeln zu lassen.
   const token = process.env.LUKAS_API_TOKEN?.trim();
   if (!token) return void next();
-  if (req.path === "/healthz" || req.path.startsWith("/public/")) return void next();
+  // /whatsapp/webhook muss offen bleiben: Meta ruft ihn auf und kann keinen
+  // Bearer-Token mitschicken. Abgesichert ist er stattdessen durch die
+  // HMAC-Signaturpruefung (X-Hub-Signature-256) und die Absender-Allowlist.
+  if (
+    req.path === "/healthz" ||
+    req.path.startsWith("/public/") ||
+    req.path === "/whatsapp/webhook"
+  ) {
+    return void next();
+  }
 
   const header = req.headers.authorization;
   const provided = header?.startsWith("Bearer ") ? header.slice(7).trim() : undefined;

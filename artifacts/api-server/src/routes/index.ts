@@ -6,6 +6,7 @@ import anthropicRouter from "./anthropic";
 import tradesRouter from "./trades";
 import publicRouter from "./public";
 import attachmentsRouter from "./attachments";
+import whatsappRouter from "./whatsapp";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(anthropicRouter);
 router.use(tradesRouter);
 router.use(publicRouter);
 router.use(attachmentsRouter);
+router.use(whatsappRouter);
 
 export default router;

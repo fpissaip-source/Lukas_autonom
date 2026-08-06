@@ -1,0 +1,13 @@
+{$LUKAS_DOMAIN} {
+  encode zstd gzip
+
+  reverse_proxy lukas:5000 {
+    health_uri /api/healthz
+    health_interval 30s
+    health_timeout 5s
+  }
+
+  header {
+    -Server
+  }
+}

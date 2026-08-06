@@ -1,13 +1,28 @@
-import express, { type Express } from "express";
+import express, {
+  type ErrorRequestHandler,
+  type Express,
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import path from "path";
 import fs from "fs";
 import router from "./routes";
+import { corsOptions } from "./config/security";
 import { lukasAuth } from "./middlewares/auth";
+import {
+  expensiveApiRateLimit,
+  globalApiRateLimit,
+  publicApiRateLimit,
+} from "./middlewares/rate-limit";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
+
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
 
 app.use(
   pinoHttp({
@@ -28,13 +43,42 @@ app.use(
     },
   }),
 );
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(self), microphone=(self), geolocation=()",
+  );
+
+  if (process.env.NODE_ENV === "production" && req.secure) {
+    res.setHeader(
+      "Strict-Transport-Security",
+      "max-age=31536000; includeSubDomains",
+    );
+  }
+
+  next();
+});
+
+app.use(cors(corsOptions));
+app.use(
+  express.json({
+    limit: process.env.LUKAS_JSON_BODY_LIMIT ?? "2mb",
+  }),
+);
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: process.env.LUKAS_FORM_BODY_LIMIT ?? "256kb",
+  }),
+);
 
 // widget.js ändert sich während aktiver Entwicklung häufig — Browser dürfen
 // es nie ungefragt aus dem Cache servieren, sonst testet man versehentlich
-// eine alte Version (genau das hat schon zu falschen Fehlerbildern geführt).
+// eine alte Version.
 app.use("/widget.js", (req, res, next) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   next();
@@ -44,15 +88,19 @@ app.use("/widget.js", (req, res, next) => {
 // dem esbuild-Banner und zeigt auf artifacts/api-server/dist.
 app.use(express.static(path.join(__dirname, "..", "public")));
 
-app.use("/api", lukasAuth, router);
+app.use(
+  "/api",
+  globalApiRateLimit,
+  publicApiRateLimit,
+  expensiveApiRateLimit,
+  lukasAuth,
+  router,
+);
 
-// Im Deployment (Railway etc.) liefert der API-Server auch das gebaute
-// Dashboard (lukas-ui) aus — ein Service für API + UI + Widget.
-// Im Dev-Betrieb läuft die UI weiter über den Vite-Dev-Server (npm run dev:ui).
+// Im Deployment liefert der API-Server auch das gebaute Dashboard aus.
 const uiDist = path.join(__dirname, "..", "..", "lukas-ui", "dist", "public");
 if (fs.existsSync(path.join(uiDist, "index.html"))) {
   app.use(express.static(uiDist));
-  // SPA-Fallback: Client-Routen (/chat, /goals, …) liefern index.html
   app.get(/^\/(?!api\/).*/, (req, res) => {
     res.sendFile(path.join(uiDist, "index.html"));
   });
@@ -60,5 +108,27 @@ if (fs.existsSync(path.join(uiDist, "index.html"))) {
 } else {
   logger.info("Dashboard-UI nicht gebaut (npm run build:ui) — nur API + Widget");
 }
+
+const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
+  if (res.headersSent) {
+    next(error);
+    return;
+  }
+
+  const status =
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    typeof error.status === "number"
+      ? error.status
+      : 500;
+
+  req.log?.error({ err: error }, "Unhandled request error");
+  res.status(status).json({
+    error: status === 413 ? "Request body is too large" : "Internal server error",
+  });
+};
+
+app.use(errorHandler);
 
 export default app;

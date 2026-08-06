@@ -10,15 +10,15 @@ import { maybeReflect } from "../lib/reflection";
 import { buildSystemPrompt } from "../lib/system-prompt";
 import { logger } from "../lib/logger";
 import { recordDebugEvent } from "../lib/debug-log";
+import { routeInitialTool } from "../lib/tool-router";
 import { attachmentKind } from "./attachments";
 import { extractVideoFrames } from "../lib/video-frames";
 
 const router = Router();
 
 const CHAT_MODEL = process.env.LUKAS_CORE_MODEL ?? "gpt-4o";
-const MAX_TOOL_ITERATIONS = 8;
+const MAX_TOOL_ITERATIONS = 12;
 
-// ── CONVERSATIONS ──────────────────────────────────────────────────────────
 router.get("/anthropic/conversations", async (req, res) => {
   try {
     const rows = await db
@@ -78,7 +78,6 @@ router.delete("/anthropic/conversations/:id", async (req, res) => {
   }
 });
 
-// ── MESSAGES ───────────────────────────────────────────────────────────────
 router.get("/anthropic/conversations/:id/messages", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -95,20 +94,8 @@ router.get("/anthropic/conversations/:id/messages", async (req, res) => {
 });
 
 type PendingToolCall = { id: string; name: string; arguments: string };
-
 type AttachmentRow = typeof attachmentsTable.$inferSelect;
 
-/*
- * Uebersetzt hochgeladene Dateien in das, was das Modell tatsaechlich lesen
- * kann. Wichtig und bewusst unterschiedlich je Typ:
- *  - Bilder  -> image_url mit Base64-Data-URL (echtes Sehen, gpt-4o Vision)
- *  - PDF     -> file-Content-Part mit file_data (das Modell liest das Dokument)
- *  - Text    -> Inhalt direkt als Text eingebettet
- *  - Video   -> Chat Completions hat KEINEN Video-Input. Statt so zu tun, als
- *               koennte Lukas das Video sehen, bekommt er einen ehrlichen
- *               Hinweis. Sonst wuerde er ueber Inhalte halluzinieren, die er
- *               nie gesehen hat.
- */
 async function buildAttachmentParts(
   rows: AttachmentRow[],
   text: string,
@@ -134,8 +121,6 @@ async function buildAttachmentParts(
         decoded.length > 30000 ? decoded.slice(0, 30000) + "\n\n[... gekürzt]" : decoded;
       parts.push({ type: "text", text: `Datei "${row.filename}":\n\n${clipped}` });
     } else if (kind === "video") {
-      // Video wird in Einzelbilder zerlegt und als Bildfolge geschickt — die
-      // API kann kein Video, aber sehr wohl Bilder.
       const extracted = await extractVideoFrames(row.data, row.filename);
       if (extracted && extracted.frames.length > 0) {
         const dauer = extracted.durationSeconds
@@ -176,7 +161,6 @@ async function buildAttachmentParts(
   return parts;
 }
 
-// SSE streaming message send with a real agentic tool loop
 router.post("/anthropic/conversations/:id/messages", async (req, res) => {
   try {
     const convId = parseInt(req.params.id);
@@ -189,14 +173,11 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       .where(eq(conversations.id, convId));
     if (!conv) return void res.status(404).json({ error: "Conversation not found" });
 
-    // Save user message
     const [userMessage] = await db
       .insert(messages)
       .values({ conversationId: convId, role: "user", content })
       .returning();
 
-    // Noch nicht zugeordnete Anhaenge gehoeren zu genau dieser Nachricht: sie
-    // wurden hochgeladen, waehrend Issa den Text getippt hat.
     const pendingAttachments = await db
       .update(attachmentsTable)
       .set({ messageId: userMessage.id })
@@ -209,8 +190,18 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       .returning();
 
     const systemPrompt = await buildSystemPrompt(String(content).slice(0, 500));
+    // Bei Datei-Anhaengen muss das Modell zuerst die Datei sehen. Ohne Anhang
+    // erzwingt der Router nur den ersten sinnvollen externen Schritt.
+    const initialRoute =
+      pendingAttachments.length > 0
+        ? { tool: null, reason: "Dateianhang wird direkt vom Modell ausgewertet." }
+        : routeInitialTool(String(content));
 
-    // Conversation history from DB (text only)
+    logger.info(
+      { conversationId: convId, tool: initialRoute.tool, reason: initialRoute.reason },
+      "Initial tool route",
+    );
+
     const history = await db
       .select()
       .from(messages)
@@ -225,13 +216,11 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       })),
     ];
 
-    // Anhaenge an die letzte (= gerade gespeicherte) Nutzernachricht haengen.
     if (pendingAttachments.length > 0) {
       const parts = await buildAttachmentParts(pendingAttachments, String(content));
       convo[convo.length - 1] = { role: "user", content: parts };
     }
 
-    // SSE headers
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -244,12 +233,14 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         model: CHAT_MODEL,
         max_completion_tokens: 8192,
         tools: LUKAS_TOOLS,
+        tool_choice:
+          iteration === 0 && initialRoute.tool
+            ? { type: "function" as const, function: { name: initialRoute.tool } }
+            : "auto",
         messages: convo,
         stream: true,
       });
 
-      // OpenAI streamt Tool-Call-Argumente als JSON-Fragmente pro Index —
-      // hier über die Chunks hinweg pro Tool-Call akkumulieren.
       const toolCallsByIndex = new Map<number, PendingToolCall>();
       let finishReason: string | null = null;
 
@@ -270,7 +261,6 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
               entry = { id: tc.id ?? "", name: tc.function?.name ?? "", arguments: "" };
               toolCallsByIndex.set(tc.index, entry);
               if (entry.name) {
-                // Let the UI show what Lukas is doing
                 res.write(`data: ${JSON.stringify({ tool: entry.name })}\n\n`);
               }
             }
@@ -302,7 +292,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         try {
           input = toolCall.arguments ? JSON.parse(toolCall.arguments) : {};
         } catch {
-          // Kaputtes JSON vom Modell — leere Args, das Tool meldet fehlende Felder selbst.
+          // Kaputtes JSON vom Modell — das Tool meldet fehlende Felder selbst.
         }
         try {
           const result = await executeLukasTool(toolCall.name, input, {
@@ -317,7 +307,6 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
             tool_call_id: toolCall.id,
             content: `Fehler: ${err instanceof Error ? err.message : String(err)}`,
           });
-          // Scheitern nervt — leicht, aber echt (nicht für das feel-Tool selbst).
           if (toolCall.name !== "feel") {
             recordEmotion({
               emotion: "frustration",
@@ -330,7 +319,6 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         }
       }
 
-      // Paragraph break between tool-separated text segments
       if (textPieces.length > 0 && !textPieces[textPieces.length - 1].endsWith("\n")) {
         textPieces.push("\n\n");
       }
@@ -338,7 +326,6 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
 
     const fullResponse = textPieces.join("").trim();
 
-    // Save assistant message
     if (fullResponse) {
       await db.insert(messages).values({
         conversationId: convId,
@@ -350,7 +337,6 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
 
-    // Nach dem Gespräch: ggf. autonome Tagebuch-Reflexion (max. alle 6h)
     maybeReflect();
   } catch (err: unknown) {
     logger.error({ err }, "Chat error");

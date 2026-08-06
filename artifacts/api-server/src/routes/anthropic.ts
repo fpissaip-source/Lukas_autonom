@@ -1,8 +1,8 @@
 import { Router } from "express";
 import type OpenAI from "openai";
 import { db } from "@workspace/db";
-import { conversations, messages } from "@workspace/db";
-import { eq, desc, asc } from "drizzle-orm";
+import { conversations, messages, attachments as attachmentsTable } from "@workspace/db";
+import { eq, desc, asc, and, isNull } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai";
 import { LUKAS_TOOLS, executeLukasTool } from "../lib/lukas-tools";
 import { recordEmotion } from "../lib/emotion-engine";
@@ -10,6 +10,7 @@ import { maybeReflect } from "../lib/reflection";
 import { buildSystemPrompt } from "../lib/system-prompt";
 import { logger } from "../lib/logger";
 import { recordDebugEvent } from "../lib/debug-log";
+import { attachmentKind } from "./attachments";
 
 const router = Router();
 
@@ -94,6 +95,63 @@ router.get("/anthropic/conversations/:id/messages", async (req, res) => {
 
 type PendingToolCall = { id: string; name: string; arguments: string };
 
+type AttachmentRow = typeof attachmentsTable.$inferSelect;
+
+/*
+ * Uebersetzt hochgeladene Dateien in das, was das Modell tatsaechlich lesen
+ * kann. Wichtig und bewusst unterschiedlich je Typ:
+ *  - Bilder  -> image_url mit Base64-Data-URL (echtes Sehen, gpt-4o Vision)
+ *  - PDF     -> file-Content-Part mit file_data (das Modell liest das Dokument)
+ *  - Text    -> Inhalt direkt als Text eingebettet
+ *  - Video   -> Chat Completions hat KEINEN Video-Input. Statt so zu tun, als
+ *               koennte Lukas das Video sehen, bekommt er einen ehrlichen
+ *               Hinweis. Sonst wuerde er ueber Inhalte halluzinieren, die er
+ *               nie gesehen hat.
+ */
+async function buildAttachmentParts(
+  rows: AttachmentRow[],
+  text: string,
+): Promise<OpenAI.Chat.Completions.ChatCompletionContentPart[]> {
+  const parts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
+  if (text.trim()) parts.push({ type: "text", text });
+
+  for (const row of rows) {
+    const kind = attachmentKind(row.mimeType, row.filename);
+    if (kind === "image") {
+      parts.push({
+        type: "image_url",
+        image_url: { url: `data:${row.mimeType};base64,${row.data}` },
+      });
+    } else if (kind === "pdf") {
+      parts.push({
+        type: "file",
+        file: { filename: row.filename, file_data: `data:${row.mimeType};base64,${row.data}` },
+      });
+    } else if (kind === "text") {
+      const decoded = Buffer.from(row.data, "base64").toString("utf-8");
+      const clipped =
+        decoded.length > 30000 ? decoded.slice(0, 30000) + "\n\n[... gekürzt]" : decoded;
+      parts.push({ type: "text", text: `Datei "${row.filename}":\n\n${clipped}` });
+    } else if (kind === "video") {
+      parts.push({
+        type: "text",
+        text:
+          `[Video "${row.filename}" (${Math.round(row.sizeBytes / 1024)} KB) wurde angehängt. ` +
+          `Du kannst Videos NICHT ansehen — erfinde keinen Inhalt. Sag ehrlich, dass du das ` +
+          `Video nicht auswerten kannst, und frag ggf. nach einem Screenshot oder Beschreibung.]`,
+      });
+    } else {
+      parts.push({
+        type: "text",
+        text:
+          `[Datei "${row.filename}" (${row.mimeType}, ${Math.round(row.sizeBytes / 1024)} KB) ` +
+          `wurde angehängt, dieses Format kannst du nicht lesen. Sag das ehrlich.]`,
+      });
+    }
+  }
+  return parts;
+}
+
 // SSE streaming message send with a real agentic tool loop
 router.post("/anthropic/conversations/:id/messages", async (req, res) => {
   try {
@@ -108,7 +166,23 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     if (!conv) return void res.status(404).json({ error: "Conversation not found" });
 
     // Save user message
-    await db.insert(messages).values({ conversationId: convId, role: "user", content });
+    const [userMessage] = await db
+      .insert(messages)
+      .values({ conversationId: convId, role: "user", content })
+      .returning();
+
+    // Noch nicht zugeordnete Anhaenge gehoeren zu genau dieser Nachricht: sie
+    // wurden hochgeladen, waehrend Issa den Text getippt hat.
+    const pendingAttachments = await db
+      .update(attachmentsTable)
+      .set({ messageId: userMessage.id })
+      .where(
+        and(
+          eq(attachmentsTable.conversationId, convId),
+          isNull(attachmentsTable.messageId),
+        ),
+      )
+      .returning();
 
     const systemPrompt = await buildSystemPrompt(String(content).slice(0, 500));
 
@@ -126,6 +200,12 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         content: m.content,
       })),
     ];
+
+    // Anhaenge an die letzte (= gerade gespeicherte) Nutzernachricht haengen.
+    if (pendingAttachments.length > 0) {
+      const parts = await buildAttachmentParts(pendingAttachments, String(content));
+      convo[convo.length - 1] = { role: "user", content: parts };
+    }
 
     // SSE headers
     res.setHeader("Content-Type", "text/event-stream");

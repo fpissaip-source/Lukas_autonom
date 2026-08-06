@@ -5,6 +5,7 @@ import higgsfieldRouter from "./higgsfield";
 import anthropicRouter from "./anthropic";
 import tradesRouter from "./trades";
 import publicRouter from "./public";
+import attachmentsRouter from "./attachments";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(higgsfieldRouter);
 router.use(anthropicRouter);
 router.use(tradesRouter);
 router.use(publicRouter);
+router.use(attachmentsRouter);
 
 export default router;

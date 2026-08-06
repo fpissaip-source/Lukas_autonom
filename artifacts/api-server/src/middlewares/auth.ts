@@ -1,8 +1,21 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
+import { isValidAttachmentSignature } from "../lib/attachment-signing";
 
 function isPublicPath(path: string): boolean {
   return path === "/healthz" || path === "/public" || path.startsWith("/public/");
+}
+
+function isSignedAttachmentRequest(req: Request): boolean {
+  if (req.method !== "GET") return false;
+  const match = req.path.match(/^\/attachments\/file\/(\d+)$/);
+  if (!match) return false;
+
+  return isValidAttachmentSignature(
+    match[1],
+    req.query.expires,
+    req.query.signature,
+  );
 }
 
 function safeTokenEqual(provided: string, expected: string): boolean {
@@ -16,7 +29,11 @@ function safeTokenEqual(provided: string, expected: string): boolean {
 }
 
 export function lukasAuth(req: Request, res: Response, next: NextFunction): void {
-  if (req.method === "OPTIONS" || isPublicPath(req.path)) {
+  if (
+    req.method === "OPTIONS" ||
+    isPublicPath(req.path) ||
+    isSignedAttachmentRequest(req)
+  ) {
     next();
     return;
   }

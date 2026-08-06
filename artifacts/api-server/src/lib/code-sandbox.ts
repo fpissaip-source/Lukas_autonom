@@ -115,6 +115,11 @@ async function executeHostCommand(command: string, timeoutSeconds: number): Prom
 
   return await new Promise<string>((resolve, reject) => {
     const child = spawn("nsenter", args, {
+      // Der Container arbeitet unter /app. Dieses Verzeichnis existiert auf
+      // dem Ubuntu-Host nicht. Ohne ein neutrales Startverzeichnis erbt
+      // nsenter /app und Bash meldet getcwd/No such file or directory, noch
+      // bevor --wd=/root greift. / existiert in beiden Dateisystemen.
+      cwd: "/",
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {

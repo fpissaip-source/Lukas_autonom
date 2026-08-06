@@ -38,6 +38,8 @@ jobs:
         run: npm run build --workspace=@workspace/api-server
 
       - name: Validate Docker Compose
-        run: docker compose config --quiet
+        run: |
+          printf 'LUKAS_API_TOKEN=ci-placeholder\n' > .env
+          docker compose config --quiet
         env:
           LUKAS_DOMAIN: ":80"

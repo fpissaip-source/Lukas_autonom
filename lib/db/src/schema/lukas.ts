@@ -49,6 +49,10 @@ export const mediaJobsTable = pgTable("lukas_media_jobs", {
   status: text("status").notNull().default("pending"),
   resultUrl: text("result_url"),
   mediaType: text("media_type").notNull().default("image"),
+  // Klartext-Grund bei status="failed". Vorher landete der Fehler nur in
+  // console.error und der Job war "ohne Fehler fehlgeschlagen" — man sah nur,
+  // DASS es schiefging, nie warum.
+  error: text("error"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

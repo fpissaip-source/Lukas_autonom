@@ -96,6 +96,12 @@ function JobCard({ job }: { job: { id: number; requestId?: string | null; status
         </div>
         <JobStatusBadge status={displayStatus} />
       </div>
+      {/* Fehlgeschlagene Jobs zeigen jetzt den echten Grund statt nur "FAILED" */}
+      {displayStatus === "failed" && (job as { error?: string | null }).error && (
+        <div className="mt-3 text-xs bg-red-500/10 border border-red-500/20 text-red-300 rounded-md px-3 py-2 break-words">
+          {(job as { error?: string | null }).error}
+        </div>
+      )}
       <div className="flex items-center gap-3 mt-3 pt-3 border-t border-border/50">
         <span className={`text-xs font-mono flex items-center gap-1 ${job.mediaType === "video" ? "text-purple-400" : "text-blue-400"}`}>
           {job.mediaType === "video" ? <Film className="w-3 h-3" /> : <Image className="w-3 h-3" />}

@@ -45,6 +45,38 @@ function formatSize(bytes: number) {
     : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** Kurzer Zeitstempel wie in echten Chat-Apps (14:32) statt "about 10 hours ago". */
+function chatTime(iso: string) {
+  const d = new Date(iso);
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  const time = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  return sameDay ? time : `${d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })} ${time}`;
+}
+
+/**
+ * Macht URLs anklickbar. Ohne das steht ein langer Link als toter Text in der
+ * Blase — und genau so ein Link (Dropbox) hat die Blase vorher gesprengt.
+ */
+function renderWithLinks(text: string) {
+  const parts = text.split(/(https?:\/\/[^\s]+)/g);
+  return parts.map((part, i) =>
+    /^https?:\/\//.test(part) ? (
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noreferrer"
+        className="underline underline-offset-2 break-all opacity-90 hover:opacity-100"
+      >
+        {part}
+      </a>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  );
+}
+
 export default function Chat() {
   const qc = useQueryClient();
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -57,6 +89,10 @@ export default function Chat() {
   const [pending, setPending] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Die eigene Nachricht sofort anzeigen, statt zu warten bis der Server sie
+  // zurueckliefert — vorher wirkte der Chat sekundenlang, als waere nichts
+  // passiert. Wird geleert, sobald die echte Nachricht aus der DB da ist.
+  const [optimisticMsg, setOptimisticMsg] = useState<string | null>(null);
 
   const { data: convos = [], isLoading: loadingConvos } = useListAnthropicConversations();
   const { data: activeConv } = useGetAnthropicConversation(activeId!, {
@@ -146,6 +182,7 @@ export default function Chat() {
     const msg = input.trim() || "(Datei angehängt)";
     setInput("");
     setPending([]); // Anhaenge sind ab jetzt Teil der Nachricht
+    setOptimisticMsg(msg); // sofort sichtbar machen
     setStreaming(true);
     setStreamContent("");
 
@@ -188,6 +225,7 @@ export default function Chat() {
     } finally {
       setStreaming(false);
       setStreamContent("");
+      setOptimisticMsg(null); // ab jetzt kommt die echte Nachricht aus der DB
       qc.invalidateQueries({ queryKey: getGetAnthropicConversationQueryKey(activeId) });
     }
   }, [input, activeId, streaming, qc, pending.length]);
@@ -270,19 +308,21 @@ export default function Chat() {
               )}
               <span className="truncate">COMM_LINK: {activeConv?.title ?? "..."}</span>
             </div>
-            <ScrollArea className="flex-1 p-6">
-              <div className="space-y-6 max-w-3xl mx-auto">
+            <ScrollArea className="flex-1 px-3 py-4 sm:px-6 sm:py-6">
+              <div className="space-y-3 sm:space-y-4 max-w-3xl mx-auto">
                 {allMessages.map((m) => (
-                  <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div key={m.id} className={`flex min-w-0 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                     {m.role === "assistant" && (
-                      <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-primary-foreground mr-3 mt-1 shrink-0">L</div>
+                      <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-primary-foreground mr-2 sm:mr-3 mt-1 shrink-0">L</div>
                     )}
-                    <div className={`max-w-[80%] rounded-lg px-4 py-3 text-sm leading-relaxed ${
+                    {/* min-w-0 + break-words: ohne das sprengt eine lange URL
+                        ohne Leerzeichen die Blase aus dem Bildschirm heraus. */}
+                    <div className={`min-w-0 max-w-[85%] sm:max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                       m.role === "user"
-                        ? "bg-primary text-primary-foreground rounded-br-sm"
-                        : "bg-card border border-border rounded-bl-sm"
+                        ? "bg-primary text-primary-foreground rounded-br-md"
+                        : "bg-card border border-border rounded-bl-md"
                     }`}>
-                      <div className="whitespace-pre-wrap">{m.content}</div>
+                      <div className="whitespace-pre-wrap break-words">{renderWithLinks(m.content)}</div>
                       {/* Anhaenge dieser Nachricht */}
                       {sentAttachments.filter((a) => a.messageId === m.id).length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-2">
@@ -316,25 +356,40 @@ export default function Chat() {
                             })}
                         </div>
                       )}
-                      <div className={`text-xs mt-2 ${m.role === "user" ? "text-primary-foreground/60" : "text-muted-foreground"} font-mono`}>
-                        {formatDistanceToNow(new Date(m.createdAt), { addSuffix: true })}
+                      <div className={`text-[11px] mt-1 text-right ${m.role === "user" ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
+                        {chatTime(m.createdAt)}
                       </div>
                     </div>
                     {m.role === "user" && (
-                      <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center text-xs font-bold ml-3 mt-1 shrink-0">I</div>
+                      <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center text-xs font-bold ml-2 sm:ml-3 mt-1 shrink-0">I</div>
                     )}
                   </div>
                 ))}
+                {/* Eigene Nachricht sofort zeigen, solange sie noch nicht aus
+                    der DB zurueck ist — sonst wirkt der Chat wie eingefroren. */}
+                {optimisticMsg && (
+                  <div className="flex justify-end min-w-0">
+                    <div className="min-w-0 max-w-[85%] sm:max-w-[80%] rounded-2xl rounded-br-md px-3.5 py-2.5 text-sm leading-relaxed bg-primary text-primary-foreground opacity-70">
+                      <div className="whitespace-pre-wrap break-words">{renderWithLinks(optimisticMsg)}</div>
+                      <div className="text-[11px] mt-1 text-right text-primary-foreground/60 flex items-center justify-end gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> senden…
+                      </div>
+                    </div>
+                    <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center text-xs font-bold ml-2 sm:ml-3 mt-1 shrink-0">I</div>
+                  </div>
+                )}
                 {streaming && (
-                  <div className="flex justify-start">
-                    <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-primary-foreground mr-3 mt-1 shrink-0">L</div>
-                    <div className="max-w-[80%] rounded-lg rounded-bl-sm px-4 py-3 text-sm bg-card border border-border">
+                  <div className="flex justify-start min-w-0">
+                    <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-primary-foreground mr-2 sm:mr-3 mt-1 shrink-0">L</div>
+                    <div className="min-w-0 max-w-[85%] sm:max-w-[80%] rounded-2xl rounded-bl-md px-3.5 py-2.5 text-sm bg-card border border-border">
                       {streamContent ? (
-                        <div className="whitespace-pre-wrap">{streamContent}<span className="animate-pulse">|</span></div>
+                        <div className="whitespace-pre-wrap break-words">{streamContent}<span className="animate-pulse">▌</span></div>
                       ) : (
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span className="font-mono text-xs">PROCESSING...</span>
+                        // Typing-Indikator wie in echten Chat-Apps statt "PROCESSING..."
+                        <div className="flex items-center gap-1 py-1" aria-label="Lukas schreibt">
+                          <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:0ms]" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:150ms]" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:300ms]" />
                         </div>
                       )}
                     </div>

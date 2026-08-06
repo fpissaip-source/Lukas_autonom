@@ -11,6 +11,7 @@ import { buildSystemPrompt } from "../lib/system-prompt";
 import { logger } from "../lib/logger";
 import { recordDebugEvent } from "../lib/debug-log";
 import { attachmentKind } from "./attachments";
+import { extractVideoFrames } from "../lib/video-frames";
 
 const router = Router();
 
@@ -133,13 +134,36 @@ async function buildAttachmentParts(
         decoded.length > 30000 ? decoded.slice(0, 30000) + "\n\n[... gekürzt]" : decoded;
       parts.push({ type: "text", text: `Datei "${row.filename}":\n\n${clipped}` });
     } else if (kind === "video") {
-      parts.push({
-        type: "text",
-        text:
-          `[Video "${row.filename}" (${Math.round(row.sizeBytes / 1024)} KB) wurde angehängt. ` +
-          `Du kannst Videos NICHT ansehen — erfinde keinen Inhalt. Sag ehrlich, dass du das ` +
-          `Video nicht auswerten kannst, und frag ggf. nach einem Screenshot oder Beschreibung.]`,
-      });
+      // Video wird in Einzelbilder zerlegt und als Bildfolge geschickt — die
+      // API kann kein Video, aber sehr wohl Bilder.
+      const extracted = await extractVideoFrames(row.data, row.filename);
+      if (extracted && extracted.frames.length > 0) {
+        const dauer = extracted.durationSeconds
+          ? `${extracted.durationSeconds.toFixed(1)} Sekunden`
+          : "unbekannter Länge";
+        parts.push({
+          type: "text",
+          text:
+            `[Video "${row.filename}" (${dauer}): daraus ${extracted.frames.length} gleichmäßig ` +
+            `verteilte Standbilder in zeitlicher Reihenfolge. Du siehst KEIN durchgehendes Video ` +
+            `und hörst KEINEN Ton — zwischen zwei Bildern kann etwas passieren, das du nicht ` +
+            `siehst. Beschreibe, was tatsächlich zu sehen ist, und rate nichts dazu.]`,
+        });
+        for (const frame of extracted.frames) {
+          parts.push({
+            type: "image_url",
+            image_url: { url: `data:image/jpeg;base64,${frame}` },
+          });
+        }
+      } else {
+        parts.push({
+          type: "text",
+          text:
+            `[Video "${row.filename}" (${Math.round(row.sizeBytes / 1024)} KB) wurde angehängt, ` +
+            `aber die Einzelbild-Extraktion ist fehlgeschlagen. Du kannst es nicht auswerten — ` +
+            `sag das ehrlich und erfinde keinen Inhalt.]`,
+        });
+      }
     } else {
       parts.push({
         type: "text",

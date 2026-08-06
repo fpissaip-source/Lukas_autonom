@@ -5,6 +5,8 @@ import { eq, desc } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai";
 import { HIGGSFIELD_PROMPT_SYSTEM } from "../lib/lukas-soul.js";
 import { recordEmotion } from "../lib/emotion-engine";
+import { logger } from "../lib/logger";
+import { recordDebugEvent } from "../lib/debug-log";
 
 const router = Router();
 
@@ -121,29 +123,38 @@ router.post("/higgsfield/generate", async (req, res) => {
           }
         } else {
           const errText = await response.text().catch(() => "");
-          console.error(`Higgsfield API error ${response.status}: ${errText.slice(0, 500)}`);
+          const reason = `Higgsfield API ${response.status}: ${errText.slice(0, 400) || "(keine Antwort)"}`;
+          logger.error({ status: response.status, model }, reason);
+          recordDebugEvent("higgsfield/generate", reason);
           await db
             .update(mediaJobsTable)
-            .set({ status: "failed", updatedAt: new Date() })
+            .set({ status: "failed", error: reason, updatedAt: new Date() })
             .where(eq(mediaJobsTable.id, job.id));
           job.status = "failed";
+          job.error = reason;
         }
       } catch (apiErr) {
-        console.error("Higgsfield API error:", apiErr);
+        const reason = `Higgsfield nicht erreichbar: ${apiErr instanceof Error ? apiErr.message : String(apiErr)}`;
+        logger.error({ err: apiErr, model }, reason);
+        recordDebugEvent("higgsfield/generate", reason);
         await db
           .update(mediaJobsTable)
-          .set({ status: "failed", updatedAt: new Date() })
+          .set({ status: "failed", error: reason, updatedAt: new Date() })
           .where(eq(mediaJobsTable.id, job.id));
         job.status = "failed";
+        job.error = reason;
       }
     } else {
       // Kein API-Key konfiguriert — ehrlich als failed markieren statt den Job
       // für immer auf "processing" hängen zu lassen.
+      const reason = "HIGGSFIELD_API_KEY ist nicht gesetzt — in den Railway-Variablen hinterlegen.";
+      recordDebugEvent("higgsfield/generate", reason);
       await db
         .update(mediaJobsTable)
-        .set({ status: "failed", updatedAt: new Date() })
+        .set({ status: "failed", error: reason, updatedAt: new Date() })
         .where(eq(mediaJobsTable.id, job.id));
       job.status = "failed";
+      job.error = reason;
     }
 
     res.status(202).json({

@@ -1,10 +1,12 @@
 import { Router } from "express";
+import type { NextFunction, Request, Response } from "express";
 import multer from "multer";
 import { db } from "@workspace/db";
 import { attachments, conversations } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { recordDebugEvent } from "../lib/debug-log";
+import { createSignedAttachmentUrl } from "../lib/attachment-signing";
 
 const router = Router();
 
@@ -45,57 +47,87 @@ export function attachmentKind(
   return "other";
 }
 
+async function handleUpload(req: Request, res: Response): Promise<void> {
+  try {
+    const conversationId = parseInt(String(req.params.conversationId));
+    if (!Number.isFinite(conversationId)) {
+      res.status(400).json({ error: "Ungültige conversationId" });
+      return;
+    }
+
+    const [conv] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, conversationId));
+    if (!conv) {
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (files.length === 0) {
+      res.status(400).json({ error: "Keine Datei erhalten" });
+      return;
+    }
+
+    const rows = await db
+      .insert(attachments)
+      .values(
+        files.map((f) => ({
+          conversationId,
+          filename: f.originalname.slice(0, 300),
+          mimeType: f.mimetype,
+          sizeBytes: f.size,
+          data: f.buffer.toString("base64"),
+        })),
+      )
+      .returning();
+
+    res.status(201).json(
+      rows.map((r) => ({
+        id: r.id,
+        messageId: r.messageId,
+        filename: r.filename,
+        mimeType: r.mimeType,
+        sizeBytes: r.sizeBytes,
+        kind: attachmentKind(r.mimeType, r.filename),
+        url: createSignedAttachmentUrl(r.id),
+        createdAt: r.createdAt.toISOString(),
+      })),
+    );
+  } catch (err) {
+    logger.error({ err }, "Attachment upload error");
+    recordDebugEvent("attachments/upload", err);
+    const detail = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: "Upload fehlgeschlagen", detail });
+  }
+}
+
 // ── UPLOAD ─────────────────────────────────────────────────────────────────
-// Laeuft VOR dem Absenden der Nachricht: Issa waehlt Dateien, sie werden
-// hochgeladen und bleiben ohne messageId liegen, bis die Nachricht existiert.
+// Multer-Fehler passieren vor dem asynchronen Route-Handler. Deshalb werden
+// Dateigroesse und Dateianzahl hier explizit in verständliche Antworten
+// übersetzt, statt als generischer Internal Server Error zu enden.
 router.post(
   "/attachments/:conversationId",
-  upload.array("files", 5),
-  async (req, res) => {
-    try {
-      const conversationId = parseInt(String(req.params.conversationId));
-      if (!Number.isFinite(conversationId)) {
-        return void res.status(400).json({ error: "Ungültige conversationId" });
+  (req: Request, res: Response, next: NextFunction) => {
+    upload.array("files", 5)(req, res, (err: unknown) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          res.status(413).json({
+            error: "Datei ist zu groß",
+            detail: `Maximal ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB pro Datei`,
+          });
+          return;
+        }
+        res.status(400).json({ error: "Upload abgelehnt", detail: err.message });
+        return;
       }
-      const [conv] = await db
-        .select()
-        .from(conversations)
-        .where(eq(conversations.id, conversationId));
-      if (!conv) return void res.status(404).json({ error: "Conversation not found" });
-
-      const files = (req.files as Express.Multer.File[] | undefined) ?? [];
-      if (files.length === 0) return void res.status(400).json({ error: "Keine Datei erhalten" });
-
-      const rows = await db
-        .insert(attachments)
-        .values(
-          files.map((f) => ({
-            conversationId,
-            filename: f.originalname.slice(0, 300),
-            mimeType: f.mimetype,
-            sizeBytes: f.size,
-            data: f.buffer.toString("base64"),
-          })),
-        )
-        .returning();
-
-      res.status(201).json(
-        rows.map((r) => ({
-          id: r.id,
-          filename: r.filename,
-          mimeType: r.mimeType,
-          sizeBytes: r.sizeBytes,
-          kind: attachmentKind(r.mimeType, r.filename),
-          url: `/api/attachments/file/${r.id}`,
-          createdAt: r.createdAt.toISOString(),
-        })),
-      );
-    } catch (err) {
-      logger.error({ err }, "Attachment upload error");
-      recordDebugEvent("attachments/upload", err);
-      const detail = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: "Upload fehlgeschlagen", detail });
-    }
+      if (err) {
+        next(err);
+        return;
+      }
+      void handleUpload(req, res);
+    });
   },
 );
 
@@ -107,7 +139,7 @@ router.get("/attachments/file/:id", async (req, res) => {
     if (!row) return void res.status(404).json({ error: "Attachment not found" });
 
     res.setHeader("Content-Type", row.mimeType);
-    res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+    res.setHeader("Cache-Control", "private, max-age=3600");
     res.setHeader(
       "Content-Disposition",
       `inline; filename="${encodeURIComponent(row.filename)}"`,
@@ -135,7 +167,7 @@ router.get("/attachments/:conversationId", async (req, res) => {
         mimeType: r.mimeType,
         sizeBytes: r.sizeBytes,
         kind: attachmentKind(r.mimeType, r.filename),
-        url: `/api/attachments/file/${r.id}`,
+        url: createSignedAttachmentUrl(r.id),
         createdAt: r.createdAt.toISOString(),
       })),
     );

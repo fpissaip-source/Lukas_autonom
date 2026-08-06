@@ -28,6 +28,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { PageHeader } from "@/components/page-header";
 
 type MediaType = "image" | "video";
 type Step = "vision" | "prompt" | "generating" | "done";
@@ -173,18 +174,20 @@ export default function Studio() {
   };
 
   return (
-    <div className="flex h-full">
+    // Auf Mobil untereinander (die Render-Queue wandert unter das Studio), erst
+    // ab lg nebeneinander mit fester Hoehe. Vorher war die rechte Spalte hart
+    // w-80 ohne Fallback — auf Handybreite blieb fuer die linke Spalte fast
+    // nichts uebrig und die Inhalte schoben sich ineinander.
+    <div className="flex flex-col lg:flex-row lg:h-full">
       {/* Left: Studio */}
-      <div className="flex-1 flex flex-col border-r border-border min-w-0">
-        <div className="border-b border-border p-6">
-          <div className="flex items-center gap-3 mb-1">
-            <Wand2 className="w-5 h-5 text-primary" />
-            <h1 className="text-2xl font-bold font-mono tracking-tight">HIGGSFIELD_STUDIO</h1>
-          </div>
-          <p className="text-muted-foreground text-sm">Vision eingeben → KI erstellt perfekten Prompt → Higgsfield generiert</p>
-
+      <div className="flex-1 flex flex-col border-b lg:border-b-0 lg:border-r border-border min-w-0">
+        <PageHeader
+          icon={Wand2}
+          title="HIGGSFIELD_STUDIO"
+          subtitle="Vision eingeben → KI erstellt perfekten Prompt → Higgsfield generiert"
+        >
           {/* Steps indicator */}
-          <div className="flex items-center gap-2 mt-4">
+          <div className="flex items-center gap-2 flex-wrap">
             {(["vision", "prompt", "generating", "done"] as Step[]).map((s, i) => (
               <div key={s} className="flex items-center gap-2">
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-mono font-bold transition-colors ${
@@ -198,10 +201,10 @@ export default function Studio() {
               </div>
             ))}
           </div>
-        </div>
+        </PageHeader>
 
-        <ScrollArea className="flex-1">
-          <div className="p-6 space-y-6 max-w-2xl">
+        <ScrollArea className="lg:flex-1">
+          <div className="p-5 sm:p-6 space-y-6 max-w-2xl">
             {/* Step 1: Vision */}
             {step === "vision" && (
               <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -362,12 +365,12 @@ export default function Studio() {
       </div>
 
       {/* Right: Job list */}
-      <div className="w-80 flex flex-col">
+      <div className="w-full lg:w-80 shrink-0 flex flex-col">
         <div className="border-b border-border p-4">
           <h2 className="font-mono text-sm font-medium">RENDER_QUEUE</h2>
           <p className="text-xs text-muted-foreground mt-1">{jobs.length} Jobs total</p>
         </div>
-        <ScrollArea className="flex-1 p-4">
+        <ScrollArea className="lg:flex-1 p-4">
           <div className="space-y-3">
             {jobs.map((job) => (
               <JobCard key={job.id} job={job} />

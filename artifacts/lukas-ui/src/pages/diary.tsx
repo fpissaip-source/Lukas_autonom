@@ -2,6 +2,7 @@ import { useGetDiaryEntries } from "@workspace/api-client-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { BookOpen } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 
@@ -28,12 +29,13 @@ export default function Diary() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-border p-6">
-        <h1 className="text-2xl font-bold font-mono tracking-tight">SYSTEM_LOGS</h1>
-        <p className="text-muted-foreground text-sm mt-1">Lukas' persönliche Tagebucheinträge und Reflexionen</p>
-      </div>
+      <PageHeader
+        icon={BookOpen}
+        title="SYSTEM_LOGS"
+        subtitle="Lukas' persönliche Tagebucheinträge und Reflexionen"
+      />
 
-      <ScrollArea className="flex-1 p-6">
+      <ScrollArea className="flex-1 p-5 sm:p-6">
         {isLoading && <div className="text-center text-muted-foreground font-mono py-12">LOADING LOGS...</div>}
         <div className="max-w-3xl space-y-6">
           {entries.map((entry, idx) => (

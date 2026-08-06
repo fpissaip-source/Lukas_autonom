@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, Search, Brain, Star } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 import { formatDistanceToNow } from "date-fns";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -73,12 +74,11 @@ export default function Memory() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-border p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold font-mono tracking-tight">MEMORY_BANK</h1>
-            <p className="text-muted-foreground text-sm mt-1">{memories.length} Erinnerungen gespeichert</p>
-          </div>
+      <PageHeader
+        icon={Brain}
+        title="MEMORY_BANK"
+        subtitle={`${memories.length} Erinnerungen gespeichert`}
+        actions={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2 font-mono"><Plus className="w-4 h-4" /> NEUE_ERINNERUNG</Button>
@@ -119,9 +119,9 @@ export default function Memory() {
               </div>
             </DialogContent>
           </Dialog>
-        </div>
-
-        <div className="flex gap-3">
+        }
+      >
+        <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
@@ -132,16 +132,16 @@ export default function Memory() {
             />
           </div>
           <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger className="w-40 font-mono text-sm"><SelectValue placeholder="Kategorie" /></SelectTrigger>
+            <SelectTrigger className="w-full sm:w-40 font-mono text-sm"><SelectValue placeholder="Kategorie" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">ALLE</SelectItem>
               {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
-      </div>
+      </PageHeader>
 
-      <ScrollArea className="flex-1 p-6">
+      <ScrollArea className="flex-1 p-5 sm:p-6">
         {isLoading && (
           <div className="text-center text-muted-foreground font-mono py-12">LOADING MEMORY_BANK...</div>
         )}

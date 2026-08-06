@@ -3,15 +3,16 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Activity, Brain, Target, Film, BookOpen, Clock, Heart } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { PageHeader } from "@/components/page-header";
 
 export default function Dashboard() {
   const { data, isLoading } = useGetLukasDashboard();
 
   if (isLoading || !data) {
     return (
-      <div className="p-8 space-y-6">
-        <h1 className="text-3xl font-bold font-mono tracking-tight border-b border-border pb-4">SYSTEM_STATUS</h1>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="flex flex-col h-full">
+        <PageHeader icon={Activity} title="SYSTEM_STATUS" subtitle="Lade Core Metrics…" />
+        <div className="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
           <Skeleton className="h-32 w-full" />
           <Skeleton className="h-32 w-full" />
           <Skeleton className="h-32 w-full" />
@@ -27,19 +28,21 @@ export default function Dashboard() {
   const valenceIcon = (v: number) => (v >= 0.3 ? "▲" : v <= -0.3 ? "▼" : "◆");
 
   return (
-    <div className="p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header className="border-b border-border pb-6 flex items-end justify-between">
-        <div>
-          <h1 className="text-3xl font-bold font-mono tracking-tight">SYSTEM_OVERVIEW</h1>
-          <p className="text-muted-foreground mt-2">Lukas Core Metrics & Status</p>
-        </div>
-        <div className="text-sm font-mono text-muted-foreground">
-          LAST_SYNC: {status.lastActive ? formatDistanceToNow(new Date(status.lastActive), { addSuffix: true }) : 'UNKNOWN'}
-        </div>
-      </header>
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <PageHeader
+        icon={Activity}
+        title="SYSTEM_OVERVIEW"
+        subtitle="Lukas Core Metrics & Status"
+        actions={
+          <div className="text-xs font-mono text-muted-foreground">
+            LAST_SYNC: {status.lastActive ? formatDistanceToNow(new Date(status.lastActive), { addSuffix: true }) : 'UNKNOWN'}
+          </div>
+        }
+      />
 
+      <div className="p-5 sm:p-6 space-y-6">
       {/* Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <Card className="bg-card/50 backdrop-blur border-border/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground font-mono">CURRENT_MOOD</CardTitle>
@@ -214,6 +217,7 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

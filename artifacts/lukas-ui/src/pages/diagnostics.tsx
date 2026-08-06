@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, RefreshCw } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 
@@ -42,20 +43,19 @@ export default function Diagnostics() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-border p-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold font-mono tracking-tight">DIAGNOSE</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Letzte Fehler aus Chat, Widget und ElevenLabs-Anbindung — aktualisiert alle 5s
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={load} data-testid="button-refresh-debug-log">
-          <RefreshCw className="w-4 h-4" />
-          Aktualisieren
-        </Button>
-      </div>
+      <PageHeader
+        icon={AlertTriangle}
+        title="DIAGNOSE"
+        subtitle="Letzte Fehler aus Chat, Widget und ElevenLabs-Anbindung — aktualisiert alle 5s"
+        actions={
+          <Button variant="outline" size="sm" onClick={load} data-testid="button-refresh-debug-log">
+            <RefreshCw className="w-4 h-4" />
+            Aktualisieren
+          </Button>
+        }
+      />
 
-      <ScrollArea className="flex-1 p-6">
+      <ScrollArea className="flex-1 p-5 sm:p-6">
         {loading && <div className="text-center text-muted-foreground font-mono py-12">LADE...</div>}
         {error && (
           <div className="text-center text-destructive font-mono py-4">Fehler beim Laden: {error}</div>

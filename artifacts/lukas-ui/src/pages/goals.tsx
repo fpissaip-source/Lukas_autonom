@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, CheckCircle2, Target, Clock, AlertCircle } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 import { formatDistanceToNow } from "date-fns";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -68,14 +69,11 @@ export default function Goals() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-border p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold font-mono tracking-tight">ACTIVE_DIRECTIVES</h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              {activeCount} aktiv — {completedCount} abgeschlossen
-            </p>
-          </div>
+      <PageHeader
+        icon={Target}
+        title="ACTIVE_DIRECTIVES"
+        subtitle={`${activeCount} aktiv — ${completedCount} abgeschlossen`}
+        actions={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2 font-mono"><Plus className="w-4 h-4" /> NEUE_DIREKTIVE</Button>
@@ -109,9 +107,9 @@ export default function Goals() {
               </div>
             </DialogContent>
           </Dialog>
-        </div>
-
-        <div className="flex gap-2">
+        }
+      >
+        <div className="flex flex-wrap gap-2">
           {["all", "active", "completed", "failed"].map((s) => (
             <Button
               key={s}
@@ -124,9 +122,9 @@ export default function Goals() {
             </Button>
           ))}
         </div>
-      </div>
+      </PageHeader>
 
-      <ScrollArea className="flex-1 p-6">
+      <ScrollArea className="flex-1 p-5 sm:p-6">
         {isLoading && <div className="text-center text-muted-foreground font-mono py-12">LOADING...</div>}
         <div className="space-y-4 max-w-3xl">
           {filtered.map((g) => (

@@ -10,20 +10,22 @@ import { createSignedAttachmentUrl } from "../lib/attachment-signing";
 
 const router = Router();
 
-// 20 MB pro Datei. Bewusst konservativ: die Datei landet Base64-kodiert in
-// Postgres (~33% Aufschlag) und Bilder gehen zusaetzlich als Data-URL in den
-// OpenAI-Request — groessere Uploads wuerden dort teuer bis abgelehnt.
-export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+export const MAX_VIDEO_UPLOAD_BYTES = 200 * 1024 * 1024;
+export const MAX_OTHER_UPLOAD_BYTES = 30 * 1024 * 1024;
+// Multer braucht vor dem Erkennen des Dateityps ein gemeinsames hartes Limit.
+export const MAX_UPLOAD_BYTES = MAX_VIDEO_UPLOAD_BYTES;
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_UPLOAD_BYTES, files: 5 },
 });
 
-// Endungs-Fallback: der MIME-Typ kommt vom Client und ist nicht verlaesslich —
-// je nach Betriebssystem/Browser landen auch klare Faelle als
-// "application/octet-stream" hier (im Test genau so bei einer .mp4 passiert).
-// Ohne diesen Fallback wuerde ein Video als "unbekanntes Format" behandelt.
+// Es darf nur ein grosser Upload gleichzeitig den RAM belegen. Kleine Dateien
+// und normale Chat-Anfragen laufen weiter. Content-Length umfasst etwas
+// Multipart-Overhead; fuer die Reservierung ist das bewusst egal.
+let largeUploadInProgress = false;
+
+// Endungs-Fallback: der MIME-Typ kommt vom Client und ist nicht verlaesslich.
 const EXT_KIND: Record<string, "image" | "pdf" | "text" | "video"> = {
   png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image",
   heic: "image", heif: "image", avif: "image", bmp: "image", svg: "image",
@@ -32,7 +34,6 @@ const EXT_KIND: Record<string, "image" | "pdf" | "text" | "video"> = {
   mp4: "video", mov: "video", webm: "video", avi: "video", mkv: "video", m4v: "video",
 };
 
-/** Bilder kann das Modell wirklich sehen, PDFs lesen, Text sowieso. */
 export function attachmentKind(
   mimeType: string,
   filename?: string,
@@ -45,6 +46,10 @@ export function attachmentKind(
   const ext = filename?.split(".").pop()?.toLowerCase();
   if (ext && EXT_KIND[ext]) return EXT_KIND[ext];
   return "other";
+}
+
+function mb(bytes: number): number {
+  return Math.round(bytes / 1024 / 1024);
 }
 
 async function handleUpload(req: Request, res: Response): Promise<void> {
@@ -67,6 +72,36 @@ async function handleUpload(req: Request, res: Response): Promise<void> {
     const files = (req.files as Express.Multer.File[] | undefined) ?? [];
     if (files.length === 0) {
       res.status(400).json({ error: "Keine Datei erhalten" });
+      return;
+    }
+
+    const classified = files.map((file) => ({
+      file,
+      kind: attachmentKind(file.mimetype, file.originalname),
+    }));
+
+    for (const { file, kind } of classified) {
+      const limit = kind === "video" ? MAX_VIDEO_UPLOAD_BYTES : MAX_OTHER_UPLOAD_BYTES;
+      if (file.size > limit) {
+        res.status(413).json({
+          error: "Datei ist zu groß",
+          detail:
+            kind === "video"
+              ? `Videos dürfen maximal ${mb(MAX_VIDEO_UPLOAD_BYTES)} MB groß sein.`
+              : `Andere Dateien dürfen maximal ${mb(MAX_OTHER_UPLOAD_BYTES)} MB groß sein.`,
+        });
+        return;
+      }
+    }
+
+    const largeVideos = classified.filter(
+      ({ file, kind }) => kind === "video" && file.size > MAX_OTHER_UPLOAD_BYTES,
+    );
+    if (largeVideos.length > 1) {
+      res.status(400).json({
+        error: "Zu viele große Videos",
+        detail: "Bitte immer nur ein Video über 30 MB gleichzeitig hochladen.",
+      });
       return;
     }
 
@@ -103,35 +138,56 @@ async function handleUpload(req: Request, res: Response): Promise<void> {
   }
 }
 
-// ── UPLOAD ─────────────────────────────────────────────────────────────────
-// Multer-Fehler passieren vor dem asynchronen Route-Handler. Deshalb werden
-// Dateigroesse und Dateianzahl hier explizit in verständliche Antworten
-// übersetzt, statt als generischer Internal Server Error zu enden.
 router.post(
   "/attachments/:conversationId",
   (req: Request, res: Response, next: NextFunction) => {
+    const contentLength = Number(req.get("content-length") ?? 0);
+    const needsLargeSlot = Number.isFinite(contentLength) && contentLength > MAX_OTHER_UPLOAD_BYTES;
+
+    if (needsLargeSlot && largeUploadInProgress) {
+      res.status(429).json({
+        error: "Ein großer Upload läuft bereits",
+        detail: "Warte kurz, bis der aktuelle große Video-Upload abgeschlossen ist.",
+      });
+      return;
+    }
+
+    if (needsLargeSlot) largeUploadInProgress = true;
+    let released = false;
+    const releaseLargeSlot = () => {
+      if (!needsLargeSlot || released) return;
+      released = true;
+      largeUploadInProgress = false;
+    };
+    res.once("close", releaseLargeSlot);
+
     upload.array("files", 5)(req, res, (err: unknown) => {
-      if (err instanceof multer.MulterError) {
-        if (err.code === "LIMIT_FILE_SIZE") {
-          res.status(413).json({
-            error: "Datei ist zu groß",
-            detail: `Maximal ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB pro Datei`,
-          });
-          return;
+      void (async () => {
+        try {
+          if (err instanceof multer.MulterError) {
+            if (err.code === "LIMIT_FILE_SIZE") {
+              res.status(413).json({
+                error: "Datei ist zu groß",
+                detail: `Videos maximal ${mb(MAX_VIDEO_UPLOAD_BYTES)} MB, andere Dateien maximal ${mb(MAX_OTHER_UPLOAD_BYTES)} MB.`,
+              });
+              return;
+            }
+            res.status(400).json({ error: "Upload abgelehnt", detail: err.message });
+            return;
+          }
+          if (err) {
+            next(err);
+            return;
+          }
+          await handleUpload(req, res);
+        } finally {
+          releaseLargeSlot();
         }
-        res.status(400).json({ error: "Upload abgelehnt", detail: err.message });
-        return;
-      }
-      if (err) {
-        next(err);
-        return;
-      }
-      void handleUpload(req, res);
+      })();
     });
   },
 );
 
-// ── DATEI AUSLIEFERN ───────────────────────────────────────────────────────
 router.get("/attachments/file/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -151,7 +207,6 @@ router.get("/attachments/file/:id", async (req, res) => {
   }
 });
 
-// ── ANHAENGE EINER KONVERSATION ────────────────────────────────────────────
 router.get("/attachments/:conversationId", async (req, res) => {
   try {
     const conversationId = parseInt(String(req.params.conversationId));
@@ -177,12 +232,9 @@ router.get("/attachments/:conversationId", async (req, res) => {
   }
 });
 
-// ── LOESCHEN (vor dem Absenden wieder abwaehlen) ───────────────────────────
 router.delete("/attachments/file/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    // Nur noch nicht abgeschickte Anhaenge duerfen weg — sonst wuerde eine
-    // bereits gesendete Nachricht nachtraeglich ihren Kontext verlieren.
     const deleted = await db
       .delete(attachments)
       .where(and(eq(attachments.id, id), isNull(attachments.messageId)))

@@ -17,7 +17,7 @@ ENV NODE_ENV=production
 ENV PORT=5000
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates tini \
+  && apt-get install -y --no-install-recommends ca-certificates tini util-linux \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app /app

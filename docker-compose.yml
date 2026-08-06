@@ -8,11 +8,16 @@ services:
     environment:
       NODE_ENV: production
       PORT: "5000"
+      LUKAS_EXECUTION_BACKEND: host
+      LUKAS_HOST_EXECUTOR_ENABLED: "true"
     restart: unless-stopped
     expose:
       - "5000"
-    security_opt:
-      - no-new-privileges:true
+    # Bewusst uneingeschraenkt: Lukas darf per nsenter direkt als root auf dem
+    # VPS arbeiten, Pakete installieren, Dienste verwalten und Docker steuern.
+    # Der Container darf deshalb nur hinter der privaten Token-API laufen.
+    privileged: true
+    pid: host
     networks:
       - lukas-internal
 

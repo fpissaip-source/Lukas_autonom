@@ -1,7 +1,22 @@
 # Lukas auf einem Ubuntu-VPS
 
 Diese Anleitung ist fuer Ubuntu 24.04 und den Branch `claude/vps-security-mcp`.
-Die Railway-Datenbank bleibt bestehen; nur API, UI und Worker laufen auf dem VPS.
+Die Railway-Datenbank bleibt bestehen; API und UI laufen auf dem VPS.
+
+## Wichtiger Betriebsmodus
+
+Dieses Deployment gibt dem privaten Lukas-Chat bewusst vollstaendige Root-Rechte
+auf dem VPS. Das Tool `execute_command` laeuft nicht in einer Wegwerf-Sandbox,
+sondern direkt auf Ubuntu. Lukas kann damit unter anderem:
+
+- Pakete mit `apt`, `npm`, `pip` oder anderen Paketmanagern installieren
+- Dateien auf dem gesamten VPS lesen und veraendern
+- Docker-Container und Systemdienste verwalten
+- Prozesse starten, stoppen und den Server neu konfigurieren
+
+Technisch laeuft die App in einem privilegierten Container mit Host-PID-Namespace
+und betritt den VPS ueber `nsenter`. Der oeffentliche Portfolio-Chat verwendet
+dieses Tool nicht. Die private API muss durch `LUKAS_API_TOKEN` geschuetzt bleiben.
 
 ## Erstinstallation
 
@@ -25,6 +40,17 @@ Status und Logs pruefen:
 docker compose ps
 docker compose logs --tail=100 lukas
 ```
+
+Den Host-Executor technisch pruefen:
+
+```bash
+docker compose exec lukas \
+  nsenter --target 1 --mount --uts --ipc --net --pid \
+  --root=/proc/1/root --wd=/root /bin/bash -lc \
+  'id && hostname && cat /etc/os-release | head'
+```
+
+Die Ausgabe muss `uid=0(root)` und den Hostnamen des DigitalOcean-Droplets zeigen.
 
 Beim ersten Test ist `LUKAS_DOMAIN=:80` gesetzt. Das Dashboard ist dann unter
 `http://SERVER-IP` erreichbar. Das Dashboard fragt nach dem Wert von
@@ -86,3 +112,6 @@ docker compose down
 - Railway-Variablen mit dem Prefix `RAILWAY_` werden beim Import entfernt.
 - Die private API startet in Produktion nicht ungeschuetzt: Fehlt
   `LUKAS_API_TOKEN`, antwortet sie mit Status 503.
+- Voller Root-Zugriff bedeutet: Ein falscher oder manipulierter Befehl kann den
+  kompletten VPS veraendern oder unbrauchbar machen. Vor groesseren Umbauten ein
+  DigitalOcean-Snapshot oder Backup erstellen.

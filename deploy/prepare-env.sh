@@ -36,6 +36,8 @@ add_default LUKAS_PUBLIC_RATE_LIMIT_PER_MINUTE 60
 add_default LUKAS_EXPENSIVE_RATE_LIMIT_PER_MINUTE 20
 add_default LUKAS_JSON_BODY_LIMIT 2mb
 add_default LUKAS_FORM_BODY_LIMIT 256kb
+add_default LUKAS_EXECUTION_BACKEND host
+add_default LUKAS_HOST_EXECUTOR_ENABLED true
 
 if ! grep -Eq '^LUKAS_API_TOKEN=.+$' "$TMP_FILE"; then
   echo "LUKAS_API_TOKEN fehlt oder ist leer. Deployment wird aus Sicherheitsgruenden abgebrochen." >&2

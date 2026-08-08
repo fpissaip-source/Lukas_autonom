@@ -1,6 +1,7 @@
 import type OpenAI from "openai";
 import { openai } from "@workspace/integrations-openai-ai";
 import { logger } from "../logger";
+import { fitLukasContext } from "./context-window";
 import type { ModelRoute } from "./model-router";
 
 export type LukasToolCall = {
@@ -261,23 +262,33 @@ async function callGoogle(input: CallInput): Promise<LukasModelResult> {
 
 /** Ein gemeinsamer Modell-Aufruf. Provider sind Rechenkerne, nicht Identitaeten. */
 export async function callLukasModel(input: CallInput): Promise<LukasModelResult> {
+  // Die vollstaendige Historie bleibt persistent in DB/Memory. Nur die aktive
+  // Payload wird bei sehr langen Threads auf das Provider-Fenster gepackt.
+  const prepared: CallInput = { ...input, messages: fitLukasContext(input.messages) };
+
   try {
-    if (input.route.provider === "anthropic") return await callAnthropic(input);
-    if (input.route.provider === "google") return await callGoogle(input);
-    return await callOpenAI(input);
+    if (prepared.route.provider === "anthropic") return await callAnthropic(prepared);
+    if (prepared.route.provider === "google") return await callGoogle(prepared);
+    return await callOpenAI(prepared);
   } catch (err) {
     logger.warn(
-      { err, provider: input.route.provider, model: input.route.model, profile: input.route.profile },
+      {
+        err,
+        provider: prepared.route.provider,
+        model: prepared.route.model,
+        profile: prepared.route.profile,
+      },
       "Lukas provider call failed",
     );
-    if (input.route.provider !== "openai") {
+    if (prepared.route.provider !== "openai") {
       const fallback: ModelRoute = {
         provider: "openai",
         model: process.env.LUKAS_CORE_MODEL ?? "gpt-4o",
-        profile: input.route.profile,
-        reason: `Fallback nach ${input.route.provider}-Fehler`,
+        profile: prepared.route.profile,
+        reason: `Fallback nach ${prepared.route.provider}-Fehler`,
       };
-      return await callOpenAI({ ...input, route: fallback });
+      // Exakt dieselbe vorbereitete Lukas-Historie geht an den Fallback.
+      return await callOpenAI({ ...prepared, route: fallback });
     }
     throw err;
   }

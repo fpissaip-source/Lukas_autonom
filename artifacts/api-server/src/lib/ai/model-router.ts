@@ -28,7 +28,6 @@ function parseModelSpec(spec: string, profile: ModelProfile, reason: string): Mo
       return { provider, model, profile, reason };
     }
   }
-  // Abwaertskompatibel: eine nackte Modell-ID ist weiterhin OpenAI.
   return { provider: "openai", model: value, profile, reason };
 }
 
@@ -49,7 +48,7 @@ function configured(profile: ModelProfile, reason: string): ModelRoute {
 }
 
 function providerAvailable(provider: LukasProvider): boolean {
-  if (provider === "openai") return true; // Workspace-Integration verwaltet den Key.
+  if (provider === "openai") return true;
   if (provider === "anthropic") return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
   return Boolean(
     process.env.GEMINI_API_KEY?.trim() ||
@@ -85,19 +84,10 @@ function looksComplex(text: string): boolean {
 }
 
 function looksSimple(text: string): boolean {
-  return (
-    text.length < 260 &&
-    !looksLikeCode(text) &&
-    !looksComplex(text) &&
-    !/[?].*[?]/s.test(text)
-  );
+  return text.length < 260 && !looksLikeCode(text) && !looksComplex(text) && !/[?].*[?]/s.test(text);
 }
 
-/**
- * Lukas entscheidet selbst, welches Rechenmodell fuer den aktuellen Schritt
- * sinnvoll ist. Identitaet, Memory und Chat-Kontext leben NICHT im Provider
- * und werden deshalb von einem Wechsel nicht beruehrt.
- */
+/** Lukas waehlt intern den passenden Rechenkern fuer die eigentliche Arbeit. */
 export function routeLukasModel(input: RouteInput): ModelRoute {
   const text = input.userText ?? "";
   const tools = new Set(input.usedTools ?? []);
@@ -134,4 +124,14 @@ export function routeLukasModel(input: RouteInput): ModelRoute {
     "Lukas model route",
   );
   return resolved;
+}
+
+/**
+ * Die sichtbare Stimme bleibt absichtlich stabil, auch wenn intern mehrere
+ * Spezialmodelle gearbeitet haben. Der Nutzer bekommt nur diese Lukas-Schicht.
+ */
+export function routeLukasVoiceModel(): ModelRoute {
+  const core = process.env.LUKAS_CORE_MODEL ?? "gpt-4o";
+  const spec = process.env.LUKAS_MODEL_VOICE ?? process.env.LUKAS_MODEL_GENERAL ?? `openai:${core}`;
+  return fallback(parseModelSpec(spec, "general", "stabile Lukas-Ausgabestimme"));
 }

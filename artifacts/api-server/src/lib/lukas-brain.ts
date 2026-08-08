@@ -1,81 +1,95 @@
 import type OpenAI from "openai";
-import { openai } from "@workspace/integrations-openai-ai";
 import { LUKAS_TOOLS, executeLukasTool } from "./lukas-tools";
 import { buildSystemPrompt } from "./system-prompt";
 import { recordEmotion } from "./emotion-engine";
 import { logger } from "./logger";
+import { routeLukasModel } from "./ai/model-router";
+import { callLukasModel } from "./ai/model-client";
 
 /*
- * Ein Lukas-Durchlauf ohne Streaming — fuer Kanaele, die keine SSE-Verbindung
- * haben und einfach nur eine fertige Antwort brauchen (WhatsApp).
+ * Ein Lukas-Durchlauf ohne Streaming — fuer Kanaele wie WhatsApp.
  *
- * Nutzt bewusst denselben System-Prompt und dieselben Tools wie der
- * Dashboard-Chat: es soll derselbe Lukas sein, mit demselben Gedaechtnis,
- * denselben Gefuehlen und denselben Faehigkeiten — nur ueber einen anderen
- * Kanal. Der Streaming-Pfad in routes/anthropic.ts bleibt unangetastet, weil
- * das Dashboard die Token live anzeigen soll.
+ * Wichtig: Das Modell ist NICHT Lukas. Der System-Prompt, komplette aktuelle
+ * Chat-Kontext, Memory, Emotionen und Tools gehoeren Lukas. Pro Iteration darf
+ * der Router deshalb einen anderen Rechenkern waehlen, ohne dass Identitaet
+ * oder Gespraech verloren gehen.
  */
 
-const CHAT_MODEL = process.env.LUKAS_CORE_MODEL ?? "gpt-4o";
 const MAX_TOOL_ITERATIONS = 8;
+
+function historyHasMultimodal(history: OpenAI.Chat.Completions.ChatCompletionMessageParam[]): boolean {
+  return history.some((message: any) => Array.isArray(message.content));
+}
 
 export async function runLukasTurn(opts: {
   history: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
   userText: string;
   conversationId?: number;
 }): Promise<string> {
-  const systemPrompt = await buildSystemPrompt(opts.userText.slice(0, 500));
+  const systemPrompt = await buildSystemPrompt(opts.userText.slice(0, 1000));
   const convo: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
     ...opts.history,
   ];
 
   const textPieces: string[] = [];
+  const usedTools: string[] = [];
+  const hasAttachments = historyHasMultimodal(opts.history);
 
   for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-    const response = await openai.chat.completions.create({
-      model: CHAT_MODEL,
-      max_completion_tokens: 4096,
+    const route = routeLukasModel({
+      userText: opts.userText,
+      hasAttachments,
+      usedTools,
+      iteration: i,
+    });
+    const result = await callLukasModel({
+      route,
+      maxTokens: 8192,
       tools: LUKAS_TOOLS,
       messages: convo,
     });
 
-    const choice = response.choices[0];
-    if (!choice) break;
-    if (choice.message.content) textPieces.push(choice.message.content);
+    if (result.content) textPieces.push(result.content);
+    if (result.toolCalls.length === 0) break;
 
-    const toolCalls = choice.message.tool_calls ?? [];
-    if (choice.finish_reason !== "tool_calls" || toolCalls.length === 0) break;
+    convo.push({
+      role: "assistant",
+      content: result.content || null,
+      tool_calls: result.toolCalls.map((tc) => ({
+        id: tc.id,
+        type: "function" as const,
+        function: { name: tc.name, arguments: tc.arguments },
+      })),
+    });
 
-    convo.push(choice.message);
-
-    for (const tc of toolCalls) {
-      if (tc.type !== "function") continue;
+    for (const tc of result.toolCalls) {
+      usedTools.push(tc.name);
       let input: Record<string, unknown> = {};
       try {
-        input = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
+        input = tc.arguments ? JSON.parse(tc.arguments) : {};
       } catch {
         // Kaputtes JSON vom Modell — das Tool meldet fehlende Felder selbst.
       }
       try {
-        const result = await executeLukasTool(tc.function.name, input, {
+        const toolResult = await executeLukasTool(tc.name, input, {
           rawUserMessage: opts.userText,
           conversationId: opts.conversationId,
         });
-        convo.push({ role: "tool", tool_call_id: tc.id, content: result });
+        convo.push({ role: "tool", tool_call_id: tc.id, content: toolResult });
       } catch (err) {
-        logger.warn({ err, tool: tc.function.name }, "Lukas tool failed (brain)");
+        logger.warn({ err, tool: tc.name }, "Lukas tool failed (brain)");
         convo.push({
           role: "tool",
           tool_call_id: tc.id,
           content: `Fehler: ${err instanceof Error ? err.message : String(err)}`,
         });
-        if (tc.function.name !== "feel") {
+        if (tc.name !== "feel") {
           recordEmotion({
             emotion: "frustration",
             valence: -0.3,
             intensity: 0.3,
-            cause: `Tool ${tc.function.name} ist fehlgeschlagen`,
+            cause: `Tool ${tc.name} ist fehlgeschlagen`,
             source: "tool",
           }).catch(() => {});
         }

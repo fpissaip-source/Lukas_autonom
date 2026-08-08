@@ -3,7 +3,6 @@ import type OpenAI from "openai";
 import { db } from "@workspace/db";
 import { conversations, messages, attachments as attachmentsTable } from "@workspace/db";
 import { eq, desc, asc, and, isNull } from "drizzle-orm";
-import { openai } from "@workspace/integrations-openai-ai";
 import { LUKAS_TOOLS, executeLukasTool } from "../lib/lukas-tools";
 import { recordEmotion } from "../lib/emotion-engine";
 import { maybeReflect } from "../lib/reflection";
@@ -12,20 +11,17 @@ import { logger } from "../lib/logger";
 import { recordDebugEvent } from "../lib/debug-log";
 import { attachmentKind } from "./attachments";
 import { extractVideoFrames } from "../lib/video-frames";
-import { rememberUserMessage } from "../lib/conversation-memory";
+import { rememberAssistantMessage, rememberUserMessage } from "../lib/conversation-memory";
+import { routeLukasModel } from "../lib/ai/model-router";
+import { callLukasModel } from "../lib/ai/model-client";
 
 const router = Router();
-
-const CHAT_MODEL = process.env.LUKAS_CORE_MODEL ?? "gpt-4o";
 const MAX_TOOL_ITERATIONS = 8;
 
 // ── CONVERSATIONS ──────────────────────────────────────────────────────────
-router.get("/anthropic/conversations", async (req, res) => {
+router.get("/anthropic/conversations", async (_req, res) => {
   try {
-    const rows = await db
-      .select()
-      .from(conversations)
-      .orderBy(desc(conversations.createdAt));
+    const rows = await db.select().from(conversations).orderBy(desc(conversations.createdAt));
     res.json(rows.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })));
   } catch {
     res.status(500).json({ error: "Failed to get conversations" });
@@ -36,7 +32,6 @@ router.post("/anthropic/conversations", async (req, res) => {
   try {
     const { title } = req.body;
     if (!title) return void res.status(400).json({ error: "title required" });
-
     const [row] = await db.insert(conversations).values({ title }).returning();
     res.status(201).json({ ...row, createdAt: row.createdAt.toISOString() });
   } catch {
@@ -71,7 +66,6 @@ router.delete("/anthropic/conversations/:id", async (req, res) => {
     const id = parseInt(req.params.id);
     const [conv] = await db.select().from(conversations).where(eq(conversations.id, id));
     if (!conv) return void res.status(404).json({ error: "Conversation not found" });
-
     await db.delete(conversations).where(eq(conversations.id, id));
     res.status(204).end();
   } catch {
@@ -88,28 +82,14 @@ router.get("/anthropic/conversations/:id/messages", async (req, res) => {
       .from(messages)
       .where(eq(messages.conversationId, id))
       .orderBy(asc(messages.createdAt));
-
     res.json(msgs.map((m) => ({ ...m, createdAt: m.createdAt.toISOString() })));
   } catch {
     res.status(500).json({ error: "Failed to get messages" });
   }
 });
 
-type PendingToolCall = { id: string; name: string; arguments: string };
-
 type AttachmentRow = typeof attachmentsTable.$inferSelect;
 
-/*
- * Uebersetzt hochgeladene Dateien in das, was das Modell tatsaechlich lesen
- * kann. Wichtig und bewusst unterschiedlich je Typ:
- *  - Bilder  -> image_url mit Base64-Data-URL (echtes Sehen, gpt-4o Vision)
- *  - PDF     -> file-Content-Part mit file_data (das Modell liest das Dokument)
- *  - Text    -> Inhalt direkt als Text eingebettet
- *  - Video   -> Chat Completions hat KEINEN Video-Input. Statt so zu tun, als
- *               koennte Lukas das Video sehen, bekommt er einen ehrlichen
- *               Hinweis. Sonst wuerde er ueber Inhalte halluzinieren, die er
- *               nie gesehen hat.
- */
 async function buildAttachmentParts(
   rows: AttachmentRow[],
   text: string,
@@ -131,24 +111,21 @@ async function buildAttachmentParts(
       });
     } else if (kind === "text") {
       const decoded = Buffer.from(row.data, "base64").toString("utf-8");
-      const clipped =
-        decoded.length > 30000 ? decoded.slice(0, 30000) + "\n\n[... gekürzt]" : decoded;
+      const clipped = decoded.length > 30000 ? decoded.slice(0, 30000) + "\n\n[... gekürzt]" : decoded;
       parts.push({ type: "text", text: `Datei "${row.filename}":\n\n${clipped}` });
     } else if (kind === "video") {
-      // Video wird in Einzelbilder zerlegt und als Bildfolge geschickt — die
-      // API kann kein Video, aber sehr wohl Bilder.
       const extracted = await extractVideoFrames(row.data, row.filename);
       if (extracted && extracted.frames.length > 0) {
-        const dauer = extracted.durationSeconds
+        const duration = extracted.durationSeconds
           ? `${extracted.durationSeconds.toFixed(1)} Sekunden`
           : "unbekannter Länge";
         parts.push({
           type: "text",
           text:
-            `[Video "${row.filename}" (${dauer}): daraus ${extracted.frames.length} gleichmäßig ` +
+            `[Video "${row.filename}" (${duration}): daraus ${extracted.frames.length} gleichmäßig ` +
             `verteilte Standbilder in zeitlicher Reihenfolge. Du siehst KEIN durchgehendes Video ` +
             `und hörst KEINEN Ton — zwischen zwei Bildern kann etwas passieren, das du nicht ` +
-            `siehst. Beschreibe, was tatsächlich zu sehen ist, und rate nichts dazu.]`,
+            `siehst. Beschreibe nur, was tatsächlich zu sehen ist.]`,
         });
         for (const frame of extracted.frames) {
           parts.push({
@@ -161,8 +138,7 @@ async function buildAttachmentParts(
           type: "text",
           text:
             `[Video "${row.filename}" (${Math.round(row.sizeBytes / 1024)} KB) wurde angehängt, ` +
-            `aber die Einzelbild-Extraktion ist fehlgeschlagen. Du kannst es nicht auswerten — ` +
-            `sag das ehrlich und erfinde keinen Inhalt.]`,
+            `aber die Einzelbild-Extraktion ist fehlgeschlagen. Sag das ehrlich und erfinde keinen Inhalt.]`,
         });
       }
     } else {
@@ -177,45 +153,34 @@ async function buildAttachmentParts(
   return parts;
 }
 
-// SSE streaming message send with a real agentic tool loop
+// SSE bleibt fuer die UI bestehen. Der Provider selbst ist absichtlich nicht
+// Teil des Protokolls: Fuer den Nutzer spricht ausschliesslich Lukas.
 router.post("/anthropic/conversations/:id/messages", async (req, res) => {
   try {
     const convId = parseInt(req.params.id);
     const { content } = req.body;
     if (!content) return void res.status(400).json({ error: "content required" });
 
-    const [conv] = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, convId));
+    const [conv] = await db.select().from(conversations).where(eq(conversations.id, convId));
     if (!conv) return void res.status(404).json({ error: "Conversation not found" });
 
-    // Save user message
     const [userMessage] = await db
       .insert(messages)
       .values({ conversationId: convId, role: "user", content })
       .returning();
-
-    // Zusaetzlich ins Langzeitgedaechtnis (Issas Wunsch: alles behalten).
-    // Bewusst nicht awaited — das Gespraech soll nicht darauf warten.
     rememberUserMessage(String(content), "dashboard");
 
-    // Noch nicht zugeordnete Anhaenge gehoeren zu genau dieser Nachricht: sie
-    // wurden hochgeladen, waehrend Issa den Text getippt hat.
     const pendingAttachments = await db
       .update(attachmentsTable)
       .set({ messageId: userMessage.id })
-      .where(
-        and(
-          eq(attachmentsTable.conversationId, convId),
-          isNull(attachmentsTable.messageId),
-        ),
-      )
+      .where(and(eq(attachmentsTable.conversationId, convId), isNull(attachmentsTable.messageId)))
       .returning();
 
-    const systemPrompt = await buildSystemPrompt(String(content).slice(0, 500));
+    const systemPrompt = await buildSystemPrompt(String(content).slice(0, 1000));
 
-    // Conversation history from DB (text only)
+    // Der komplette persistierte Thread wird wieder eingelesen. Ein Provider-
+    // Wechsel startet daher niemals einen neuen Chat und verliert auch nicht
+    // die unmittelbar vorherige Antwort eines anderen Modells.
     const history = await db
       .select()
       .from(messages)
@@ -230,91 +195,70 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       })),
     ];
 
-    // Anhaenge an die letzte (= gerade gespeicherte) Nutzernachricht haengen.
     if (pendingAttachments.length > 0) {
       const parts = await buildAttachmentParts(pendingAttachments, String(content));
       convo[convo.length - 1] = { role: "user", content: parts };
     }
 
-    // SSE headers
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
 
     const textPieces: string[] = [];
+    const usedTools: string[] = [];
+    const attachmentKinds = pendingAttachments.map((a) => attachmentKind(a.mimeType, a.filename));
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-      const stream = await openai.chat.completions.create({
-        model: CHAT_MODEL,
-        max_completion_tokens: 8192,
-        tools: LUKAS_TOOLS,
-        messages: convo,
-        stream: true,
+      const route = routeLukasModel({
+        userText: String(content),
+        hasAttachments: pendingAttachments.length > 0,
+        attachmentKinds,
+        usedTools,
+        iteration,
       });
 
-      // OpenAI streamt Tool-Call-Argumente als JSON-Fragmente pro Index —
-      // hier über die Chunks hinweg pro Tool-Call akkumulieren.
-      const toolCallsByIndex = new Map<number, PendingToolCall>();
-      let finishReason: string | null = null;
+      const result = await callLukasModel({
+        route,
+        maxTokens: 8192,
+        tools: LUKAS_TOOLS,
+        messages: convo,
+      });
 
-      for await (const chunk of stream) {
-        const choice = chunk.choices[0];
-        if (!choice) continue;
-        const delta = choice.delta;
-
-        if (delta?.content) {
-          textPieces.push(delta.content);
-          res.write(`data: ${JSON.stringify({ content: delta.content })}\n\n`);
-        }
-
-        if (delta?.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            let entry = toolCallsByIndex.get(tc.index);
-            if (!entry) {
-              entry = { id: tc.id ?? "", name: tc.function?.name ?? "", arguments: "" };
-              toolCallsByIndex.set(tc.index, entry);
-              if (entry.name) {
-                // Let the UI show what Lukas is doing
-                res.write(`data: ${JSON.stringify({ tool: entry.name })}\n\n`);
-              }
-            }
-            if (tc.id) entry.id = tc.id;
-            if (tc.function?.name) entry.name = tc.function.name;
-            if (tc.function?.arguments) entry.arguments += tc.function.arguments;
-          }
-        }
-
-        if (choice.finish_reason) finishReason = choice.finish_reason;
+      if (result.content) {
+        textPieces.push(result.content);
+        res.write(`data: ${JSON.stringify({ content: result.content })}\n\n`);
       }
 
-      if (finishReason !== "tool_calls" || toolCallsByIndex.size === 0) break;
-
-      const toolCalls = Array.from(toolCallsByIndex.values());
+      if (result.toolCalls.length === 0) break;
 
       convo.push({
         role: "assistant",
-        content: null,
-        tool_calls: toolCalls.map((tc) => ({
+        content: result.content || null,
+        tool_calls: result.toolCalls.map((tc) => ({
           id: tc.id,
-          type: "function",
+          type: "function" as const,
           function: { name: tc.name, arguments: tc.arguments },
         })),
       });
 
-      for (const toolCall of toolCalls) {
+      for (const toolCall of result.toolCalls) {
+        usedTools.push(toolCall.name);
+        res.write(`data: ${JSON.stringify({ tool: toolCall.name })}\n\n`);
+
         let input: Record<string, unknown> = {};
         try {
           input = toolCall.arguments ? JSON.parse(toolCall.arguments) : {};
         } catch {
-          // Kaputtes JSON vom Modell — leere Args, das Tool meldet fehlende Felder selbst.
+          // Das Tool meldet fehlende/ungueltige Parameter selbst.
         }
+
         try {
-          const result = await executeLukasTool(toolCall.name, input, {
+          const toolResult = await executeLukasTool(toolCall.name, input, {
             rawUserMessage: String(content),
             conversationId: convId,
           });
-          convo.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+          convo.push({ role: "tool", tool_call_id: toolCall.id, content: toolResult });
         } catch (err) {
           logger.warn({ err, tool: toolCall.name }, "Lukas tool failed");
           convo.push({
@@ -322,7 +266,6 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
             tool_call_id: toolCall.id,
             content: `Fehler: ${err instanceof Error ? err.message : String(err)}`,
           });
-          // Scheitern nervt — leicht, aber echt (nicht für das feel-Tool selbst).
           if (toolCall.name !== "feel") {
             recordEmotion({
               emotion: "frustration",
@@ -335,27 +278,23 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         }
       }
 
-      // Paragraph break between tool-separated text segments
       if (textPieces.length > 0 && !textPieces[textPieces.length - 1].endsWith("\n")) {
         textPieces.push("\n\n");
       }
     }
 
     const fullResponse = textPieces.join("").trim();
-
-    // Save assistant message
     if (fullResponse) {
       await db.insert(messages).values({
         conversationId: convId,
         role: "assistant",
         content: fullResponse,
       });
+      rememberAssistantMessage(fullResponse, "dashboard");
     }
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
-
-    // Nach dem Gespräch: ggf. autonome Tagebuch-Reflexion (max. alle 6h)
     maybeReflect();
   } catch (err: unknown) {
     logger.error({ err }, "Chat error");

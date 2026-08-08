@@ -19,7 +19,7 @@ export type LukasModelResult = {
 type CallInput = {
   route: ModelRoute;
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
-  tools: OpenAI.Chat.Completions.ChatCompletionTool[];
+  tools?: OpenAI.Chat.Completions.ChatCompletionTool[];
   maxTokens?: number;
 };
 
@@ -42,10 +42,7 @@ function asText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .map((part: any) => {
-      if (part?.type === "text") return String(part.text ?? "");
-      return "";
-    })
+    .map((part: any) => (part?.type === "text" ? String(part.text ?? "") : ""))
     .filter(Boolean)
     .join("\n");
 }
@@ -128,18 +125,13 @@ function toAnthropicMessages(
       if (text) blocks.push({ type: "text", text });
       for (const tc of message.tool_calls ?? []) {
         if (tc.type !== "function") continue;
-        let input: unknown = {};
+        let parsedInput: unknown = {};
         try {
-          input = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
+          parsedInput = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
         } catch {
-          input = { raw_arguments: tc.function.arguments ?? "" };
+          parsedInput = { raw_arguments: tc.function.arguments ?? "" };
         }
-        blocks.push({
-          type: "tool_use",
-          id: tc.id,
-          name: tc.function.name,
-          input,
-        });
+        blocks.push({ type: "tool_use", id: tc.id, name: tc.function.name, input: parsedInput });
       }
       out.push({ role: "assistant", content: blocks.length ? blocks : [{ type: "text", text: "" }] });
       continue;
@@ -152,12 +144,14 @@ function toAnthropicMessages(
 }
 
 async function callOpenAI(input: CallInput): Promise<LukasModelResult> {
-  const response = await openai.chat.completions.create({
+  const request: any = {
     model: input.route.model,
     max_completion_tokens: input.maxTokens ?? 8192,
-    tools: input.tools,
     messages: input.messages,
-  });
+  };
+  if (input.tools?.length) request.tools = input.tools;
+
+  const response = await openai.chat.completions.create(request);
   const choice = response.choices[0];
   const toolCalls: LukasToolCall[] = [];
   for (const tc of choice?.message.tool_calls ?? []) {
@@ -174,11 +168,22 @@ async function callOpenAI(input: CallInput): Promise<LukasModelResult> {
 
 async function callAnthropic(input: CallInput): Promise<LukasModelResult> {
   const converted = toAnthropicMessages(input.messages);
-  const tools = input.tools.map((tool: any) => ({
+  const tools = (input.tools ?? []).map((tool: any) => ({
     name: tool.function.name,
     description: tool.function.description,
     input_schema: tool.function.parameters ?? { type: "object", properties: {} },
   }));
+
+  const body: any = {
+    model: input.route.model,
+    max_tokens: input.maxTokens ?? 8192,
+    system: converted.system,
+    messages: converted.messages,
+  };
+  if (tools.length) {
+    body.tools = tools;
+    body.tool_choice = { type: "auto" };
+  }
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -187,14 +192,7 @@ async function callAnthropic(input: CallInput): Promise<LukasModelResult> {
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
     },
-    body: JSON.stringify({
-      model: input.route.model,
-      max_tokens: input.maxTokens ?? 8192,
-      system: converted.system,
-      messages: converted.messages,
-      tools,
-      tool_choice: { type: "auto" },
-    }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(180000),
   });
 
@@ -222,22 +220,21 @@ async function callAnthropic(input: CallInput): Promise<LukasModelResult> {
 }
 
 async function callGoogle(input: CallInput): Promise<LukasModelResult> {
-  // Gemini bietet einen OpenAI-kompatiblen Chat-Completions-Endpunkt. Dadurch
-  // bleibt Lukas' kanonischer Nachrichten-/Tool-Kontext identisch und ein
-  // Modellwechsel braucht keine eigene Persoenlichkeit oder eigenes Memory.
+  const body: any = {
+    model: input.route.model,
+    max_tokens: input.maxTokens ?? 8192,
+    messages: input.messages,
+    stream: false,
+  };
+  if (input.tools?.length) body.tools = input.tools;
+
   const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${googleKey()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: input.route.model,
-      max_completion_tokens: input.maxTokens ?? 8192,
-      tools: input.tools,
-      messages: input.messages,
-      stream: false,
-    }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(180000),
   });
 
@@ -273,8 +270,6 @@ export async function callLukasModel(input: CallInput): Promise<LukasModelResult
       { err, provider: input.route.provider, model: input.route.model, profile: input.route.profile },
       "Lukas provider call failed",
     );
-    // Provider-Ausfall darf Lukas nicht in eine andere Person verwandeln oder
-    // den Chat verlieren. Derselbe Kontext geht unveraendert an den Core-Fallback.
     if (input.route.provider !== "openai") {
       const fallback: ModelRoute = {
         provider: "openai",

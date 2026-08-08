@@ -18,6 +18,13 @@ export type RouteInput = {
   iteration?: number;
 };
 
+function nonEmpty(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    if (value?.trim()) return value.trim();
+  }
+  return undefined;
+}
+
 function parseModelSpec(spec: string, profile: ModelProfile, reason: string): ModelRoute {
   const value = spec.trim();
   const colon = value.indexOf(":");
@@ -32,17 +39,19 @@ function parseModelSpec(spec: string, profile: ModelProfile, reason: string): Mo
 }
 
 function configured(profile: ModelProfile, reason: string): ModelRoute {
-  const core = process.env.LUKAS_CORE_MODEL ?? "gpt-4o";
-  const general = process.env.LUKAS_MODEL_GENERAL ?? `openai:${core}`;
+  const core = nonEmpty(process.env.LUKAS_CORE_MODEL) ?? "gpt-4o";
+  const general = nonEmpty(process.env.LUKAS_MODEL_GENERAL) ?? `openai:${core}`;
+  const fastFallback =
+    nonEmpty(process.env.LUKAS_FAST_MODEL, process.env.LUKAS_PUBLIC_MODEL) ?? "gpt-4o-mini";
+  const reasoning = nonEmpty(process.env.LUKAS_MODEL_REASONING) ?? general;
+
   const specs: Record<ModelProfile, string> = {
-    fast:
-      process.env.LUKAS_MODEL_FAST ??
-      `openai:${process.env.LUKAS_FAST_MODEL ?? process.env.LUKAS_PUBLIC_MODEL ?? "gpt-4o-mini"}`,
+    fast: nonEmpty(process.env.LUKAS_MODEL_FAST) ?? `openai:${fastFallback}`,
     general,
-    reasoning: process.env.LUKAS_MODEL_REASONING ?? general,
-    code: process.env.LUKAS_MODEL_CODE ?? process.env.LUKAS_MODEL_REASONING ?? general,
-    vision: process.env.LUKAS_MODEL_VISION ?? general,
-    long_context: process.env.LUKAS_MODEL_LONG_CONTEXT ?? process.env.LUKAS_MODEL_REASONING ?? general,
+    reasoning,
+    code: nonEmpty(process.env.LUKAS_MODEL_CODE) ?? reasoning,
+    vision: nonEmpty(process.env.LUKAS_MODEL_VISION) ?? general,
+    long_context: nonEmpty(process.env.LUKAS_MODEL_LONG_CONTEXT) ?? reasoning,
   };
   return parseModelSpec(specs[profile], profile, reason);
 }
@@ -62,7 +71,7 @@ function fallback(route: ModelRoute): ModelRoute {
   const general = configured("general", `${route.provider} nicht konfiguriert; stabiler Fallback`);
   if (providerAvailable(general.provider)) return general;
   return parseModelSpec(
-    `openai:${process.env.LUKAS_CORE_MODEL ?? "gpt-4o"}`,
+    `openai:${nonEmpty(process.env.LUKAS_CORE_MODEL) ?? "gpt-4o"}`,
     "general",
     "Provider-Key fehlt; OpenAI-Core als letzter Fallback",
   );
@@ -131,7 +140,8 @@ export function routeLukasModel(input: RouteInput): ModelRoute {
  * Spezialmodelle gearbeitet haben. Der Nutzer bekommt nur diese Lukas-Schicht.
  */
 export function routeLukasVoiceModel(): ModelRoute {
-  const core = process.env.LUKAS_CORE_MODEL ?? "gpt-4o";
-  const spec = process.env.LUKAS_MODEL_VOICE ?? process.env.LUKAS_MODEL_GENERAL ?? `openai:${core}`;
+  const core = nonEmpty(process.env.LUKAS_CORE_MODEL) ?? "gpt-4o";
+  const spec =
+    nonEmpty(process.env.LUKAS_MODEL_VOICE, process.env.LUKAS_MODEL_GENERAL) ?? `openai:${core}`;
   return fallback(parseModelSpec(spec, "general", "stabile Lukas-Ausgabestimme"));
 }

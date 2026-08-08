@@ -1,32 +1,28 @@
 /*
- * Memory-Retrieval — bewertete Erinnerungssuche über Memories, Claims und
- * Episoden.
- *
- * Score = Relevanz × Vertrauen × Wichtigkeit × Aktualität × Quellenqualität.
- * Ein spektakulärer unbelegter Claim wiegt damit weniger als mehrfach
- * bestätigtes Wissen.
- *
- * Semantik: optional Voyage-Embeddings (VOYAGE_API_KEY, voyage-3.5-lite),
- * als jsonb gespeichert, Kosinus in JS — bewusst ohne pgvector-Zwang; bei
- * unserer Größenordnung (Hunderte Zeilen) völlig ausreichend. Ohne Key:
- * rein lexikalische Relevanz (Wortüberlappung + ILIKE-Vorfilter).
+ * Memory-Retrieval — bewertete Suche ueber Memories, Claims, Episoden UND den
+ * rohen Chat-Archivbestand. Damit ist "nicht im aktuellen Modellkontext" nicht
+ * gleichbedeutend mit "vergessen": alte Originalnachrichten bleiben suchbar.
  */
 import { db } from "@workspace/db";
-import { memoriesTable, claimsTable, episodesTable, type Claim } from "@workspace/db";
-import { desc, eq, isNull } from "drizzle-orm";
+import {
+  memoriesTable,
+  claimsTable,
+  episodesTable,
+  messages,
+  type Claim,
+} from "@workspace/db";
+import { desc, eq, isNull, ilike, or } from "drizzle-orm";
 import { formatClaim } from "./memory-writer";
 import { logger } from "./logger";
 
 const VOYAGE_MODEL = "voyage-3.5-lite";
 
 export type MemoryHit = {
-  kind: "memory" | "claim" | "episode";
+  kind: "memory" | "claim" | "episode" | "conversation";
   id: number;
   text: string;
   score: number;
 };
-
-// ── Embeddings (optional) ──────────────────────────────────────────────────
 
 async function embed(texts: string[]): Promise<number[][] | null> {
   const key = process.env.VOYAGE_API_KEY;
@@ -61,38 +57,61 @@ function cosine(a: number[], b: number[]): number {
   return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
 }
 
-// Lexikalische Relevanz: Anteil der Query-Wörter, die im Text vorkommen
+function queryWords(query: string): string[] {
+  return Array.from(
+    new Set(
+      query
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}_-]+/u)
+        .map((w) => w.trim())
+        .filter((w) => w.length > 2),
+    ),
+  ).slice(0, 10);
+}
+
 function lexicalRelevance(query: string, text: string): number {
-  const words = query.toLowerCase().split(/\W+/).filter((w) => w.length > 2);
+  const words = queryWords(query);
   if (words.length === 0) return 0;
   const t = text.toLowerCase();
   const hits = words.filter((w) => t.includes(w)).length;
   return hits / words.length;
 }
 
-// Neue Zeilen nachträglich einbetten (lazy backfill, wird von der
-// Konsolidierung aufgerufen; ohne Key ein No-Op)
 export async function embedNewRows(): Promise<number> {
   if (!process.env.VOYAGE_API_KEY) return 0;
   let count = 0;
 
-  const newMemories = await db.select().from(memoriesTable).where(isNull(memoriesTable.embedding)).limit(64);
+  const newMemories = await db
+    .select()
+    .from(memoriesTable)
+    .where(isNull(memoriesTable.embedding))
+    .limit(64);
   if (newMemories.length > 0) {
     const vecs = await embed(newMemories.map((m) => m.content));
     if (vecs) {
       for (let i = 0; i < newMemories.length && i < vecs.length; i++) {
-        await db.update(memoriesTable).set({ embedding: vecs[i] }).where(eq(memoriesTable.id, newMemories[i].id));
+        await db
+          .update(memoriesTable)
+          .set({ embedding: vecs[i] })
+          .where(eq(memoriesTable.id, newMemories[i].id));
         count++;
       }
     }
   }
 
-  const newClaims = await db.select().from(claimsTable).where(isNull(claimsTable.embedding)).limit(64);
+  const newClaims = await db
+    .select()
+    .from(claimsTable)
+    .where(isNull(claimsTable.embedding))
+    .limit(64);
   if (newClaims.length > 0) {
     const vecs = await embed(newClaims.map((c) => `${c.subject} ${c.predicate} ${c.value}`));
     if (vecs) {
       for (let i = 0; i < newClaims.length && i < vecs.length; i++) {
-        await db.update(claimsTable).set({ embedding: vecs[i] }).where(eq(claimsTable.id, newClaims[i].id));
+        await db
+          .update(claimsTable)
+          .set({ embedding: vecs[i] })
+          .where(eq(claimsTable.id, newClaims[i].id));
         count++;
       }
     }
@@ -100,9 +119,7 @@ export async function embedNewRows(): Promise<number> {
   return count;
 }
 
-// ── Scoring ────────────────────────────────────────────────────────────────
-
-const recency = (d: Date) => Math.exp(-((Date.now() - d.getTime()) / 86400000) / 30); // Halbwert ~21 Tage
+const recency = (d: Date) => Math.exp(-((Date.now() - d.getTime()) / 86400000) / 30);
 
 function claimSourceFactor(c: Claim): number {
   switch (c.status) {
@@ -114,17 +131,34 @@ function claimSourceFactor(c: Claim): number {
   }
 }
 
-// ── Suche ──────────────────────────────────────────────────────────────────
+async function archiveCandidates(query: string) {
+  const words = queryWords(query);
+  if (words.length === 0) {
+    return db.select().from(messages).orderBy(desc(messages.createdAt)).limit(100);
+  }
+
+  // Diese Query geht direkt auf das kanonische Chat-Archiv und ist NICHT auf
+  // die letzten 300 Erinnerungen beschraenkt. Dadurch kann Lukas auch sehr alte
+  // Originalsaetze wiederfinden. Fuer semantische Paraphrasen helfen zusaetzlich
+  // die kuratierten/embedded Memories.
+  const conditions = words.slice(0, 6).map((word) => ilike(messages.content, `%${word}%`));
+  return db
+    .select()
+    .from(messages)
+    .where(or(...conditions))
+    .orderBy(desc(messages.createdAt))
+    .limit(300);
+}
 
 export async function searchMemory(query: string, limit = 8): Promise<MemoryHit[]> {
   const q = query.trim();
   if (!q) return [];
 
-  // Kandidaten laden (kleine Tabellen → großzügig, Score entscheidet)
-  const [memories, claims, episodes] = await Promise.all([
-    db.select().from(memoriesTable).orderBy(desc(memoriesTable.createdAt)).limit(300),
+  const [memories, claims, episodes, archive] = await Promise.all([
+    db.select().from(memoriesTable).orderBy(desc(memoriesTable.createdAt)).limit(500),
     db.select().from(claimsTable).orderBy(desc(claimsTable.observedAt)).limit(300),
     db.select().from(episodesTable).orderBy(desc(episodesTable.startedAt)).limit(150),
+    archiveCandidates(q),
   ]);
 
   const queryVec = (await embed([q]))?.[0] ?? null;
@@ -133,7 +167,7 @@ export async function searchMemory(query: string, limit = 8): Promise<MemoryHit[
     const lex = lexicalRelevance(q, text);
     if (queryVec && vec) {
       const sem = Math.max(0, cosine(queryVec, vec));
-      return Math.max(lex, sem); // bester der beiden Kanäle
+      return Math.max(lex, sem);
     }
     return lex;
   };
@@ -158,7 +192,11 @@ export async function searchMemory(query: string, limit = 8): Promise<MemoryHit[
       kind: "claim",
       id: c.id,
       text: `[Wissen] ${formatClaim(c)}`,
-      score: rel * (0.5 + c.confidence / 2) * claimSourceFactor(c) * Math.max(0.3, recency(c.observedAt)),
+      score:
+        rel *
+        (0.5 + c.confidence / 2) *
+        claimSourceFactor(c) *
+        Math.max(0.3, recency(c.observedAt)),
     });
   }
 
@@ -174,10 +212,33 @@ export async function searchMemory(query: string, limit = 8): Promise<MemoryHit[
     });
   }
 
-  return hits.sort((a, b) => b.score - a.score).slice(0, limit);
+  for (const m of archive) {
+    const rel = lexicalRelevance(q, m.content);
+    if (rel <= 0.05) continue;
+    const speaker = m.role === "assistant" ? "Lukas" : "Issa";
+    hits.push({
+      kind: "conversation",
+      id: m.id,
+      text: `[Original-Chat ${m.createdAt.toISOString()}|${speaker}] ${m.content}`,
+      // Originalquellen bekommen einen hohen Quellenfaktor; Alter senkt sie
+      // nur wenig, weil ein alter exakter Satz fuer Erinnerungsfragen wichtig ist.
+      score: rel * 0.95 * Math.max(0.55, recency(m.createdAt)),
+    });
+  }
+
+  // Gleiche Texte nicht doppelt aus Memory + Original-Archiv ausgeben.
+  const seen = new Set<string>();
+  return hits
+    .sort((a, b) => b.score - a.score)
+    .filter((hit) => {
+      const key = hit.text.replace(/^\[[^\]]+\]\s*/, "").slice(0, 500).toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit);
 }
 
-// Formatierter Block für System-Prompts / das query_memory-Tool
 export async function memoryContextFor(query: string, limit = 6): Promise<string> {
   const hits = await searchMemory(query, limit);
   if (hits.length === 0) return "";

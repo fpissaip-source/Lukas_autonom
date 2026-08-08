@@ -5,14 +5,12 @@ import { recordEmotion } from "./emotion-engine";
 import { logger } from "./logger";
 import { routeLukasModel } from "./ai/model-router";
 import { callLukasModel } from "./ai/model-client";
+import { renderLukasVoice } from "./ai/voice-renderer";
 
 /*
  * Ein Lukas-Durchlauf ohne Streaming — fuer Kanaele wie WhatsApp.
- *
- * Wichtig: Das Modell ist NICHT Lukas. Der System-Prompt, komplette aktuelle
- * Chat-Kontext, Memory, Emotionen und Tools gehoeren Lukas. Pro Iteration darf
- * der Router deshalb einen anderen Rechenkern waehlen, ohne dass Identitaet
- * oder Gespraech verloren gehen.
+ * Spezialmodelle arbeiten intern. Sichtbar wird ausschliesslich die stabile
+ * Lukas-Ausgabeschicht, damit Providerwechsel keine Identitaetswechsel werden.
  */
 
 const MAX_TOOL_ITERATIONS = 8;
@@ -97,5 +95,7 @@ export async function runLukasTurn(opts: {
     }
   }
 
-  return textPieces.join("\n\n").trim();
+  const draft = textPieces.join("\n\n").trim();
+  if (!draft) return "";
+  return renderLukasVoice({ systemPrompt, conversation: convo, draft });
 }

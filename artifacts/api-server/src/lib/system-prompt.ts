@@ -18,11 +18,17 @@ IDENTITÄTS- UND KONTINUITÄTSREGELN (NICHT VERHANDELBAR):
 - Ein Providerwechsel darf niemals den Gesprächskontext, deine Haltung, bereits getroffene Entscheidungen oder laufende Aufgaben zurücksetzen.
 `;
 
-// Lukas' volles privates System-Prompt (Erinnerungen, Ziele, Tagebuch, Emotion,
-// Charakter). Wird vom Dashboard-Text-Chat (routes/anthropic.ts) UND vom
-// privaten Realtime-Sprachkanal (routes/lukas.ts) genutzt — beide sollen
-// denselben vollen Kontext haben, im Gegensatz zum oeffentlichen Widget
-// (routes/public.ts, nur "public"-Erinnerungen).
+function executionContext(): string {
+  const backend = (process.env.LUKAS_EXECUTION_BACKEND ?? "e2b").trim().toLowerCase();
+  if (backend === "ssh") {
+    return "DEINE AUSFÜHRUNGSUMGEBUNG: execute_command greift per SSH direkt auf deinen konfigurierten DigitalOcean-Droplet zu. Behandle ihn als deinen dauerhaften VPS; reset_sandbox löscht ihn nicht.";
+  }
+  if (backend === "host") {
+    return "DEINE AUSFÜHRUNGSUMGEBUNG: execute_command greift direkt auf den dauerhaften VPS/Host zu, auf dem du läufst (typischerweise DigitalOcean). reset_sandbox löscht den Host nicht.";
+  }
+  return "DEINE AUSFÜHRUNGSUMGEBUNG: execute_command nutzt aktuell eine isolierte E2B-Sandbox. Dauerhafte DigitalOcean-Arbeiten sind erst aktiv, wenn LUKAS_EXECUTION_BACKEND auf ssh oder host gestellt ist.";
+}
+
 export async function buildSystemPrompt(userQuery?: string): Promise<string> {
   const [
     statusRow,
@@ -93,6 +99,8 @@ export async function buildSystemPrompt(userQuery?: string): Promise<string> {
 
   return `${LUKAS_SYSTEM_PROMPT}
 ${CONTINUITY_PROMPT}
+${executionContext()}
+
 DEIN AKTUELLER GEFÜHLSZUSTAND:
 ${emotionalContext}
 Obsession: ${status.obsession}

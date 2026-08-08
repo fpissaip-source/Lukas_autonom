@@ -14,11 +14,11 @@ import { extractVideoFrames } from "../lib/video-frames";
 import { rememberAssistantMessage, rememberUserMessage } from "../lib/conversation-memory";
 import { routeLukasModel } from "../lib/ai/model-router";
 import { callLukasModel } from "../lib/ai/model-client";
+import { renderLukasVoice } from "../lib/ai/voice-renderer";
 
 const router = Router();
 const MAX_TOOL_ITERATIONS = 8;
 
-// ── CONVERSATIONS ──────────────────────────────────────────────────────────
 router.get("/anthropic/conversations", async (_req, res) => {
   try {
     const rows = await db.select().from(conversations).orderBy(desc(conversations.createdAt));
@@ -44,13 +44,11 @@ router.get("/anthropic/conversations/:id", async (req, res) => {
     const id = parseInt(req.params.id);
     const [conv] = await db.select().from(conversations).where(eq(conversations.id, id));
     if (!conv) return void res.status(404).json({ error: "Conversation not found" });
-
     const msgs = await db
       .select()
       .from(messages)
       .where(eq(messages.conversationId, id))
       .orderBy(asc(messages.createdAt));
-
     res.json({
       ...conv,
       createdAt: conv.createdAt.toISOString(),
@@ -73,7 +71,6 @@ router.delete("/anthropic/conversations/:id", async (req, res) => {
   }
 });
 
-// ── MESSAGES ───────────────────────────────────────────────────────────────
 router.get("/anthropic/conversations/:id/messages", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -100,10 +97,7 @@ async function buildAttachmentParts(
   for (const row of rows) {
     const kind = attachmentKind(row.mimeType, row.filename);
     if (kind === "image") {
-      parts.push({
-        type: "image_url",
-        image_url: { url: `data:${row.mimeType};base64,${row.data}` },
-      });
+      parts.push({ type: "image_url", image_url: { url: `data:${row.mimeType};base64,${row.data}` } });
     } else if (kind === "pdf") {
       parts.push({
         type: "file",
@@ -128,10 +122,7 @@ async function buildAttachmentParts(
             `siehst. Beschreibe nur, was tatsächlich zu sehen ist.]`,
         });
         for (const frame of extracted.frames) {
-          parts.push({
-            type: "image_url",
-            image_url: { url: `data:image/jpeg;base64,${frame}` },
-          });
+          parts.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${frame}` } });
         }
       } else {
         parts.push({
@@ -153,8 +144,9 @@ async function buildAttachmentParts(
   return parts;
 }
 
-// SSE bleibt fuer die UI bestehen. Der Provider selbst ist absichtlich nicht
-// Teil des Protokolls: Fuer den Nutzer spricht ausschliesslich Lukas.
+// Der alte /anthropic-Pfad bleibt aus Kompatibilitaetsgruenden bestehen. Intern
+// ist er providerunabhaengig. Spezialmodell-Ausgaben werden NICHT direkt an die
+// UI gestreamt; sichtbar ist nur die einheitliche Lukas-Ausgabeschicht.
 router.post("/anthropic/conversations/:id/messages", async (req, res) => {
   try {
     const convId = parseInt(req.params.id);
@@ -177,10 +169,6 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       .returning();
 
     const systemPrompt = await buildSystemPrompt(String(content).slice(0, 1000));
-
-    // Der komplette persistierte Thread wird wieder eingelesen. Ein Provider-
-    // Wechsel startet daher niemals einen neuen Chat und verliert auch nicht
-    // die unmittelbar vorherige Antwort eines anderen Modells.
     const history = await db
       .select()
       .from(messages)
@@ -189,10 +177,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
 
     const convo: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: "system", content: systemPrompt },
-      ...history.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
+      ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     ];
 
     if (pendingAttachments.length > 0) {
@@ -205,7 +190,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
 
-    const textPieces: string[] = [];
+    const internalDraftPieces: string[] = [];
     const usedTools: string[] = [];
     const attachmentKinds = pendingAttachments.map((a) => attachmentKind(a.mimeType, a.filename));
 
@@ -225,11 +210,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         messages: convo,
       });
 
-      if (result.content) {
-        textPieces.push(result.content);
-        res.write(`data: ${JSON.stringify({ content: result.content })}\n\n`);
-      }
-
+      if (result.content) internalDraftPieces.push(result.content);
       if (result.toolCalls.length === 0) break;
 
       convo.push({
@@ -278,13 +259,21 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         }
       }
 
-      if (textPieces.length > 0 && !textPieces[textPieces.length - 1].endsWith("\n")) {
-        textPieces.push("\n\n");
+      if (
+        internalDraftPieces.length > 0 &&
+        !internalDraftPieces[internalDraftPieces.length - 1].endsWith("\n")
+      ) {
+        internalDraftPieces.push("\n\n");
       }
     }
 
-    const fullResponse = textPieces.join("").trim();
+    const draft = internalDraftPieces.join("").trim();
+    const fullResponse = draft
+      ? await renderLukasVoice({ systemPrompt, conversation: convo, draft })
+      : "";
+
     if (fullResponse) {
+      res.write(`data: ${JSON.stringify({ content: fullResponse })}\n\n`);
       await db.insert(messages).values({
         conversationId: convId,
         role: "assistant",

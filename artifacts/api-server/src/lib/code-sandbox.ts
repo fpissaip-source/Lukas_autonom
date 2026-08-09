@@ -157,6 +157,33 @@ export async function executeCommand(
   return out.length > MAX_OUTPUT ? out.slice(0, MAX_OUTPUT) + "\n\n[... gekürzt]" : out;
 }
 
+/*
+ * Befehl DIREKT auf dem Droplet ausführen — nicht im Container.
+ *
+ * Damit kann Lukas Dinge tun, die den Host betreffen: Hermes installieren,
+ * Dienste einrichten, Systempakete nachziehen. Das ist echte Host-Macht: von
+ * hier aus sind die Trading-Credentials, die Datenbank und die laufenden Bots
+ * erreichbar.
+ *
+ * Deshalb ist der zugehörige Tool-Aufruf als R3 eingestuft und braucht Issas
+ * Freigabe für JEDEN einzelnen Befehl, gebunden an genau diesen Wortlaut. Die
+ * Absicherung liegt bewusst nicht hier, sondern in lib/policy.ts — diese
+ * Funktion führt nur aus, was dort bereits genehmigt wurde.
+ */
+export async function executeOnHost(command: string, timeoutSeconds = 120): Promise<string> {
+  const timeout = Math.min(Math.max(timeoutSeconds, 1), 600);
+  const result = await sshExec(`timeout ${timeout} sh -lc ${shQuote(command)}`, timeout * 1000);
+
+  const parts: string[] = [];
+  if (result.stdout) parts.push(`STDOUT:\n${result.stdout}`);
+  if (result.stderr) parts.push(`STDERR:\n${result.stderr}`);
+  if (result.code === 124) parts.push(`(Abgebrochen: Zeitlimit von ${timeout}s erreicht)`);
+  parts.push(`EXIT CODE: ${result.code}`);
+
+  const out = parts.join("\n\n");
+  return out.length > MAX_OUTPUT ? out.slice(0, MAX_OUTPUT) + "\n\n[... gekürzt]" : out;
+}
+
 export async function resetSandbox(conversationId: number): Promise<string> {
   const name = containerName(conversationId);
   await sshExec(`docker rm -f ${name} 2>/dev/null || true`, 30000);

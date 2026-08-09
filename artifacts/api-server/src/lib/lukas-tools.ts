@@ -6,7 +6,7 @@ import { setLukasStatus } from "./lukas-status";
 import { recordEmotion } from "./emotion-engine";
 import { queryRows } from "./vps-db";
 import { searchEmails, readEmail, sendEmail, userConfirmedSend } from "./email";
-import { executeCommand, resetSandbox } from "./code-sandbox";
+import { executeCommand, resetSandbox, executeOnHost } from "./code-sandbox";
 import { checkPolicy } from "./policy";
 
 export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -301,6 +301,22 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         properties: {
           command: { type: "string", description: "Der auszuführende Shell-Befehl" },
           timeoutSeconds: { type: "integer", description: "Timeout in Sekunden, Standard 60, max 280" },
+        },
+        required: ["command"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "execute_on_host",
+      description:
+        "Führe einen Befehl DIREKT auf Issas Droplet aus (nicht in deiner Sandbox) — für Dinge, die den Server selbst betreffen: Software installieren (z.B. Hermes), Dienste einrichten, Systempakete. ACHTUNG: Von dort sind Issas Trading-Credentials und die Datenbank erreichbar. Jeder einzelne Befehl braucht Issas Freigabe. Nutze es sparsam, erkläre vorher was du vorhast, und mach einen Schritt nach dem anderen statt lange Befehlsketten.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "Der Befehl, der auf dem Host laufen soll" },
+          timeoutSeconds: { type: "integer", description: "Timeout in Sekunden, Standard 120, max 600" },
         },
         required: ["command"],
       },
@@ -631,6 +647,12 @@ export async function executeLukasTool(
         ctx.conversationId,
         String(input.command),
         typeof input.timeoutSeconds === "number" ? input.timeoutSeconds : 60,
+      );
+    }
+    case "execute_on_host": {
+      return await executeOnHost(
+        String(input.command),
+        typeof input.timeoutSeconds === "number" ? input.timeoutSeconds : 120,
       );
     }
     case "reset_sandbox": {

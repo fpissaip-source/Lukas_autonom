@@ -42,7 +42,7 @@ Risikostufen:
 | R0 | nur lesen | `query_memory`, `fetch_url`, `web_search`, `github_*`, `email_search`, `email_read`, `get_trading_stats`, `get_moltbook_activity` |
 | R1 | interner, umkehrbarer Schreibzugriff | `save_memory`, `create_goal`, `update_goal`, `write_diary`, `feel`, `set_status`, `execute_command`, `reset_sandbox` |
 | R2 | Wirkung nach außen | `email_send` |
-| R3 | Geld, Credentials, unumkehrbar | — noch keins |
+| R3 | Geld, Credentials, unumkehrbar, Host-Ebene | `execute_on_host` |
 
 Zwei Entscheidungen, die Erklärung verdienen:
 
@@ -79,12 +79,12 @@ ist Code, kein Prompt-Versprechen.
 
 ## Bewusst anders entschieden
 
-### Hermes Agent: noch nicht
+### Hermes Agent: Lukas installiert ihn selbst, unter Freigabe
 
 Hermes ist real (MIT, läuft mit OpenAI, kleiner VPS reicht) und bringt drei Dinge,
 die wir nicht haben: **Skills/prozedurales Lernen, Subagents, MCP**.
 
-Dagegen spricht heute:
+Was gegen einen Blind-Umstieg spricht — und weiterhin gilt:
 
 1. **Der Nutzen ist kleiner als der Entwurf nahelegt.** Cron haben wir (Worker),
    das Messaging-Gateway haben wir gerade selbst gebaut (WhatsApp), und das
@@ -99,13 +99,33 @@ Dagegen spricht heute:
    Control Plane voraus, die davor prüft. Deren Kern (Policy + Approvals) steht
    erst seit heute.
 
-**Nächster sinnvoller Schritt**, wenn Hermes kommen soll: `hermes-owner` auf dem
-Droplet im Shadow Mode — nur lesende Capabilities, keine Produktions-Writes, gegen
-dieselbe Policy-Schicht. Erst wenn das trägt, Verantwortung verschieben.
+Deshalb: Hermes kommt dazu, ersetzt aber vorerst nichts. Zielbild bleibt
+`hermes-owner` im Shadow Mode — nur lesende Capabilities, keine
+Produktions-Writes, gegen dieselbe Policy-Schicht. Erst wenn das trägt, wandert
+Verantwortung dorthin.
 
-Ausdrücklich **nicht** empfohlen: Lukas Hermes selbst installieren lassen. Dafür
-bräuchte er Root auf dem Droplet — genau der Zustand, den diese Architektur
-beseitigen will. Wir würden ihn herstellen, um die Architektur einzuführen.
+**Korrektur zu einer früheren Einschätzung:** Ich hatte geschrieben, Lukas
+selbst installieren zu lassen würde ihm erst Root auf dem Droplet verschaffen.
+Das war falsch — der Python-Lukas auf dem VPS *hatte diese Macht bereits*:
+`patcher.py` schrieb Dateien und pushte mit `--force`, `lukas_brain.py` und
+`loss_reasoner.py` starten Dienste neu. Die Frage war also nie, ob wir ihm das
+geben, sondern ob es unbeaufsichtigt bestehen bleibt.
+
+Entschieden wurde: **absichern statt abschalten.**
+
+- `patcher.py` pusht nicht mehr mit `--force` auf einen festen Branch, sondern
+  auf einen eigenen Branch pro Lauf (`lukas/self-patch-<zeitstempel>`) und meldet
+  ihn per Telegram. Nichts wird überschrieben, jeder Diff bleibt nachvollziehbar,
+  Issa merged. Die Selbstverbesserung bleibt vollständig erhalten.
+  Das war dringlicher als es klingt: Am Anfang dieser Kette stehen Eingaben, die
+  Fremde beeinflussen können (Reddit-Posts im Watcher, Logs im Bug-Reasoner) —
+  ein manipulierter Input konnte bis in den Code durchschlagen und die Spur
+  gleich mitüberschreiben.
+- Der Dashboard-Lukas bekommt `execute_on_host` (R3) und kann damit Hermes
+  selbst installieren. Jeder einzelne Befehl braucht Issas Freigabe, gebunden an
+  genau diesen Wortlaut. Bewusst keine Ausnahme für "harmlos aussehende"
+  Befehle: ob ein `curl … | bash` harmlos ist, hängt allein davon ab, was gerade
+  unter der URL liegt.
 
 ### Kein 8-Phasen-Umbau am Stück
 

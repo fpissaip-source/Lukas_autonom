@@ -54,6 +54,13 @@ export const TOOL_RISK: Record<string, RiskTier> = {
 
   // R2 — Wirkung nach außen
   email_send: "R2",
+
+  // R3 — Host-Ebene: von dort sind Trading-Credentials, Wallet-Keys, die
+  // Postgres und die laufenden Bots erreichbar. Jeder einzelne Befehl braucht
+  // Freigabe, gebunden an genau diesen Wortlaut. Bewusst KEINE Ausnahme für
+  // "harmlos aussehende" Befehle: ob `curl … | bash` harmlos ist, hängt
+  // ausschließlich davon ab, was gerade unter der URL liegt.
+  execute_on_host: "R3",
 };
 
 /*

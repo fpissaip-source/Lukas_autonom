@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import path from "path";
 import fs from "fs";
 import router from "./routes";
+import whatsappRouter from "./routes/whatsapp";
 import { lukasAuth } from "./middlewares/auth";
 import { logger } from "./lib/logger";
 
@@ -53,6 +54,15 @@ app.use("/widget.js", (req, res, next) => {
 // dem esbuild-Banner und zeigt auf artifacts/api-server/dist.
 app.use(express.static(path.join(__dirname, "..", "public")));
 
+// Meta muss den WhatsApp-Webhook OHNE unseren privaten Bearer-Token erreichen.
+// Deshalb wird ausschließlich der WhatsApp-Router VOR der Lukas-API-Auth
+// gemountet. Der POST bleibt durch Metas X-Hub-Signature-256 + App Secret
+// geschützt; die GET-Verifizierung durch WHATSAPP_VERIFY_TOKEN.
+// So kann /api/whatsapp/webhook nicht mehr versehentlich von lukasAuth mit
+// "Unauthorized" abgefangen werden.
+app.use("/api", whatsappRouter);
+
+// Alle übrigen privaten API-Routen bleiben hinter LUKAS_API_TOKEN.
 app.use("/api", lukasAuth, router);
 
 // Im Deployment (Railway etc.) liefert der API-Server auch das gebaute

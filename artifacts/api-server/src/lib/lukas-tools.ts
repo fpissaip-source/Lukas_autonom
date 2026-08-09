@@ -7,6 +7,7 @@ import { recordEmotion } from "./emotion-engine";
 import { queryRows } from "./vps-db";
 import { searchEmails, readEmail, sendEmail, userConfirmedSend } from "./email";
 import { executeCommand, resetSandbox } from "./code-sandbox";
+import { checkPolicy } from "./policy";
 
 export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -496,6 +497,15 @@ export async function executeLukasTool(
   input: Record<string, unknown>,
   ctx: { rawUserMessage?: string; conversationId?: number } = {},
 ): Promise<string> {
+  /*
+   * Policy-Gate. Bewusst HIER, an der einen Stelle, durch die jeder
+   * Tool-Aufruf muss — egal ob aus dem Dashboard-Chat, aus WhatsApp oder aus
+   * einem autonomen Hintergrund-Task. Eine Prüfung, die man an einem Kanal
+   * vorbeischleusen kann, ist keine Prüfung.
+   */
+  const decision = await checkPolicy(name, input, ctx.conversationId);
+  if (!decision.allow) return decision.message;
+
   switch (name) {
     case "save_memory": {
       const [row] = await db
@@ -625,7 +635,7 @@ export async function executeLukasTool(
     }
     case "reset_sandbox": {
       if (!ctx.conversationId) throw new Error("Keine Conversation-ID für die Sandbox verfügbar.");
-      return resetSandbox(ctx.conversationId);
+      return await resetSandbox(ctx.conversationId);
     }
     default:
       throw new Error(`Unbekanntes Tool: ${name}`);

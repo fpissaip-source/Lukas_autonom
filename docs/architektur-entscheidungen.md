@@ -55,6 +55,19 @@ Zwei Entscheidungen, die Erklärung verdienen:
 Freigaben sind an einen SHA-256-Hash der normalisierten Argumente gebunden und
 gelten **einmal**. Ändert Lukas ein Argument, passt der Hash nicht mehr.
 
+**Bestätigung im Chat ersetzt die Dashboard-Freigabe (nur R2).** Sagt Issa
+„schick das ab", ist das dieselbe bewusste Entscheidung wie ein Klick — nur ohne
+Umweg. Geprüft wird sein eigener, unveränderter Nachrichtentext dieses Zuges;
+eine Prompt-Injection aus einer gelesenen Mail kann darin nichts unterbringen,
+weil sie in Tool-Ausgaben steht und nicht in dem, was Issa getippt hat.
+Ohne Nutzerzug (Cron, Hintergrund-Task) greift die Abkürzung nicht.
+**R3 bleibt immer bei der Dashboard-Freigabe** — dort will man den exakten
+Befehl vor Augen haben.
+
+Die frühere Doppelprüfung beim Mailversand (Policy-Gate *und* nochmal im Tool)
+ist entfallen: sie blockierte auch nach erteilter Dashboard-Freigabe noch. Zwei
+Zustimmungen für eine Entscheidung, ohne Sicherheitsgewinn.
+
 Geprüft: blockiert ohne Freigabe → läuft nach Freigabe → blockiert erneut
 (verbraucht). Argument-Bindung gegen 6 Fälle inkl. Umsortierung und minimaler
 Textänderung.

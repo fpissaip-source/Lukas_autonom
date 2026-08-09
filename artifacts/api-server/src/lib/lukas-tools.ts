@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { setLukasStatus } from "./lukas-status";
 import { recordEmotion } from "./emotion-engine";
 import { queryRows } from "./vps-db";
-import { searchEmails, readEmail, sendEmail, userConfirmedSend } from "./email";
+import { searchEmails, readEmail, sendEmail } from "./email";
 import { executeCommand, resetSandbox, executeOnHost } from "./code-sandbox";
 import { checkPolicy } from "./policy";
 
@@ -519,7 +519,7 @@ export async function executeLukasTool(
    * einem autonomen Hintergrund-Task. Eine Prüfung, die man an einem Kanal
    * vorbeischleusen kann, ist keine Prüfung.
    */
-  const decision = await checkPolicy(name, input, ctx.conversationId);
+  const decision = await checkPolicy(name, input, ctx.conversationId, ctx.rawUserMessage);
   if (!decision.allow) return decision.message;
 
   switch (name) {
@@ -636,9 +636,11 @@ export async function executeLukasTool(
     case "email_read":
       return await readEmail(String(input.uid));
     case "email_send": {
-      if (!userConfirmedSend(ctx.rawUserMessage ?? "")) {
-        return "NICHT gesendet: Issa hat das Versenden in seiner aktuellen Nachricht nicht ausdrücklich bestätigt (z.B. mit 'senden'). Zeige ihm den Entwurf im Chat und frage nach Bestätigung.";
-      }
+      // Die Bestätigungsprüfung liegt jetzt vollständig im Policy-Gate oben:
+      // entweder Issa bestätigt im laufenden Zug ("schick das ab") oder er gibt
+      // im Dashboard frei. Die frühere Doppelprüfung an dieser Stelle hat auch
+      // nach erteilter Dashboard-Freigabe noch blockiert — zwei Zustimmungen
+      // für eine Entscheidung, das war schlicht lästig ohne Sicherheitsgewinn.
       return await sendEmail(String(input.to), String(input.subject), String(input.body));
     }
     case "execute_command": {

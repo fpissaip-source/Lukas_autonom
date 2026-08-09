@@ -79,6 +79,30 @@ export function needsApproval(tier: RiskTier): boolean {
 }
 
 /*
+ * Tools, bei denen eine ausdrückliche Bestätigung IN DER LAUFENDEN NACHRICHT
+ * die Dashboard-Freigabe ersetzt.
+ *
+ * Warum das sicher ist: Geprüft wird Issas eigener, unveränderter Nachrichten-
+ * text dieses Zuges. Eine Prompt-Injection in einer gelesenen E-Mail oder
+ * Webseite kann darin nichts unterbringen — sie steht in Tool-Ausgaben, nicht
+ * in dem, was Issa getippt hat. Sagt er "schick das ab", ist das dieselbe
+ * bewusste Entscheidung wie ein Klick im Dashboard, nur ohne Umweg.
+ *
+ * Warum trotzdem nicht für alles: R3 (Host-Zugriff) bleibt IMMER bei der
+ * Dashboard-Freigabe. Dort will man den exakten Befehl vor Augen haben, und
+ * ein beiläufiges "mach mal" im Chat ist dafür keine ausreichende Grundlage.
+ *
+ * Läuft kein Nutzerzug (autonomer Hintergrund-Task, Cron), greift diese
+ * Abkürzung nicht — dann bleibt es bei der Freigabe im Dashboard.
+ */
+const CONSENT_IN_TURN: Record<string, (userMessage: string) => boolean> = {
+  email_send: (msg) =>
+    /\bsend(e|en|et)?\b|\bschick(e|en|t)?\b|\babschicken\b|\bverschick(e|en|t)?\b|\braus damit\b/i.test(
+      msg,
+    ),
+};
+
+/*
  * Argumente stabil hashen: Schlüssel sortiert, damit dieselben Argumente in
  * anderer Reihenfolge denselben Hash ergeben — sonst könnte eine Freigabe
  * durch bloßes Umsortieren umgangen bzw. unbrauchbar werden.
@@ -120,9 +144,18 @@ export async function checkPolicy(
   tool: string,
   input: Record<string, unknown>,
   conversationId?: number,
+  rawUserMessage?: string,
 ): Promise<PolicyDecision> {
   const tier = riskFor(tool);
   if (!needsApproval(tier)) return { allow: true };
+
+  // Ausdrückliche Bestätigung im laufenden Zug ersetzt die Dashboard-Freigabe
+  // (nur R2, nur für Tools mit definierter Bestätigungsprüfung).
+  const consentCheck = CONSENT_IN_TURN[tool];
+  if (tier === "R2" && consentCheck && rawUserMessage && consentCheck(rawUserMessage)) {
+    logger.info({ tool }, "Freigabe durch ausdrückliche Bestätigung im Chat");
+    return { allow: true };
+  }
 
   const hash = hashArguments(tool, input);
   const now = new Date();

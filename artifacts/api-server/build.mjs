@@ -34,6 +34,12 @@ async function buildAll() {
       "sharp",
       "better-sqlite3",
       "sqlite3",
+      // ffmpeg-static liefert nur einen PFAD auf eine mitgelieferte Binary und
+      // baut ihn aus __dirname zusammen. Gebundelt wird daraus dist/ffmpeg --
+      // dort liegt aber nichts, die Binary bleibt in node_modules. Ergebnis war
+      // ein stiller ENOENT: Videos wurden nie in Frames zerlegt, und Lukas
+      // konnte nur noch raten, warum. Muss extern bleiben.
+      "ffmpeg-static",
       "canvas",
       "bcrypt",
       "argon2",

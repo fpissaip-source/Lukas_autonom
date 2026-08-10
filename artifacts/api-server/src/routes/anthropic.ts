@@ -138,7 +138,7 @@ async function buildAttachmentParts(
       // Video wird in Einzelbilder zerlegt und als Bildfolge geschickt — die
       // API kann kein Video, aber sehr wohl Bilder.
       const extracted = await extractVideoFrames(row.data, row.filename);
-      if (extracted && extracted.frames.length > 0) {
+      if (extracted.ok) {
         const dauer = extracted.durationSeconds
           ? `${extracted.durationSeconds.toFixed(1)} Sekunden`
           : "unbekannter Länge";
@@ -157,12 +157,17 @@ async function buildAttachmentParts(
           });
         }
       } else {
+        // Der konkrete Grund gehoert hier hin, nicht nur ins Log: sonst steht
+        // Lukas im Chat da und spekuliert ueber Dateipfade und Berechtigungen,
+        // statt zu sagen, was wirklich kaputt ist.
         parts.push({
           type: "text",
           text:
             `[Video "${row.filename}" (${Math.round(row.sizeBytes / 1024)} KB) wurde angehängt, ` +
-            `aber die Einzelbild-Extraktion ist fehlgeschlagen. Du kannst es nicht auswerten — ` +
-            `sag das ehrlich und erfinde keinen Inhalt.]`,
+            `aber die Einzelbild-Extraktion ist fehlgeschlagen. Grund: ${extracted.reason} ` +
+            `Du kannst das Video nicht auswerten — nenne Issa genau diesen Grund, erfinde ` +
+            `keinen Inhalt und spekuliere nicht über Dateipfade oder Berechtigungen. ` +
+            `Das ist ein Serverproblem, kein Problem mit seiner Datei.]`,
         });
       }
     } else {

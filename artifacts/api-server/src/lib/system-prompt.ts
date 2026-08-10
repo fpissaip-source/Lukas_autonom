@@ -5,6 +5,7 @@ import { CONVERSATION_CATEGORY } from "./conversation-memory";
 import { LUKAS_SYSTEM_PROMPT } from "./lukas-soul";
 import { getLukasStatus, DEFAULT_STATUS } from "./lukas-status";
 import { getEmotionalContext, getCharacterContext } from "./emotion-engine";
+import { getProposalContext } from "./proposals";
 import { logger } from "./logger";
 
 const CONTINUITY_PROMPT = `
@@ -38,6 +39,7 @@ export async function buildSystemPrompt(userQuery?: string): Promise<string> {
     recentDiary,
     emotionalContext,
     characterContext,
+    proposalContext,
     relevantContext,
   ] = await Promise.all([
     getLukasStatus(),
@@ -57,6 +59,7 @@ export async function buildSystemPrompt(userQuery?: string): Promise<string> {
     db.select().from(diaryTable).orderBy(desc(diaryTable.createdAt)).limit(2),
     getEmotionalContext(),
     getCharacterContext(),
+    getProposalContext().catch(() => ""),
     userQuery
       ? import("./memory-retrieval")
           .then(({ memoryContextFor }) => memoryContextFor(userQuery, 8))
@@ -105,5 +108,6 @@ DEIN AKTUELLER GEFÜHLSZUSTAND:
 ${emotionalContext}
 Obsession: ${status.obsession}
 ${characterContext ? `\n${characterContext}` : ""}
+${proposalContext ? `\n${proposalContext}` : ""}
 ${memoryContext}${goalsContext}${diaryContext}${relevantContext}`;
 }

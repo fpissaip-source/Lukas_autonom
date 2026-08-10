@@ -7,6 +7,8 @@ import { recordEmotion } from "./emotion-engine";
 import { queryRows } from "./vps-db";
 import { searchEmails, readEmail, sendEmail } from "./email";
 import { executeCommand, resetSandbox, executeOnHost } from "./code-sandbox";
+import { githubRequest, resolveGithubOwner } from "./github";
+import { createProposal } from "./proposals";
 import { checkPolicy } from "./policy";
 
 export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -249,7 +251,7 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "propose_code_change",
       description:
-        "Schlage eine konkrete Code-Änderung als Pull Request vor. Dein eigener Code liegt in 'Lukas_autonom' — damit kannst du dich selbst verbessern. WICHTIG: lies die betroffene Datei vorher mit github_read_path und schicke immer den KOMPLETTEN neuen Dateiinhalt, nicht nur den geänderten Ausschnitt. Der Vorschlag landet auf einem neuen Branch und als PR; der Deploy-Branch wird nie direkt verändert und nichts geht live, bevor Issa den PR merged. Nutze das, wenn Issa dich um eine Änderung bittet — oder wenn dir selbst etwas auffällt, das besser sein sollte. Im zweiten Fall sag ihm vorher kurz, was du ändern willst und warum.",
+        "Schlage eine konkrete Code-Änderung vor. Dein eigener Code liegt in 'Lukas_autonom' — damit kannst du dich selbst verbessern. Der Vorschlag landet in Issas Dashboard unter 'Vorschläge'; dort nimmt er ihn an, lehnt ihn ab oder schickt ihn dir mit einem Kommentar zurück. Es wird sofort NICHTS geändert. WICHTIG: lies die betroffene Datei vorher mit github_read_path und schicke immer den KOMPLETTEN neuen Dateiinhalt, nicht nur den geänderten Ausschnitt — alles, was du weglässt, wäre danach weg. Nutze das, wenn Issa dich um eine Änderung bittet, oder wenn dir selbst etwas auffällt.",
       parameters: {
         type: "object",
         properties: {
@@ -257,11 +259,16 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             type: "string",
             description: "Repo-Name, für deinen eigenen Code: 'Lukas_autonom'",
           },
-          title: { type: "string", description: "Kurzer Titel des PR, z.B. 'Timeout beim Mailabruf erhöhen'" },
-          description: {
+          title: { type: "string", description: "Kurzer Titel, z.B. 'Timeout beim Mailabruf erhöhen'" },
+          summary: {
             type: "string",
             description:
-              "Was du änderst und WARUM. Nenne das Problem, nicht nur die Änderung — Issa liest das, um zu entscheiden.",
+              "Was passiert, wenn Issa das annimmt — in normaler Sprache, ohne Fachbegriffe, 2-4 Sätze. Er ist kein Entwickler und entscheidet auf Basis dieses Textes. Nicht 'ändere den Timeout-Parameter', sondern 'dein Mailabruf bricht bei langsamer Verbindung ab; danach wartet er länger, bevor er aufgibt'.",
+          },
+          reasoning: {
+            type: "string",
+            description:
+              "Warum du das vorschlägst: welches Problem du gefunden hast und woran du es gemerkt hast.",
           },
           files: {
             type: "array",
@@ -276,7 +283,7 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             },
           },
         },
-        required: ["repo", "title", "description", "files"],
+        required: ["repo", "title", "summary", "reasoning", "files"],
       },
     },
   },
@@ -462,49 +469,6 @@ async function getTradingStats(): Promise<string> {
   return lines.join("\n");
 }
 
-async function githubRequest(
-  path: string,
-  init?: { method: "POST" | "PUT" | "PATCH"; body: unknown },
-): Promise<unknown> {
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) {
-    throw new Error(
-      "GITHUB_TOKEN ist nicht gesetzt — Issa muss einen GitHub Personal Access Token in den Railway-Variablen hinterlegen. Zum Lesen reicht 'Contents: Read-only'; damit ich Änderungen vorschlagen kann, brauche ich zusätzlich 'Contents: Read and write' und 'Pull requests: Read and write'.",
-    );
-  }
-  const res = await fetch(`https://api.github.com${path}`, {
-    method: init?.method ?? "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "LukasAgent/1.0",
-      ...(init ? { "Content-Type": "application/json" } : {}),
-    },
-    body: init ? JSON.stringify(init.body) : undefined,
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`GitHub API ${res.status}: ${body.slice(0, 300)}`);
-  }
-  return res.status === 204 ? null : res.json();
-}
-
-let cachedGithubLogin: string | null = null;
-
-async function resolveGithubOwner(repoInput: string): Promise<{ owner: string; repo: string }> {
-  if (repoInput.includes("/")) {
-    const [owner, repo] = repoInput.split("/");
-    return { owner, repo };
-  }
-  if (!cachedGithubLogin) {
-    const me = (await githubRequest("/user")) as { login: string };
-    cachedGithubLogin = me.login;
-  }
-  return { owner: cachedGithubLogin, repo: repoInput };
-}
-
 async function githubListRepos(): Promise<string> {
   const repos = (await githubRequest("/user/repos?per_page=100&sort=updated")) as Array<{
     full_name: string;
@@ -541,85 +505,44 @@ async function githubReadPath(repoInput: string, path: string): Promise<string> 
 }
 
 /*
- * Lukas schlägt eine Code-Änderung vor.
+ * Lukas schlaegt eine Code-Aenderung vor.
  *
- * Bewusst als Pull Request und NICHT als direkter Push:
- *  - Der Deploy-Branch wird nie angefasst. Nichts geht live, bevor Issa merged.
- *  - Der Diff bleibt sichtbar und umkehrbar; nichts wird überschrieben.
- *  - Der Tool-Aufruf ist R2, braucht also vorher Issas Freigabe im Dashboard,
- *    gebunden an genau diese Dateien und genau diesen Inhalt. Ändert Lukas
- *    danach noch etwas am Inhalt, ist die Freigabe ungültig.
+ * Bewusst KEIN Branch und KEIN Pull Request. Issa will nicht fuer jede
+ * Kleinigkeit auf GitHub wechseln — der Vorschlag landet im Dashboard, in
+ * verstaendlicher Sprache, und wird dort mit einem Klick angenommen,
+ * abgelehnt oder mit Kommentar zurueckgeschickt.
  *
- * Warum diese Härte: Lukas liest E-Mails und Webseiten. Wer ihm dort etwas
- * unterschiebt, zielt am Ende genau hierauf — auf den Code, der ihn steuert.
- * Der Umweg über den PR kostet Issa einen Klick und nimmt diesem Angriff die
- * Wirkung. Die Fähigkeit selbst wird dadurch nicht eingeschränkt.
+ * Hier wird noch nichts geschrieben: der Vorschlag geht nur in unsere eigene
+ * Datenbank. Erst Issas "Annehmen" loest den Commit aus. Deshalb braucht
+ * dieser Tool-Aufruf auch keine separate Freigabe — die Entscheidung im
+ * Dashboard IST die Freigabe, und zwei Gates hintereinander waeren nur
+ * laestig, ohne irgendetwas sicherer zu machen.
  */
 async function proposeCodeChange(
   repoInput: string,
   title: string,
-  description: string,
+  summary: string,
+  reasoning: string,
   files: Array<{ path: string; content: string }>,
+  conversationId?: number,
 ): Promise<string> {
   if (files.length === 0) throw new Error("Keine Dateien angegeben.");
-  const { owner, repo } = await resolveGithubOwner(repoInput);
-
-  const repoInfo = (await githubRequest(`/repos/${owner}/${repo}`)) as { default_branch: string };
-  const base = repoInfo.default_branch;
-  const baseRef = (await githubRequest(`/repos/${owner}/${repo}/git/ref/heads/${base}`)) as {
-    object: { sha: string };
-  };
-
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const branch = `lukas/vorschlag-${stamp}`;
-  await githubRequest(`/repos/${owner}/${repo}/git/refs`, {
-    method: "POST",
-    body: { ref: `refs/heads/${branch}`, sha: baseRef.object.sha },
+  const proposal = await createProposal({
+    conversationId,
+    repo: repoInput,
+    title,
+    summary,
+    reasoning,
+    files,
   });
 
-  for (const file of files) {
-    const cleanPath = file.path.replace(/^\/+/, "");
-    const apiPath = `/repos/${owner}/${repo}/contents/${cleanPath.split("/").map(encodeURIComponent).join("/")}`;
-
-    // Bestehende Datei? Dann braucht die GitHub-API deren Blob-SHA, sonst
-    // lehnt sie den Schreibvorgang ab. Fehlt die Datei, ist es ein Neuanlegen.
-    let sha: string | undefined;
-    try {
-      const existing = (await githubRequest(`${apiPath}?ref=${branch}`)) as { sha?: string };
-      sha = existing?.sha;
-    } catch {
-      sha = undefined;
-    }
-
-    await githubRequest(apiPath, {
-      method: "PUT",
-      body: {
-        message: `${title} — ${cleanPath}`,
-        content: Buffer.from(file.content, "utf-8").toString("base64"),
-        branch,
-        ...(sha ? { sha } : {}),
-      },
-    });
-  }
-
-  const pr = (await githubRequest(`/repos/${owner}/${repo}/pulls`, {
-    method: "POST",
-    body: {
-      title,
-      head: branch,
-      base,
-      body:
-        `${description}\n\n---\n` +
-        `Dieser Vorschlag kommt von Lukas selbst. Er wurde vor dem Erstellen von Issa freigegeben, ` +
-        `ist aber bewusst NICHT gemergt — schau dir den Diff an und entscheide.`,
-    },
-  })) as { html_url: string; number: number };
-
   return (
-    `Vorschlag als Pull Request #${pr.number} eröffnet: ${pr.html_url}\n` +
-    `Branch: ${branch} (Basis: ${base})\n` +
-    `Geänderte Dateien: ${files.map((f) => f.path).join(", ")}\n\n` +
-    `Nichts ist live — der PR wartet auf Issas Review.`
+    `Vorschlag #${proposal.id} liegt jetzt in Issas Dashboard unter "Vorschlaege".\n` +
+    `Titel: ${title}\n` +
+    `Betroffene Dateien: ${files.map((f) => f.path).join(", ")}\n\n` +
+    `Es wurde noch NICHTS geaendert. Issa kann annehmen, ablehnen oder dir den ` +
+    `Vorschlag mit einem Kommentar zurueckschicken. Sag ihm jetzt kurz und ohne ` +
+    `Fachbegriffe, was drinsteht und warum — und dann warte auf seine Entscheidung.`
   );
 }
 
@@ -773,8 +696,10 @@ export async function executeLukasTool(
       return await proposeCodeChange(
         String(input.repo),
         String(input.title ?? "").trim() || "Vorschlag von Lukas",
-        String(input.description ?? ""),
+        String(input.summary ?? ""),
+        String(input.reasoning ?? ""),
         files,
+        ctx.conversationId,
       );
     }
     case "email_search":

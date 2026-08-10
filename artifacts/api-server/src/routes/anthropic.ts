@@ -109,7 +109,7 @@ async function buildAttachmentParts(
       parts.push({ type: "text", text: `Datei "${row.filename}":\n\n${clipped}` });
     } else if (kind === "video") {
       const extracted = await extractVideoFrames(row.data, row.filename);
-      if (extracted && extracted.frames.length > 0) {
+      if (extracted.ok) {
         const duration = extracted.durationSeconds
           ? `${extracted.durationSeconds.toFixed(1)} Sekunden`
           : "unbekannter Länge";
@@ -125,11 +125,17 @@ async function buildAttachmentParts(
           parts.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${frame}` } });
         }
       } else {
+        // Der konkrete Grund gehoert hier hin, nicht nur ins Log: sonst steht
+        // Lukas im Chat da und spekuliert ueber Dateipfade und Berechtigungen,
+        // statt zu sagen, was wirklich kaputt ist.
         parts.push({
           type: "text",
           text:
             `[Video "${row.filename}" (${Math.round(row.sizeBytes / 1024)} KB) wurde angehängt, ` +
-            `aber die Einzelbild-Extraktion ist fehlgeschlagen. Sag das ehrlich und erfinde keinen Inhalt.]`,
+            `aber die Einzelbild-Extraktion ist fehlgeschlagen. Grund: ${extracted.reason} ` +
+            `Du kannst das Video nicht auswerten — nenne Issa genau diesen Grund, erfinde ` +
+            `keinen Inhalt und spekuliere nicht über Dateipfade oder Berechtigungen. ` +
+            `Das ist ein Serverproblem, kein Problem mit seiner Datei.]`,
         });
       }
     } else {

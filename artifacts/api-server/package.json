@@ -10,13 +10,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/check-soul-tools.mjs"
   },
   "dependencies": {
+    "@types/ssh2": "^1.15.5",
     "@workspace/api-zod": "*",
     "@workspace/db": "*",
     "@workspace/integrations-openai-ai": "*",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "drizzle-orm": "^0.45.2",
-    "e2b": "^2.36.0",
     "express": "^5.2.1",
     "ffmpeg-static": "^5.3.0",
     "imapflow": "^1.5.0",
@@ -26,7 +26,8 @@
     "openai": "^6.48.0",
     "pg": "^8.20.0",
     "pino": "^9.14.0",
-    "pino-http": "^10.5.0"
+    "pino-http": "^10.5.0",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",

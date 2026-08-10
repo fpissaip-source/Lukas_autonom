@@ -12,6 +12,7 @@ import {
   TerminalSquare,
   LogOut,
   AlertTriangle,
+  ShieldCheck,
   Menu,
   X
 } from "lucide-react";
@@ -39,6 +40,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/memory", label: "Memory Bank", icon: Brain },
     { href: "/goals", label: "Directives", icon: Target },
     { href: "/diary", label: "Logs", icon: BookOpen },
+    { href: "/approvals", label: "Freigaben", icon: ShieldCheck },
     { href: "/diagnostics", label: "Diagnose", icon: AlertTriangle },
   ];
 

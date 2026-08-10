@@ -1,5 +1,6 @@
 import app from "./app";
 import { startMoltbookWorker } from "./lib/moltbook-worker";
+import { startSandboxCleanup } from "./lib/code-sandbox";
 import { startConsolidationWorker } from "./lib/consolidation-worker";
 import { seedPublicFactsOnce } from "./lib/seed-public-facts";
 import { logger } from "./lib/logger";
@@ -52,5 +53,6 @@ app.listen(port, (err) => {
 
   startMoltbookWorker();
   startConsolidationWorker();
+  startSandboxCleanup();
   seedPublicFactsOnce();
 });

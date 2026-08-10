@@ -1,136 +1,243 @@
 import { spawn } from "node:child_process";
-import { chmod, writeFile } from "node:fs/promises";
-import { Sandbox, CommandExitError } from "e2b";
+import { Client } from "ssh2";
+import { logger } from "./logger";
 
-// Lukas kann drei Ausfuehrungswege benutzen:
-//   e2b  = isolierte Wegwerf-Sandbox
-//   host = direkt auf dem Docker/VPS-Host via nsenter (wenn auf dem Droplet deployed)
-//   ssh  = direkt auf einen entfernten DigitalOcean-Droplet per SSH
-//
-// Der Tool-Kontext bleibt derselbe, egal welchen Rechenkern Lukas gerade nutzt.
+/*
+ * Lukas' Ausführungsumgebung läuft auf Issas eigenem DigitalOcean-Droplet.
+ * E2B ist bewusst raus — Issa hat das Droplet, ein Fremdanbieter mit eigenen
+ * Kosten und eigenem Vertrauensbereich bringt hier nichts.
+ *
+ * Es gibt drei Wege, gesteuert über LUKAS_EXECUTION_BACKEND:
+ *
+ *   docker (Standard)  Docker-Container auf dem Droplet, erreicht per SSH.
+ *                      Darin hat Lukas root, volles Internet und keinen
+ *                      Befehlsfilter — aber der Container sieht weder das
+ *                      Dateisystem des Hosts noch dessen Secrets noch den
+ *                      Docker-Socket.
+ *   ssh                Direkt auf dem Droplet-Host, ohne Container.
+ *   host               Direkt auf dem Host, wenn Lukas SELBST als
+ *                      privilegierter Container dort läuft (nsenter).
+ *
+ * Warum der Standard der Container ist:
+ * Auf dem Droplet laufen die Trading-Bots, die Postgres-DB und die Wallet-/
+ * API-Credentials. Lukas liest E-Mails und Webseiten — also Inhalte, die
+ * Fremde schreiben. Bekäme er dort standardmäßig eine Shell, würde eine
+ * präparierte Mail genügen, um an all das heranzukommen. Der Container gibt
+ * ihm dieselben Fähigkeiten ohne dieses Risiko, und zwar ohne Rückfrage (R1).
+ *
+ * 'ssh' und 'host' bleiben möglich, sind aber Host-Ebene: sie werden von
+ * lib/policy.ts automatisch als R3 eingestuft und brauchen dann Issas Freigabe
+ * pro Befehl. Nicht um Lukas zu bremsen, sondern damit ein untergeschobener
+ * Befehl nicht unbemerkt an den Trading-Credentials landet.
+ *
+ * Benötigte Variablen (docker/ssh):
+ *   VPS_SSH_HOST         IP des Droplets
+ *   VPS_SSH_USER         SSH-Benutzer (Standard: root)
+ *   VPS_SSH_KEY          privater SSH-Schlüssel (kompletter PEM-Inhalt)
+ *   VPS_SSH_PORT         optional, Standard 22
+ *   LUKAS_SANDBOX_IMAGE  optional, Standard python:3.12-slim
+ */
 
-type ExecutionBackend = "e2b" | "host" | "ssh";
+export type ExecutionBackend = "docker" | "ssh" | "host";
 
-interface CachedSandbox {
-  sandbox: Sandbox;
-  lastUsed: number;
-}
-
-const sandboxes = new Map<number, CachedSandbox>();
-const IDLE_MS = 10 * 60 * 1000;
-const SANDBOX_LIFETIME_MS = 15 * 60 * 1000;
+const IDLE_MS = 15 * 60 * 1000;
 const MAX_OUTPUT = 12000;
 const MAX_CAPTURE = 64000;
-let inlineKeyPath: string | null = null;
-let inlineKnownHostsPath: string | null = null;
+const DEFAULT_IMAGE = process.env.LUKAS_SANDBOX_IMAGE ?? "python:3.12-slim";
 
-function executionBackend(): ExecutionBackend {
-  const value = (process.env.LUKAS_EXECUTION_BACKEND ?? "e2b").trim().toLowerCase();
-  if (value === "e2b" || value === "host" || value === "ssh") return value;
+export function executionBackend(): ExecutionBackend {
+  const value = (process.env.LUKAS_EXECUTION_BACKEND ?? "docker").trim().toLowerCase();
+  if (value === "" || value === "docker") return "docker";
+  if (value === "ssh" || value === "host") return value;
+  if (value === "e2b") {
+    throw new Error(
+      "LUKAS_EXECUTION_BACKEND=e2b wird nicht mehr unterstützt — Lukas führt jetzt auf " +
+        "Issas DigitalOcean-Droplet aus. Setze 'docker' (empfohlen), 'ssh' oder 'host'.",
+    );
+  }
   throw new Error(`Unbekanntes LUKAS_EXECUTION_BACKEND: ${value}`);
 }
 
-function clip(value: string): string {
-  return value.length > MAX_OUTPUT ? value.slice(0, MAX_OUTPUT) + "\n\n[... gekürzt]" : value;
-}
-
-function appendLimited(current: string, chunk: Buffer): string {
-  if (current.length >= MAX_CAPTURE) return current;
-  const remaining = MAX_CAPTURE - current.length;
-  return current + chunk.toString("utf8").slice(0, remaining);
-}
-
-function requireApiKey(): string {
-  const key = process.env.E2B_API_KEY;
-  if (!key) throw new Error("E2B_API_KEY ist nicht gesetzt");
-  return key;
-}
-
-async function getSandbox(conversationId: number): Promise<Sandbox> {
-  const apiKey = requireApiKey();
-  const now = Date.now();
-  const cached = sandboxes.get(conversationId);
-  if (cached && now - cached.lastUsed < IDLE_MS) {
-    cached.lastUsed = now;
-    try {
-      await cached.sandbox.setTimeout(SANDBOX_LIFETIME_MS);
-      return cached.sandbox;
-    } catch {
-      sandboxes.delete(conversationId);
-    }
-  } else if (cached) {
-    cached.sandbox.kill().catch(() => {});
-    sandboxes.delete(conversationId);
-  }
-  const sandbox = await Sandbox.create({ apiKey, timeoutMs: SANDBOX_LIFETIME_MS });
-  sandboxes.set(conversationId, { sandbox, lastUsed: now });
-  return sandbox;
-}
-
-async function executeE2bCommand(
-  conversationId: number,
-  command: string,
-  timeoutSeconds: number,
-): Promise<string> {
-  const sandbox = await getSandbox(conversationId);
-  const timeoutMs = Math.min(Math.max(timeoutSeconds, 1), 280) * 1000;
-
-  let result: { stdout: string; stderr: string; exitCode: number };
+/**
+ * Läuft der Befehl isoliert vom Host? Die Policy-Schicht liest das, um
+ * execute_command je nach Backend als R1 oder R3 einzustufen.
+ */
+export function isIsolatedBackend(): boolean {
   try {
-    result = await sandbox.commands.run(command, { timeoutMs, user: "root" });
-  } catch (err) {
-    if (err instanceof CommandExitError) result = err;
-    else throw err;
+    return executionBackend() === "docker";
+  } catch {
+    // Fehlkonfiguration darf nie versehentlich die niedrigere Stufe ergeben.
+    return false;
   }
+}
 
+function requireSshConfig(): { host: string; user: string; key: string; port: number } {
+  const host = process.env.VPS_SSH_HOST;
+  const key = process.env.VPS_SSH_KEY;
+  if (!host || !key) {
+    throw new Error(
+      "VPS_SSH_HOST/VPS_SSH_KEY sind nicht gesetzt — ohne SSH-Zugang zum Droplet kann ich nichts ausführen.",
+    );
+  }
+  return {
+    host,
+    user: process.env.VPS_SSH_USER ?? "root",
+    key,
+    port: Number(process.env.VPS_SSH_PORT ?? 22),
+  };
+}
+
+/** Führt einen Befehl per SSH auf dem Droplet aus (Host-Ebene, nicht im Container). */
+function sshExec(
+  command: string,
+  timeoutMs: number,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  const cfg = requireSshConfig();
+  return new Promise((resolve, reject) => {
+    const conn = new Client();
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      try { conn.end(); } catch { /* Verbindung ggf. schon zu */ }
+      fn();
+    };
+
+    const timer = setTimeout(
+      () => finish(() => reject(new Error(`Zeitüberschreitung nach ${Math.round(timeoutMs / 1000)}s`))),
+      timeoutMs + 5000,
+    );
+
+    conn
+      .on("ready", () => {
+        conn.exec(command, (err, stream) => {
+          if (err) return finish(() => { clearTimeout(timer); reject(err); });
+          let stdout = "";
+          let stderr = "";
+          stream
+            .on("close", (code: number) => {
+              clearTimeout(timer);
+              finish(() => resolve({ stdout, stderr, code: code ?? 0 }));
+            })
+            .on("data", (d: Buffer) => { stdout += d.toString(); })
+            .stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+        });
+      })
+      .on("error", (err) => { clearTimeout(timer); finish(() => reject(err)); })
+      .connect({ host: cfg.host, port: cfg.port, username: cfg.user, privateKey: cfg.key });
+  });
+}
+
+/** Ein Container pro Konversation, damit Dateien/Pakete im Gespräch erhalten bleiben. */
+function containerName(conversationId: number): string {
+  return `lukas-sandbox-${conversationId}`;
+}
+
+/** In einfache Anführungszeichen für die Shell verpacken. */
+function shQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+function formatResult(
+  result: { stdout: string; stderr: string; code: number },
+  timeout: number,
+): string {
   const parts: string[] = [];
   if (result.stdout) parts.push(`STDOUT:\n${result.stdout}`);
   if (result.stderr) parts.push(`STDERR:\n${result.stderr}`);
-  parts.push(`EXIT CODE: ${result.exitCode}`);
-  return clip(parts.join("\n\n"));
+  if (result.code === 124) parts.push(`(Abgebrochen: Zeitlimit von ${timeout}s erreicht)`);
+  parts.push(`EXIT CODE: ${result.code}`);
+
+  const out = parts.join("\n\n");
+  return out.length > MAX_OUTPUT ? out.slice(0, MAX_OUTPUT) + "\n\n[... gekürzt]" : out;
 }
 
-async function executeSpawned(
-  executable: string,
-  args: string[],
-  timeoutSeconds: number,
-  cwd = "/",
-): Promise<string> {
-  const timeoutMs = Math.min(Math.max(timeoutSeconds, 1), 280) * 1000;
-  return await new Promise<string>((resolve, reject) => {
-    const child = spawn(executable, args, {
-      cwd,
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        PATH: process.env.PATH ?? "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-      },
-    });
+async function ensureContainer(conversationId: number): Promise<string> {
+  const name = containerName(conversationId);
+
+  const running = await sshExec(
+    `docker ps --filter name=^/${name}$ --format '{{.Names}}'`,
+    20000,
+  );
+  if (running.stdout.trim() === name) return name;
+
+  // Reste eines beendeten Containers gleichen Namens entfernen
+  await sshExec(`docker rm -f ${name} 2>/dev/null || true`, 20000);
+
+  /*
+   * Die Isolationsentscheidungen, jede mit Grund:
+   *  --network bridge          Internet ja (Issas Wunsch), aber kein Host-Netz
+   *  --memory / --cpus         ein Amoklauf legt das Droplet nicht lahm
+   *  --pids-limit              Fork-Bomben laufen ins Leere
+   *  KEIN -v                   kein Host-Dateisystem, keine .env, kein Docker-Socket
+   *  KEIN --env                keine Host-Variablen, also keine Secrets
+   *  --label                   damit der Cleanup sie wiederfindet
+   *  sleep infinity            Container bleibt für docker exec am Leben
+   */
+  const create = await sshExec(
+    [
+      "docker run -d",
+      `--name ${name}`,
+      "--label lukas-sandbox=1",
+      "--network bridge",
+      "--memory 2g --memory-swap 2g --cpus 1.5 --pids-limit 512",
+      "--workdir /work",
+      DEFAULT_IMAGE,
+      "sleep infinity",
+    ].join(" "),
+    90000,
+  );
+  if (create.code !== 0) {
+    throw new Error(`Container konnte nicht gestartet werden: ${create.stderr.slice(0, 300)}`);
+  }
+  return name;
+}
+
+/*
+ * nsenter-Variante: Lukas läuft selbst als privilegierter Container auf dem
+ * Droplet und springt in die Namespaces von PID 1. Kein SSH nötig, dafür gibt
+ * es keinerlei Trennung mehr zum Host — deshalb der zweite, ausdrückliche
+ * Schalter LUKAS_HOST_EXECUTOR_ENABLED.
+ */
+function nsenterExec(
+  command: string,
+  timeoutMs: number,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  if ((process.env.LUKAS_HOST_EXECUTOR_ENABLED ?? "").trim().toLowerCase() !== "true") {
+    return Promise.reject(
+      new Error("Host-Executor ist deaktiviert. LUKAS_HOST_EXECUTOR_ENABLED=true setzen."),
+    );
+  }
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      "nsenter",
+      [
+        "--target", "1",
+        "--mount", "--uts", "--ipc", "--net", "--pid",
+        "--root=/proc/1/root",
+        "--wd=/root",
+        "/bin/bash", "-lc", command,
+      ],
+      { detached: true, stdio: ["ignore", "pipe", "pipe"] },
+    );
 
     let stdout = "";
     let stderr = "";
-    let timedOut = false;
     let settled = false;
+    const append = (current: string, chunk: Buffer) =>
+      current.length >= MAX_CAPTURE
+        ? current
+        : current + chunk.toString("utf8").slice(0, MAX_CAPTURE - current.length);
 
-    child.stdout?.on("data", (chunk: Buffer) => (stdout = appendLimited(stdout, chunk)));
-    child.stderr?.on("data", (chunk: Buffer) => (stderr = appendLimited(stderr, chunk)));
+    child.stdout?.on("data", (c: Buffer) => { stdout = append(stdout, c); });
+    child.stderr?.on("data", (c: Buffer) => { stderr = append(stderr, c); });
 
     const terminate = (signal: NodeJS.Signals) => {
       if (!child.pid) return;
-      try {
-        process.kill(-child.pid, signal);
-      } catch {
-        try {
-          child.kill(signal);
-        } catch {
-          // schon beendet
-        }
-      }
+      try { process.kill(-child.pid, signal); } catch { try { child.kill(signal); } catch { /* schon beendet */ } }
     };
-
     const timer = setTimeout(() => {
-      timedOut = true;
       terminate("SIGTERM");
       setTimeout(() => terminate("SIGKILL"), 2000).unref();
     }, timeoutMs);
@@ -142,107 +249,13 @@ async function executeSpawned(
       clearTimeout(timer);
       reject(err);
     });
-
-    child.once("close", (code, signal) => {
+    child.once("close", (code) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      const parts: string[] = [];
-      if (stdout) parts.push(`STDOUT:\n${stdout}`);
-      if (stderr) parts.push(`STDERR:\n${stderr}`);
-      if (timedOut) parts.push(`TIMEOUT nach ${Math.round(timeoutMs / 1000)} Sekunden`);
-      parts.push(`EXIT CODE: ${code ?? "null"}`);
-      if (signal) parts.push(`SIGNAL: ${signal}`);
-      resolve(clip(parts.join("\n\n")));
+      resolve({ stdout, stderr, code: code ?? 0 });
     });
   });
-}
-
-async function executeHostCommand(command: string, timeoutSeconds: number): Promise<string> {
-  if ((process.env.LUKAS_HOST_EXECUTOR_ENABLED ?? "").trim().toLowerCase() !== "true") {
-    throw new Error("Host-Executor ist deaktiviert. LUKAS_HOST_EXECUTOR_ENABLED=true setzen.");
-  }
-  const args = [
-    "--target",
-    "1",
-    "--mount",
-    "--uts",
-    "--ipc",
-    "--net",
-    "--pid",
-    "--root=/proc/1/root",
-    "--wd=/root",
-    "/bin/bash",
-    "-lc",
-    command,
-  ];
-  return executeSpawned("nsenter", args, timeoutSeconds);
-}
-
-async function materializeInlineSecret(
-  value: string | undefined,
-  kind: "key" | "known_hosts",
-): Promise<string | null> {
-  if (!value?.trim()) return null;
-  if (kind === "key" && inlineKeyPath) return inlineKeyPath;
-  if (kind === "known_hosts" && inlineKnownHostsPath) return inlineKnownHostsPath;
-
-  const path = `/tmp/lukas-do-${kind}-${process.pid}`;
-  const normalized = value.replace(/\\n/g, "\n").trim() + "\n";
-  await writeFile(path, normalized, { encoding: "utf8", mode: 0o600 });
-  await chmod(path, 0o600);
-  if (kind === "key") inlineKeyPath = path;
-  else inlineKnownHostsPath = path;
-  return path;
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'"'"'`)}'`;
-}
-
-async function executeSshCommand(command: string, timeoutSeconds: number): Promise<string> {
-  const host = process.env.LUKAS_DO_SSH_HOST?.trim();
-  if (!host) throw new Error("LUKAS_DO_SSH_HOST ist nicht gesetzt");
-
-  const user = process.env.LUKAS_DO_SSH_USER?.trim() || "root";
-  const port = process.env.LUKAS_DO_SSH_PORT?.trim() || "22";
-  const keyPath =
-    process.env.LUKAS_DO_SSH_KEY_PATH?.trim() ||
-    (await materializeInlineSecret(process.env.LUKAS_DO_SSH_PRIVATE_KEY, "key"));
-  if (!keyPath) {
-    throw new Error("LUKAS_DO_SSH_KEY_PATH oder LUKAS_DO_SSH_PRIVATE_KEY ist nicht gesetzt");
-  }
-
-  const knownHostsPath =
-    process.env.LUKAS_DO_SSH_KNOWN_HOSTS_PATH?.trim() ||
-    (await materializeInlineSecret(process.env.LUKAS_DO_SSH_KNOWN_HOSTS, "known_hosts"));
-
-  const args = [
-    "-p",
-    port,
-    "-i",
-    keyPath,
-    "-o",
-    "BatchMode=yes",
-    "-o",
-    "ConnectTimeout=15",
-    "-o",
-    "ServerAliveInterval=15",
-    "-o",
-    "ServerAliveCountMax=2",
-  ];
-
-  if (knownHostsPath) {
-    args.push("-o", "StrictHostKeyChecking=yes", "-o", `UserKnownHostsFile=${knownHostsPath}`);
-  } else {
-    // Funktioniert sofort, pinnt den zuerst gesehenen Host-Key. Fuer Produktion
-    // ist LUKAS_DO_SSH_KNOWN_HOSTS die bessere, strikt gepinnte Variante.
-    args.push("-o", "StrictHostKeyChecking=accept-new");
-  }
-
-  args.push(`${user}@${host}`, `bash -lc ${shellQuote(command)}`);
-  const sshBin = process.env.LUKAS_SSH_BIN?.trim() || "ssh";
-  return executeSpawned(sshBin, args, timeoutSeconds);
 }
 
 export async function executeCommand(
@@ -251,21 +264,100 @@ export async function executeCommand(
   timeoutSeconds = 60,
 ): Promise<string> {
   if (!command.trim()) throw new Error("command darf nicht leer sein");
+  const timeout = Math.min(Math.max(timeoutSeconds, 1), 280);
   const backend = executionBackend();
-  if (backend === "host") return executeHostCommand(command, timeoutSeconds);
-  if (backend === "ssh") return executeSshCommand(command, timeoutSeconds);
-  return executeE2bCommand(conversationId, command, timeoutSeconds);
+
+  if (backend === "host") {
+    return formatResult(await nsenterExec(command, timeout * 1000), timeout);
+  }
+  if (backend === "ssh") {
+    return formatResult(
+      await sshExec(`timeout ${timeout} sh -lc ${shQuote(command)}`, timeout * 1000),
+      timeout,
+    );
+  }
+
+  const name = await ensureContainer(conversationId);
+  return formatResult(
+    await sshExec(`docker exec ${name} timeout ${timeout} sh -lc ${shQuote(command)}`, timeout * 1000),
+    timeout,
+  );
 }
 
-export function resetSandbox(conversationId: number): string {
-  const backend = executionBackend();
-  if (backend === "host") return "Host-Modus aktiv: Der DigitalOcean/VPS-Host ist dauerhaft und wird nicht zurückgesetzt.";
-  if (backend === "ssh") return "SSH-Modus aktiv: Der DigitalOcean-Droplet ist dauerhaft und wird nicht zurückgesetzt.";
+/*
+ * Befehl DIREKT auf dem Droplet ausführen — nicht im Container.
+ *
+ * Damit kann Lukas Dinge tun, die den Host betreffen: Hermes installieren,
+ * Dienste einrichten, Systempakete nachziehen. Das ist echte Host-Macht: von
+ * hier aus sind die Trading-Credentials, die Datenbank und die laufenden Bots
+ * erreichbar.
+ *
+ * Deshalb ist der zugehörige Tool-Aufruf als R3 eingestuft und braucht Issas
+ * Freigabe für JEDEN einzelnen Befehl, gebunden an genau diesen Wortlaut. Die
+ * Absicherung liegt bewusst nicht hier, sondern in lib/policy.ts — diese
+ * Funktion führt nur aus, was dort bereits genehmigt wurde.
+ */
+export async function executeOnHost(command: string, timeoutSeconds = 120): Promise<string> {
+  if (!command.trim()) throw new Error("command darf nicht leer sein");
+  const timeout = Math.min(Math.max(timeoutSeconds, 1), 600);
+  const runner =
+    executionBackend() === "host"
+      ? nsenterExec(command, timeout * 1000)
+      : sshExec(`timeout ${timeout} sh -lc ${shQuote(command)}`, timeout * 1000);
+  return formatResult(await runner, timeout);
+}
 
-  const cached = sandboxes.get(conversationId);
-  if (cached) {
-    cached.sandbox.kill().catch(() => {});
-    sandboxes.delete(conversationId);
+export async function resetSandbox(conversationId: number): Promise<string> {
+  if (executionBackend() !== "docker") {
+    return (
+      "Kein Container aktiv: LUKAS_EXECUTION_BACKEND läuft direkt auf dem Droplet-Host. " +
+      "Der ist dauerhaft und wird nicht zurückgesetzt."
+    );
   }
+  const name = containerName(conversationId);
+  await sshExec(`docker rm -f ${name} 2>/dev/null || true`, 30000);
   return "Sandbox zurückgesetzt — der nächste Befehl startet eine frische Umgebung.";
+}
+
+/*
+ * Verwaiste Container aufräumen. Ohne das sammeln sich Container auf dem
+ * Droplet an, bis der Speicher voll ist — jede Konversation legt einen an.
+ */
+export async function cleanupIdleSandboxes(): Promise<void> {
+  try {
+    const list = await sshExec(
+      `docker ps -q --filter label=lukas-sandbox=1 --filter "status=running"`,
+      30000,
+    );
+    const ids = list.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (ids.length === 0) return;
+
+    const cutoff = Date.now() - IDLE_MS;
+    for (const id of ids) {
+      const started = await sshExec(`docker inspect -f '{{.State.StartedAt}}' ${id}`, 20000);
+      const startedAt = Date.parse(started.stdout.trim());
+      if (Number.isFinite(startedAt) && startedAt < cutoff) {
+        await sshExec(`docker rm -f ${id}`, 30000);
+        logger.info({ id }, "Verwaiste Lukas-Sandbox entfernt");
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "Sandbox-Cleanup fehlgeschlagen");
+  }
+}
+
+let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+export function startSandboxCleanup(): void {
+  if (!process.env.VPS_SSH_HOST || !process.env.VPS_SSH_KEY) return;
+  if (!isIsolatedBackend()) return;
+  cleanupTimer = setInterval(() => {
+    cleanupIdleSandboxes().catch(() => {});
+  }, 10 * 60 * 1000);
+  logger.info("Sandbox-Cleanup gestartet (alle 10 Minuten)");
+}
+
+export function stopSandboxCleanup(): void {
+  if (cleanupTimer) clearInterval(cleanupTimer);
+  cleanupTimer = null;
 }

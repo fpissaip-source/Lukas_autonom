@@ -236,16 +236,44 @@ def main():
     patch_file.unlink(missing_ok=True)
 
     if applied > 0:
-        # Commit self-improvements to git
+        # Selbstverbesserungen committen.
+        #
+        # WICHTIG — hier stand frueher ein "--force"-Push auf einen festen
+        # Branch. Das hiess: Lukas konnte seine eigene vorherige Historie
+        # ueberschreiben, ohne dass es jemand sah. Am Anfang dieser Kette
+        # stehen Eingaben, die Fremde beeinflussen koennen (Reddit-Posts im
+        # Watcher, Logs im Bug-Reasoner) — ein manipulierter Input konnte so
+        # bis in den Code durchschlagen und die Spur gleich mit ueberschreiben.
+        #
+        # Jetzt: jeder Lauf bekommt einen EIGENEN Branch, kein --force. Nichts
+        # wird ueberschrieben, jede Aenderung bleibt als Diff nachvollziehbar,
+        # und Issa entscheidet per Merge, was in den Hauptstand kommt.
+        # Die Faehigkeit zur Selbstverbesserung bleibt damit vollstaendig
+        # erhalten — nur ihre Wirkung ist jetzt sichtbar und umkehrbar.
         git_add_files = ["agent.py", "patcher.py", "soul.md", "telegram_bot.py", "patches.md"] + new_files
         subprocess.run(["git", "add"] + git_add_files, capture_output=True, cwd=BASE_DIR)
         msg = f"self-improvement: {applied} change(s) by Lukas"
         subprocess.run(["git", "commit", "-m", msg], capture_output=True, cwd=BASE_DIR)
-        subprocess.run(
-            ["git", "push", "origin", "HEAD:claude/bot-communication-system-eriiT", "--force"],
-            capture_output=True, cwd=BASE_DIR
+
+        branch = f"lukas/self-patch-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        result = subprocess.run(
+            ["git", "push", "origin", f"HEAD:{branch}"],
+            capture_output=True, text=True, cwd=BASE_DIR
         )
-        print(f"  [Patcher] Committed and pushed {applied} self-improvement(s).")
+        if result.returncode == 0:
+            print(f"  [Patcher] {applied} Selbstverbesserung(en) auf Branch {branch} gepusht.")
+            send_telegram(
+                f"🔧 <b>Lukas hat sich selbst gepatcht</b> ({applied} Änderung(en))\n"
+                f"Branch: <code>{branch}</code>\n"
+                f"<i>Nichts wurde überschrieben — schau dir den Diff an und merge, wenn es passt.</i>"
+            )
+        else:
+            print(f"  [Patcher] Push fehlgeschlagen: {result.stderr[:200]}")
+            send_telegram(
+                f"⚠️ <b>Patch-Push fehlgeschlagen</b>\n"
+                f"Die Änderungen liegen lokal als Commit auf dem VPS.\n"
+                f"<code>{result.stderr[:200]}</code>"
+            )
     else:
         print("  [Patcher] No changes applied.")
 

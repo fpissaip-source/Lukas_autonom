@@ -70,9 +70,32 @@ app.use("/api", lukasAuth, router);
 // Im Dev-Betrieb läuft die UI weiter über den Vite-Dev-Server (npm run dev:ui).
 const uiDist = path.join(__dirname, "..", "..", "lukas-ui", "dist", "public");
 if (fs.existsSync(path.join(uiDist, "index.html"))) {
-  app.use(express.static(uiDist));
+  /*
+   * index.html darf NIE aus dem Cache kommen.
+   *
+   * Vite hasht die gebauten JS/CSS-Dateien nach Inhalt (z.B. index-a1b2c3.js)
+   * — die duerfen also unbegrenzt gecacht werden, ein neuer Build hat sowieso
+   * einen neuen Dateinamen. index.html selbst traegt aber KEINEN Hash im
+   * Namen, und referenziert genau diese Dateinamen. Cacht ein Browser
+   * index.html, zeigt er dauerhaft auf die alten, ausgemusterten JS-Dateien —
+   * ein neuer Deploy aendert daran nichts, weil die Seite den neuen Build nie
+   * anfragt. Genau das fuehrte dazu, dass ein neuer Dashboard-Tab auf einem
+   * Mobilgeraet nicht auftauchte, obwohl der Deploy laengst durch war.
+   */
+  app.use(
+    express.static(uiDist, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith("index.html")) {
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        } else {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    }),
+  );
   // SPA-Fallback: Client-Routen (/chat, /goals, …) liefern index.html
   app.get(/^\/(?!api\/).*/, (req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.join(uiDist, "index.html"));
   });
   logger.info({ uiDist }, "Dashboard-UI wird mit ausgeliefert");

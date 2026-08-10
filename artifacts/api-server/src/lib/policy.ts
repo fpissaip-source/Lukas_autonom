@@ -57,6 +57,12 @@ export const TOOL_RISK: Record<string, RiskTier> = {
 
   // R2 — Wirkung nach außen
   email_send: "R2",
+  // Lukas darf seinen eigenen Code ändern — aber nur als Pull Request, und die
+  // Freigabe haengt am exakten Dateiinhalt. Wer ihm ueber eine Mail oder eine
+  // Webseite etwas unterschiebt, zielt genau hierauf: auf den Code, der ihn
+  // steuert. Der PR macht jede Aenderung sichtbar und umkehrbar, bevor sie
+  // wirkt. Deshalb R2 und nicht R1.
+  propose_code_change: "R2",
 
   // R3 — Host-Ebene: von dort sind Trading-Credentials, Wallet-Keys, die
   // Postgres und die laufenden Bots erreichbar. Jeder einzelne Befehl braucht
@@ -139,7 +145,38 @@ export function hashArguments(tool: string, input: Record<string, unknown>): str
     .digest("hex");
 }
 
-function preview(input: Record<string, unknown>): string {
+/*
+ * Die Vorschau ist das, was Issa im Freigabe-Dialog liest. Sie muss die Frage
+ * beantworten "will ich das?" — der Hash oben bleibt davon unberührt und geht
+ * weiterhin über die vollständigen Argumente.
+ *
+ * Sonderfall Code-Änderung: rohes JSON mit kompletten Dateiinhalten wäre nach
+ * 2000 Zeichen abgeschnitten, und Issa sähe die Hälfte einer einzigen Datei
+ * statt zu erkennen, worum es geht. Deshalb hier Absicht + Dateiliste; den
+ * eigentlichen Diff prüft er danach im Pull Request, wo er hingehört.
+ */
+function preview(tool: string, input: Record<string, unknown>): string {
+  if (tool === "propose_code_change") {
+    const files = Array.isArray(input.files) ? input.files : [];
+    const lines = files.map((f) => {
+      const entry = f as { path?: unknown; content?: unknown };
+      const path = typeof entry?.path === "string" ? entry.path : "(ohne Pfad)";
+      const content = typeof entry?.content === "string" ? entry.content : "";
+      return `  - ${path} (${content.split("\n").length} Zeilen, ${content.length} Zeichen)`;
+    });
+    return [
+      `Repo:  ${String(input.repo ?? "?")}`,
+      `Titel: ${String(input.title ?? "?")}`,
+      "",
+      String(input.description ?? "").slice(0, 1200),
+      "",
+      `Dateien (${files.length}) — vollständig ersetzt:`,
+      ...lines,
+      "",
+      "Es entsteht ein neuer Branch + Pull Request. Der Deploy-Branch wird nicht",
+      "verändert; den Diff siehst du danach im PR, bevor du merged.",
+    ].join("\n");
+  }
   const text = JSON.stringify(input, null, 2);
   return text.length > 2000 ? text.slice(0, 2000) + "\n… (gekürzt)" : text;
 }
@@ -223,7 +260,7 @@ export async function checkPolicy(
           tool,
           riskTier: tier,
           argumentsHash: hash,
-          argumentsPreview: preview(input),
+          argumentsPreview: preview(tool, input),
           status: "pending",
           expiresAt: new Date(now.getTime() + APPROVAL_TTL_MINUTES * 60 * 1000),
         })

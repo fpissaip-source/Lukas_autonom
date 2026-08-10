@@ -247,6 +247,42 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "propose_code_change",
+      description:
+        "Schlage eine konkrete Code-Änderung als Pull Request vor. Dein eigener Code liegt in 'Lukas_autonom' — damit kannst du dich selbst verbessern. WICHTIG: lies die betroffene Datei vorher mit github_read_path und schicke immer den KOMPLETTEN neuen Dateiinhalt, nicht nur den geänderten Ausschnitt. Der Vorschlag landet auf einem neuen Branch und als PR; der Deploy-Branch wird nie direkt verändert und nichts geht live, bevor Issa den PR merged. Nutze das, wenn Issa dich um eine Änderung bittet — oder wenn dir selbst etwas auffällt, das besser sein sollte. Im zweiten Fall sag ihm vorher kurz, was du ändern willst und warum.",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: {
+            type: "string",
+            description: "Repo-Name, für deinen eigenen Code: 'Lukas_autonom'",
+          },
+          title: { type: "string", description: "Kurzer Titel des PR, z.B. 'Timeout beim Mailabruf erhöhen'" },
+          description: {
+            type: "string",
+            description:
+              "Was du änderst und WARUM. Nenne das Problem, nicht nur die Änderung — Issa liest das, um zu entscheiden.",
+          },
+          files: {
+            type: "array",
+            description: "Die zu ändernden Dateien, jeweils mit dem vollständigen neuen Inhalt.",
+            items: {
+              type: "object",
+              properties: {
+                path: { type: "string", description: "Pfad im Repo, z.B. 'artifacts/api-server/src/lib/email.ts'" },
+                content: { type: "string", description: "Der KOMPLETTE neue Inhalt der Datei" },
+              },
+              required: ["path", "content"],
+            },
+          },
+        },
+        required: ["repo", "title", "description", "files"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "email_search",
       description:
         "Durchsuche Issas E-Mail-Postfach (Betreff/Absender/Inhalt) und erhalte eine Liste von Treffern mit uid. Nutze uid danach mit email_read, um eine konkrete Mail vollständig zu lesen.",
@@ -426,27 +462,33 @@ async function getTradingStats(): Promise<string> {
   return lines.join("\n");
 }
 
-async function githubRequest(path: string): Promise<unknown> {
+async function githubRequest(
+  path: string,
+  init?: { method: "POST" | "PUT" | "PATCH"; body: unknown },
+): Promise<unknown> {
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
     throw new Error(
-      "GITHUB_TOKEN ist nicht gesetzt — Issa muss einen GitHub Personal Access Token (read-only, Scope 'repo' bzw. für private Repos 'Contents: Read-only') in den Railway-Variablen hinterlegen.",
+      "GITHUB_TOKEN ist nicht gesetzt — Issa muss einen GitHub Personal Access Token in den Railway-Variablen hinterlegen. Zum Lesen reicht 'Contents: Read-only'; damit ich Änderungen vorschlagen kann, brauche ich zusätzlich 'Contents: Read and write' und 'Pull requests: Read and write'.",
     );
   }
   const res = await fetch(`https://api.github.com${path}`, {
+    method: init?.method ?? "GET",
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "LukasAgent/1.0",
+      ...(init ? { "Content-Type": "application/json" } : {}),
     },
-    signal: AbortSignal.timeout(15000),
+    body: init ? JSON.stringify(init.body) : undefined,
+    signal: AbortSignal.timeout(20000),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`GitHub API ${res.status}: ${body.slice(0, 300)}`);
   }
-  return res.json();
+  return res.status === 204 ? null : res.json();
 }
 
 let cachedGithubLogin: string | null = null;
@@ -496,6 +538,89 @@ async function githubReadPath(repoInput: string, path: string): Promise<string> 
   if (file.type !== "file" || !file.content) throw new Error("Kein Datei-Inhalt verfügbar (evtl. zu groß oder kein reguläres Textfile).");
   const content = Buffer.from(file.content, file.encoding === "base64" ? "base64" : "utf-8").toString("utf-8");
   return content.length > 15000 ? content.slice(0, 15000) + "\n\n[... gekürzt]" : content;
+}
+
+/*
+ * Lukas schlägt eine Code-Änderung vor.
+ *
+ * Bewusst als Pull Request und NICHT als direkter Push:
+ *  - Der Deploy-Branch wird nie angefasst. Nichts geht live, bevor Issa merged.
+ *  - Der Diff bleibt sichtbar und umkehrbar; nichts wird überschrieben.
+ *  - Der Tool-Aufruf ist R2, braucht also vorher Issas Freigabe im Dashboard,
+ *    gebunden an genau diese Dateien und genau diesen Inhalt. Ändert Lukas
+ *    danach noch etwas am Inhalt, ist die Freigabe ungültig.
+ *
+ * Warum diese Härte: Lukas liest E-Mails und Webseiten. Wer ihm dort etwas
+ * unterschiebt, zielt am Ende genau hierauf — auf den Code, der ihn steuert.
+ * Der Umweg über den PR kostet Issa einen Klick und nimmt diesem Angriff die
+ * Wirkung. Die Fähigkeit selbst wird dadurch nicht eingeschränkt.
+ */
+async function proposeCodeChange(
+  repoInput: string,
+  title: string,
+  description: string,
+  files: Array<{ path: string; content: string }>,
+): Promise<string> {
+  if (files.length === 0) throw new Error("Keine Dateien angegeben.");
+  const { owner, repo } = await resolveGithubOwner(repoInput);
+
+  const repoInfo = (await githubRequest(`/repos/${owner}/${repo}`)) as { default_branch: string };
+  const base = repoInfo.default_branch;
+  const baseRef = (await githubRequest(`/repos/${owner}/${repo}/git/ref/heads/${base}`)) as {
+    object: { sha: string };
+  };
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const branch = `lukas/vorschlag-${stamp}`;
+  await githubRequest(`/repos/${owner}/${repo}/git/refs`, {
+    method: "POST",
+    body: { ref: `refs/heads/${branch}`, sha: baseRef.object.sha },
+  });
+
+  for (const file of files) {
+    const cleanPath = file.path.replace(/^\/+/, "");
+    const apiPath = `/repos/${owner}/${repo}/contents/${cleanPath.split("/").map(encodeURIComponent).join("/")}`;
+
+    // Bestehende Datei? Dann braucht die GitHub-API deren Blob-SHA, sonst
+    // lehnt sie den Schreibvorgang ab. Fehlt die Datei, ist es ein Neuanlegen.
+    let sha: string | undefined;
+    try {
+      const existing = (await githubRequest(`${apiPath}?ref=${branch}`)) as { sha?: string };
+      sha = existing?.sha;
+    } catch {
+      sha = undefined;
+    }
+
+    await githubRequest(apiPath, {
+      method: "PUT",
+      body: {
+        message: `${title} — ${cleanPath}`,
+        content: Buffer.from(file.content, "utf-8").toString("base64"),
+        branch,
+        ...(sha ? { sha } : {}),
+      },
+    });
+  }
+
+  const pr = (await githubRequest(`/repos/${owner}/${repo}/pulls`, {
+    method: "POST",
+    body: {
+      title,
+      head: branch,
+      base,
+      body:
+        `${description}\n\n---\n` +
+        `Dieser Vorschlag kommt von Lukas selbst. Er wurde vor dem Erstellen von Issa freigegeben, ` +
+        `ist aber bewusst NICHT gemergt — schau dir den Diff an und entscheide.`,
+    },
+  })) as { html_url: string; number: number };
+
+  return (
+    `Vorschlag als Pull Request #${pr.number} eröffnet: ${pr.html_url}\n` +
+    `Branch: ${branch} (Basis: ${base})\n` +
+    `Geänderte Dateien: ${files.map((f) => f.path).join(", ")}\n\n` +
+    `Nichts ist live — der PR wartet auf Issas Review.`
+  );
 }
 
 async function githubSearchCode(repoInput: string, query: string): Promise<string> {
@@ -628,6 +753,30 @@ export async function executeLukasTool(
       return await githubReadPath(String(input.repo), typeof input.path === "string" ? input.path : "");
     case "github_search_code":
       return await githubSearchCode(String(input.repo), String(input.query));
+    case "propose_code_change": {
+      // Dem Modell wird hier nichts geglaubt: die Argumente kommen aus einer
+      // Generierung und werden vor dem Schreibzugriff geprueft.
+      const raw = Array.isArray(input.files) ? input.files : [];
+      const files = raw.map((f, i) => {
+        const entry = f as { path?: unknown; content?: unknown };
+        if (typeof entry?.path !== "string" || !entry.path.trim()) {
+          throw new Error(`files[${i}].path fehlt oder ist kein Text.`);
+        }
+        if (typeof entry?.content !== "string") {
+          throw new Error(`files[${i}].content fehlt oder ist kein Text.`);
+        }
+        if (entry.path.includes("..")) {
+          throw new Error(`files[${i}].path darf kein '..' enthalten: ${entry.path}`);
+        }
+        return { path: entry.path, content: entry.content };
+      });
+      return await proposeCodeChange(
+        String(input.repo),
+        String(input.title ?? "").trim() || "Vorschlag von Lukas",
+        String(input.description ?? ""),
+        files,
+      );
+    }
     case "email_search":
       return await searchEmails(
         typeof input.query === "string" ? input.query : "",

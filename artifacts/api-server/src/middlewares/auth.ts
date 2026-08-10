@@ -34,15 +34,20 @@ export function lukasAuth(req: Request, res: Response, next: NextFunction): void
      * und Mailversand. Ein vergessenes oder beim Umzug verlorenes Secret haette
      * das alles offen ins Netz gestellt, ohne dass irgendetwas kaputt aussieht.
      *
-     * Jetzt: lokal weiter offen, damit man entwickeln kann. In Produktion dicht.
-     * Fail closed — und mit einer Fehlermeldung, die sagt, was zu tun ist,
-     * statt eines stummen 401.
+     * Geschlossen ist deshalb der Normalfall. Geoeffnet wird nur, wenn jemand
+     * NODE_ENV ausdruecklich auf "development" setzt — das macht das dev-Skript
+     * dieses Pakets, sonst niemand.
+     *
+     * Bewusst NICHT andersherum ("schliessen, wenn NODE_ENV=production"): dann
+     * haette eine Plattform, die diese Variable einfach nicht setzt, alles
+     * wieder geoeffnet, und man haette es nicht gemerkt. Eine Schutzmassnahme
+     * darf nicht davon abhaengen, dass irgendwo eine Variable richtig steht.
      */
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV !== "development") {
       if (!warnedAboutMissingToken) {
         warnedAboutMissingToken = true;
         logger.error(
-          "LUKAS_API_TOKEN fehlt in Produktion — die private API bleibt geschlossen. Variable setzen und neu deployen.",
+          "LUKAS_API_TOKEN fehlt — die private API bleibt geschlossen. Variable setzen und neu deployen.",
         );
       }
       return void res

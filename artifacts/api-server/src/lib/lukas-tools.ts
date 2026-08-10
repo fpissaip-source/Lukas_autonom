@@ -7,7 +7,7 @@ import { recordEmotion } from "./emotion-engine";
 import { queryRows } from "./vps-db";
 import { searchEmails, readEmail, sendEmail } from "./email";
 import { executeCommand, resetSandbox, executeOnHost } from "./code-sandbox";
-import { githubRequest, resolveGithubOwner } from "./github";
+import { githubRequest, resolveGithubOwner, ownRepoRef } from "./github";
 import { createProposal } from "./proposals";
 import { checkPolicy } from "./policy";
 
@@ -486,15 +486,25 @@ async function githubListRepos(): Promise<string> {
     .join("\n");
 }
 
+/*
+ * GitHubs Contents-API liest ohne "ref"-Parameter IMMER den Default-Branch.
+ * Fuer Lukas' eigenes Repo ist das ein altes Replit-Fossil ohne README, ohne
+ * docs/, ohne vps/ — der tatsaechliche, laufende Code lebt auf einem
+ * Feature-Branch. ownRepoRef() liefert genau dann einen Branch, wenn `repo`
+ * Lukas' eigenes Repo ist; fuer fremde Repos bleibt es null, und die liest man
+ * ganz normal ueber ihren eigenen Default-Branch.
+ */
 async function githubReadPath(repoInput: string, path: string): Promise<string> {
   const { owner, repo } = await resolveGithubOwner(repoInput);
   const cleanPath = path.replace(/^\/+/, "");
-  const url = `/repos/${owner}/${repo}/contents${cleanPath ? "/" + cleanPath.split("/").map(encodeURIComponent).join("/") : ""}`;
+  const ref = ownRepoRef(repo);
+  const query = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+  const url = `/repos/${owner}/${repo}/contents${cleanPath ? "/" + cleanPath.split("/").map(encodeURIComponent).join("/") : ""}${query}`;
   const data = await githubRequest(url);
   if (Array.isArray(data)) {
     const entries = data as Array<{ type: string; name: string }>;
     return (
-      `Verzeichnis ${cleanPath || "/"} in ${owner}/${repo}:\n` +
+      `Verzeichnis ${cleanPath || "/"} in ${owner}/${repo}${ref ? ` (Branch ${ref})` : ""}:\n` +
       entries.map((e) => `- ${e.type === "dir" ? "[dir] " : ""}${e.name}`).join("\n")
     );
   }
@@ -552,8 +562,36 @@ async function githubSearchCode(repoInput: string, query: string): Promise<strin
   const data = (await githubRequest(`/search/code?q=${encodeURIComponent(q)}`)) as {
     items: Array<{ path: string }>;
   };
-  if (!data.items || data.items.length === 0) return "Keine Treffer.";
-  return data.items.slice(0, 15).map((it) => `- ${it.path}`).join("\n");
+
+  /*
+   * GitHubs Code-Search durchsucht IMMER nur den Default-Branch — anders als
+   * bei github_read_path gibt es dafuer keinen ref-Parameter, das laesst sich
+   * nicht umgehen. Fuer Lukas' eigenes Repo ist der Default-Branch ein altes
+   * Fossil ohne den tatsaechlichen Code. Ohne diese Warnung wuerde "keine
+   * Treffer" wie ein Beweis aussehen, dass etwas nicht existiert — dabei
+   * bedeutet es nur, dass im FALSCHEN Branch gesucht wurde. Genau das ist am
+   * 10.08. passiert: eine Suche nach "transcribe" fand nichts, obwohl die
+   * Transkription seit Wochen in routes/lukas.ts eingebaut ist.
+   */
+  const ownRef = ownRepoRef(repo);
+  let disclaimer = "";
+  if (ownRef) {
+    const repoInfo = (await githubRequest(`/repos/${owner}/${repo}`)) as {
+      default_branch: string;
+    };
+    if (repoInfo.default_branch !== ownRef) {
+      disclaimer =
+        `WICHTIG: Diese Suche durchsucht nur den Branch "${repoInfo.default_branch}" ` +
+        `(GitHub-Einschränkung, nicht konfigurierbar) — dein tatsächlicher Code läuft ` +
+        `aber auf "${ownRef}". "Keine Treffer" heißt hier NICHT "existiert nicht", ` +
+        `sondern nur "steht nicht im alten Branch". Verlässlicher für deinen eigenen ` +
+        `Code: github_read_path auf einen konkreten Pfad, den du aus deiner Seele oder ` +
+        `aus einem Verzeichnis-Listing kennst.\n\n`;
+    }
+  }
+
+  if (!data.items || data.items.length === 0) return disclaimer + "Keine Treffer.";
+  return disclaimer + data.items.slice(0, 15).map((it) => `- ${it.path}`).join("\n");
 }
 
 export async function executeLukasTool(

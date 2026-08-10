@@ -1,7 +1,7 @@
 import { db } from "@workspace/db";
 import { codeProposals, type CodeProposal, type ProposalFile } from "@workspace/db";
 import { desc, eq, inArray } from "drizzle-orm";
-import { githubRequest, resolveGithubOwner } from "./github";
+import { githubRequest, resolveGithubOwner, selfBranch } from "./github";
 import { logger } from "./logger";
 
 /*
@@ -17,24 +17,9 @@ import { logger } from "./logger";
  * die Entscheidung darueber IST die Freigabe.
  */
 
-/*
- * Branch, auf den eine angenommene Aenderung geschrieben wird.
- *
- * Issas Erwartung ist eindeutig: annehmen heisst deployen. Deshalb wird per
- * Standard genau der Branch beschrieben, aus dem dieser Server gebaut wurde --
- * Railway legt ihn als RAILWAY_GIT_BRANCH in die Umgebung. Damit ist ohne jede
- * Konfiguration garantiert, dass die Aenderung dort landet, wo sie auch
- * ausgeliefert wird, und nicht auf einem Branch, den niemand baut.
- *
- * LUKAS_SELF_PATCH_BRANCH sticht das, falls es doch mal woandershin soll.
- * Ist beides leer (lokal), schreibt GitHub auf den Default-Branch.
- */
-export function targetBranch(): string | null {
-  const explicit = process.env.LUKAS_SELF_PATCH_BRANCH?.trim();
-  if (explicit) return explicit;
-  const railway = process.env.RAILWAY_GIT_BRANCH?.trim();
-  return railway || null;
-}
+// Branch, auf den eine angenommene Aenderung geschrieben wird — derselbe, den
+// Lukas auch beim Lesen seines eigenen Codes benutzt (lib/github.ts).
+export const targetBranch = selfBranch;
 
 export async function createProposal(args: {
   conversationId?: number;

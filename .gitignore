@@ -57,3 +57,4 @@ graphify-out/
 # Gedaechtnis-Vault (generierte Sicht auf die DB; Obsidian-lesbar)
 memory-vault/
 __pycache__/
+.consent-check-*/

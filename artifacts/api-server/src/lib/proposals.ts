@@ -17,10 +17,23 @@ import { logger } from "./logger";
  * die Entscheidung darueber IST die Freigabe.
  */
 
-/** Branch, auf den eine angenommene Aenderung geschrieben wird. */
-function targetBranch(): string | null {
-  const value = process.env.LUKAS_SELF_PATCH_BRANCH?.trim();
-  return value || null;
+/*
+ * Branch, auf den eine angenommene Aenderung geschrieben wird.
+ *
+ * Issas Erwartung ist eindeutig: annehmen heisst deployen. Deshalb wird per
+ * Standard genau der Branch beschrieben, aus dem dieser Server gebaut wurde --
+ * Railway legt ihn als RAILWAY_GIT_BRANCH in die Umgebung. Damit ist ohne jede
+ * Konfiguration garantiert, dass die Aenderung dort landet, wo sie auch
+ * ausgeliefert wird, und nicht auf einem Branch, den niemand baut.
+ *
+ * LUKAS_SELF_PATCH_BRANCH sticht das, falls es doch mal woandershin soll.
+ * Ist beides leer (lokal), schreibt GitHub auf den Default-Branch.
+ */
+export function targetBranch(): string | null {
+  const explicit = process.env.LUKAS_SELF_PATCH_BRANCH?.trim();
+  if (explicit) return explicit;
+  const railway = process.env.RAILWAY_GIT_BRANCH?.trim();
+  return railway || null;
 }
 
 export async function createProposal(args: {
@@ -98,7 +111,9 @@ async function applyProposal(proposal: CodeProposal): Promise<string> {
     }
   }
 
-  return `Übernommen: ${written.join(", ")}${branch ? ` (Branch ${branch})` : ""}`;
+  return branch
+    ? `Übernommen auf ${branch}: ${written.join(", ")}. Railway baut den Branch neu — in ein paar Minuten ist es live.`
+    : `Übernommen (Default-Branch): ${written.join(", ")}`;
 }
 
 export type Decision = "accept" | "reject" | "revision";

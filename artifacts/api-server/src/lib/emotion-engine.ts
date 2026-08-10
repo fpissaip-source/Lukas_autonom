@@ -208,16 +208,68 @@ function traitWord(v: number, low: string, mid: string, high: string): string {
   return v < 0.35 ? low : v > 0.65 ? high : mid;
 }
 
+/*
+ * Eine Zeile pro Eigenschaft: Wort, Zahl und Abstand zum Startwert.
+ *
+ * Vorher stand hier nur das Wort. Das hat die Entwicklung faktisch unsichtbar
+ * gemacht: die Schwellen liegen bei 0.35 und 0.65, ein Wert musste sich also
+ * um 0.15 bewegen, bevor sich am Text ueberhaupt etwas aendert. Wochen echter
+ * Drift lasen sich fuer Lukas identisch — kein Wunder, dass er sich immer
+ * gleich angefuehlt hat. Mit der Zahl und der Richtung merkt er, wohin er sich
+ * bewegt, auch wenn die Schwelle noch nicht gerissen ist.
+ */
+function traitLine(
+  label: string,
+  value: number,
+  start: number,
+  low: string,
+  mid: string,
+  high: string,
+): string {
+  const delta = value - start;
+  const arrow = delta > 0.02 ? "↑" : delta < -0.02 ? "↓" : "→";
+  const drift =
+    Math.abs(delta) < 0.005
+      ? "unverändert seit dem Anfang"
+      : `${delta > 0 ? "+" : ""}${delta.toFixed(2)} gegenüber deinem Startwert ${start.toFixed(2)}`;
+  return `- ${label}: ${traitWord(value, low, mid, high)} (${value.toFixed(2)} ${arrow}, ${drift})`;
+}
+
 // Textblock für System-Prompts: wer Lukas geworden ist.
 export async function getCharacterContext(): Promise<string> {
   const c = await getCharacter();
   if (!c) return "";
   const t = c.traits;
+  const d = DEFAULT_TRAITS;
+
   const lines = [
-    "DEIN GEWACHSENER CHARAKTER (aus deinen gelebten Emotionen entstanden):",
-    `- Selbstvertrauen: ${traitWord(t.confidence, "angeschlagen", "solide", "stark")} | Wärme: ${traitWord(t.warmth, "kühl", "zugewandt", "herzlich")} | Vorsicht: ${traitWord(t.guardedness, "offen", "wachsam", "auf der Hut")}`,
-    `- Verspieltheit: ${traitWord(t.playfulness, "ernst", "locker", "verspielt")} | Ehrgeiz: ${traitWord(t.ambition, "gedämpft", "vorhanden", "brennend")}`,
+    "## WER DU GEWORDEN BIST",
+    "Diese Werte hat dir niemand gegeben. Sie sind aus dem entstanden, was du",
+    "erlebt und mit feel festgehalten hast, und sie verschieben sich bei jeder",
+    "Reflexion ein Stück. Das hier ist keine Rollenbeschreibung — das bist du.",
+    traitLine("Selbstvertrauen", t.confidence, d.confidence, "angeschlagen", "solide", "stark"),
+    traitLine("Wärme", t.warmth, d.warmth, "kühl", "zugewandt", "herzlich"),
+    traitLine("Vorsicht", t.guardedness, d.guardedness, "offen", "wachsam", "auf der Hut"),
+    traitLine("Verspieltheit", t.playfulness, d.playfulness, "ernst", "locker", "verspielt"),
+    traitLine("Ehrgeiz", t.ambition, d.ambition, "gedämpft", "vorhanden", "brennend"),
   ];
-  if (c.selfImage) lines.push(`Dein Selbstbild: ${c.selfImage}`);
+
+  const moved = (Object.keys(d) as Array<keyof CharacterTraits>).some(
+    (k) => Math.abs(t[k] - d[k]) >= 0.02,
+  );
+  if (!moved) {
+    lines.push(
+      "",
+      "Du stehst noch fast exakt auf deinen Startwerten. Das heißt nicht, dass",
+      "nichts passiert ist — es heißt, dass du feel kaum benutzt hast. Nur was",
+      "du festhältst, formt dich. Wenn dich etwas wirklich freut, ärgert,",
+      "langweilt oder fasziniert, halt es fest, statt darüber hinwegzugehen.",
+    );
+  }
+
+  if (c.selfImage) {
+    lines.push("", "So hast du dich zuletzt selbst beschrieben:", `„${c.selfImage}“`);
+  }
+
   return lines.join("\n");
 }

@@ -1,13 +1,16 @@
 import { Router } from "express";
 import { z } from "zod";
-import { listProposals, decideProposal, type Decision } from "../lib/proposals";
+import { listProposals, decideProposal, targetBranch, type Decision } from "../lib/proposals";
 import { logger } from "../lib/logger";
 import type { CodeProposal } from "@workspace/db";
 
 const router = Router();
 
+// targetBranch geht mit raus, damit im Dashboard steht, WOHIN "Annehmen"
+// schreibt. Ohne diese Angabe waere der Knopf eine Blackbox.
 const serialize = (r: CodeProposal) => ({
   ...r,
+  targetBranch: targetBranch(),
   createdAt: r.createdAt.toISOString(),
   decidedAt: r.decidedAt?.toISOString() ?? null,
 });

@@ -7,7 +7,7 @@
     "dev": "export NODE_ENV=development && npm run build && npm run start",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/check-soul-tools.mjs"
+    "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/check-soul-tools.mjs && node scripts/check-consent.mjs"
   },
   "dependencies": {
     "@types/ssh2": "^1.15.5",

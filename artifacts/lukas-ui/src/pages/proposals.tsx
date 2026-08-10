@@ -18,6 +18,7 @@ type Proposal = {
   status: "pending" | "accepted" | "rejected" | "revision";
   comment: string | null;
   appliedResult: string | null;
+  targetBranch: string | null;
   createdAt: string;
   decidedAt: string | null;
 };
@@ -187,7 +188,18 @@ function OpenProposal({
           </Button>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Erst beim Annehmen wird die Änderung wirklich geschrieben. Vorher passiert nichts.
+          {proposal.targetBranch ? (
+            <>
+              Beim Annehmen geht die Änderung direkt auf{" "}
+              <span className="font-mono">{proposal.targetBranch}</span> — den Branch, den Railway
+              baut. Sie ist damit ein paar Minuten später live. Vorher passiert nichts.
+            </>
+          ) : (
+            <>
+              Erst beim Annehmen wird die Änderung geschrieben. Achtung: es ist kein Deploy-Branch
+              gesetzt, sie landet auf dem Default-Branch und wird nicht ausgeliefert.
+            </>
+          )}
         </p>
       </div>
     </div>

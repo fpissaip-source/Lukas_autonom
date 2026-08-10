@@ -44,6 +44,21 @@ const IDLE_MS = 15 * 60 * 1000;
 const MAX_OUTPUT = 12000;
 const MAX_CAPTURE = 64000;
 const DEFAULT_IMAGE = process.env.LUKAS_SANDBOX_IMAGE ?? "python:3.12-slim";
+const SANDBOX_NETWORK = "lukas-sandbox";
+
+/*
+ * Wann wurde ein Container zuletzt BENUTZT.
+ *
+ * Vorher hat der Cleanup .State.StartedAt geprueft, also das Alter. Ein
+ * Container, in dem Lukas seit 20 Minuten ununterbrochen arbeitet, galt damit
+ * als "idle" und wurde mitten in der Arbeit geloescht. Gemeint war Inaktivitaet
+ * — die steht jetzt hier.
+ *
+ * Im Speicher und nicht in der DB: nach einem Neustart des Servers ist die Map
+ * leer, dann greift der Fallback auf StartedAt und raeumt hoechstens etwas
+ * frueher auf. Das ist die harmlose Richtung des Fehlers.
+ */
+const lastUsed = new Map<string, number>();
 
 export function executionBackend(): ExecutionBackend {
   const value = (process.env.LUKAS_EXECUTION_BACKEND ?? "docker").trim().toLowerCase();
@@ -166,20 +181,40 @@ async function ensureContainer(conversationId: number): Promise<string> {
 
   /*
    * Die Isolationsentscheidungen, jede mit Grund:
-   *  --network bridge          Internet ja (Issas Wunsch), aber kein Host-Netz
+   *  --network lukas-sandbox   eigenes Netz: Internet ja (Issas Wunsch), aber
+   *                            NICHT die Default-Bridge. Auf der koennen alle
+   *                            Container miteinander reden; Docker rät für
+   *                            Produktion ausdrücklich zu einem eigenen Netz.
+   *  --cap-drop ALL            weg mit allem, was man für Ausbrüche braucht
+   *                            (SYS_ADMIN, SYS_PTRACE, NET_RAW, MKNOD …)
+   *  --cap-add …               nur zurück, was pip/apt zum Anlegen und
+   *                            Umschreiben von Dateien wirklich brauchen —
+   *                            sonst wäre die Umgebung praktisch unbenutzbar
+   *  no-new-privileges         kein Rechtezuwachs über setuid-Binaries
    *  --memory / --cpus         ein Amoklauf legt das Droplet nicht lahm
    *  --pids-limit              Fork-Bomben laufen ins Leere
    *  KEIN -v                   kein Host-Dateisystem, keine .env, kein Docker-Socket
    *  KEIN --env                keine Host-Variablen, also keine Secrets
+   *  KEIN --privileged         versteht sich, steht hier als Erinnerung
    *  --label                   damit der Cleanup sie wiederfindet
    *  sleep infinity            Container bleibt für docker exec am Leben
+   *
+   * Root INNERHALB des Containers bleibt bewusst: Issa will eine Umgebung mit
+   * vollen Rechten, und root im Container ist etwas anderes als root auf dem
+   * Host, solange die Capabilities weg sind.
    */
+  await sshExec(`docker network create ${SANDBOX_NETWORK} 2>/dev/null || true`, 30000);
+
   const create = await sshExec(
     [
       "docker run -d",
       `--name ${name}`,
       "--label lukas-sandbox=1",
-      "--network bridge",
+      `--network ${SANDBOX_NETWORK}`,
+      "--cap-drop ALL",
+      "--cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER --cap-add FSETID",
+      "--cap-add SETGID --cap-add SETUID",
+      "--security-opt no-new-privileges:true",
       "--memory 2g --memory-swap 2g --cpus 1.5 --pids-limit 512",
       "--workdir /work",
       DEFAULT_IMAGE,
@@ -278,10 +313,14 @@ export async function executeCommand(
   }
 
   const name = await ensureContainer(conversationId);
-  return formatResult(
-    await sshExec(`docker exec ${name} timeout ${timeout} sh -lc ${shQuote(command)}`, timeout * 1000),
-    timeout,
+  lastUsed.set(name, Date.now());
+  const result = await sshExec(
+    `docker exec ${name} timeout ${timeout} sh -lc ${shQuote(command)}`,
+    timeout * 1000,
   );
+  // Auch nach dem Befehl: ein langer Lauf soll nicht als Untätigkeit zählen.
+  lastUsed.set(name, Date.now());
+  return formatResult(result, timeout);
 }
 
 /*
@@ -316,6 +355,7 @@ export async function resetSandbox(conversationId: number): Promise<string> {
   }
   const name = containerName(conversationId);
   await sshExec(`docker rm -f ${name} 2>/dev/null || true`, 30000);
+  lastUsed.delete(name);
   return "Sandbox zurückgesetzt — der nächste Befehl startet eine frische Umgebung.";
 }
 
@@ -325,20 +365,34 @@ export async function resetSandbox(conversationId: number): Promise<string> {
  */
 export async function cleanupIdleSandboxes(): Promise<void> {
   try {
+    // Namen statt IDs: nur ueber den Namen finden wir den Container in
+    // lastUsed wieder.
     const list = await sshExec(
-      `docker ps -q --filter label=lukas-sandbox=1 --filter "status=running"`,
+      `docker ps --filter label=lukas-sandbox=1 --filter "status=running" --format '{{.Names}}'`,
       30000,
     );
-    const ids = list.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
-    if (ids.length === 0) return;
+    const names = list.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (names.length === 0) return;
 
     const cutoff = Date.now() - IDLE_MS;
-    for (const id of ids) {
-      const started = await sshExec(`docker inspect -f '{{.State.StartedAt}}' ${id}`, 20000);
-      const startedAt = Date.parse(started.stdout.trim());
-      if (Number.isFinite(startedAt) && startedAt < cutoff) {
-        await sshExec(`docker rm -f ${id}`, 30000);
-        logger.info({ id }, "Verwaiste Lukas-Sandbox entfernt");
+    for (const name of names) {
+      const used = lastUsed.get(name);
+
+      let idleSince: number;
+      if (used !== undefined) {
+        idleSince = used;
+      } else {
+        // Unbekannt (Serverneustart) — dann zaehlt ersatzweise der Start.
+        const started = await sshExec(`docker inspect -f '{{.State.StartedAt}}' ${name}`, 20000);
+        const startedAt = Date.parse(started.stdout.trim());
+        if (!Number.isFinite(startedAt)) continue;
+        idleSince = startedAt;
+      }
+
+      if (idleSince < cutoff) {
+        await sshExec(`docker rm -f ${name}`, 30000);
+        lastUsed.delete(name);
+        logger.info({ name }, "Ungenutzte Lukas-Sandbox entfernt");
       }
     }
   } catch (err) {

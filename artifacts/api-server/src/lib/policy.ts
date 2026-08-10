@@ -115,12 +115,31 @@ export function needsApproval(tier: RiskTier): boolean {
  * Läuft kein Nutzerzug (autonomer Hintergrund-Task, Cron), greift diese
  * Abkürzung nicht — dann bleibt es bei der Freigabe im Dashboard.
  */
-const CONSENT_IN_TURN: Record<string, (userMessage: string) => boolean> = {
-  email_send: (msg) =>
-    /\bsend(e|en|et)?\b|\bschick(e|en|t)?\b|\babschicken\b|\bverschick(e|en|t)?\b|\braus damit\b/i.test(
-      msg,
-    ),
-};
+const CONSENT_TOOLS = new Set(["email_send"]);
+
+const AFFIRMATION =
+  /\b(ja|jep|jup|genau|passt|okay|ok|los|mach|machs|abschicken|absenden|raus damit)\b|\b(send(e|en|et)?|schick(e|en|t)?|verschick(e|en|t)?)\b/i;
+
+/*
+ * Alles, was aus einer Zustimmung eine Ablehnung macht. Ohne diese Prüfung
+ * enthielt "Nein, schick das noch NICHT ab" das Wort "schick" — und galt damit
+ * als Freigabe. Genau der Satz, mit dem man einen Versand stoppen will.
+ */
+const NEGATION =
+  /\b(nicht|nein|ne|nö|kein|keine|keinen|noch nicht|warte|stopp|stop|abbrechen|lass|lieber nicht|erstmal nicht|später)\b/i;
+
+/**
+ * Ist das eine echte, eindeutige Zustimmung? Im Zweifel nein.
+ */
+export function isAffirmation(message: string): boolean {
+  const text = message.trim();
+  if (!text) return false;
+  if (NEGATION.test(text)) return false;
+  // Eine Frage ist keine Zustimmung: "Kannst du das senden?" fragt danach,
+  // ob es ginge — es beauftragt es nicht.
+  if (text.endsWith("?")) return false;
+  return AFFIRMATION.test(text);
+}
 
 /*
  * Argumente stabil hashen: Schlüssel sortiert, damit dieselben Argumente in
@@ -177,22 +196,23 @@ export async function checkPolicy(
   const tier = riskFor(tool);
   if (!needsApproval(tier)) return { allow: true };
 
-  // Ausdrückliche Bestätigung im laufenden Zug ersetzt die Dashboard-Freigabe
-  // (nur R2, nur für Tools mit definierter Bestätigungsprüfung).
-  const consentCheck = CONSENT_IN_TURN[tool];
-  if (tier === "R2" && consentCheck && rawUserMessage && consentCheck(rawUserMessage)) {
-    logger.info({ tool }, "Freigabe durch ausdrückliche Bestätigung im Chat");
-    return { allow: true };
-  }
-
   const hash = hashArguments(tool, input);
   const now = new Date();
 
-  // Gibt es eine gültige, noch nicht verbrauchte Freigabe für GENAU diese
-  // Argumente?
-  const [existing] = await db
-    .select()
-    .from(approvals)
+  /*
+   * Gibt es eine gültige, noch nicht verbrauchte Freigabe für GENAU diese
+   * Argumente?
+   *
+   * Das UPDATE ist die Prüfung. Vorher wurde erst gelesen und dann geschrieben:
+   * zwei gleichzeitige identische Tool-Aufrufe konnten damit beide dieselbe
+   * Freigabe sehen, bevor einer sie entwertet hat — die Einmal-Freigabe wäre
+   * zweimal eingelöst worden. Hier entscheidet Postgres: nur der Aufruf, der
+   * die Zeile tatsächlich von "allowed" auf "used" dreht, bekommt sie zurück.
+   * Alle anderen gehen leer aus.
+   */
+  const [redeemed] = await db
+    .update(approvals)
+    .set({ status: "used", decidedAt: now })
     .where(
       and(
         eq(approvals.argumentsHash, hash),
@@ -200,21 +220,14 @@ export async function checkPolicy(
         gt(approvals.expiresAt, now),
       ),
     )
-    .orderBy(desc(approvals.createdAt))
-    .limit(1);
+    .returning();
 
-  if (existing) {
-    // Einmalgebrauch: sofort entwerten, damit dieselbe Freigabe nicht mehrfach
-    // greift.
-    await db
-      .update(approvals)
-      .set({ status: "used", decidedAt: now })
-      .where(eq(approvals.id, existing.id));
-    logger.info({ tool, approvalId: existing.id }, "Freigabe eingelöst");
+  if (redeemed) {
+    logger.info({ tool, approvalId: redeemed.id }, "Freigabe eingelöst");
     return { allow: true };
   }
 
-  // Keine gültige Freigabe -> Anfrage anlegen (oder bestehende offene nutzen).
+  // Gibt es eine offene Anfrage für genau diese Argumente?
   const [pending] = await db
     .select()
     .from(approvals)
@@ -226,6 +239,43 @@ export async function checkPolicy(
       ),
     )
     .limit(1);
+
+  /*
+   * Bestätigung im laufenden Zug — aber nur als Antwort auf eine bereits
+   * gestellte Frage.
+   *
+   * Vorher genügte irgendein Wort wie "schick" in Issas Nachricht, und der
+   * Versand lief los. Das hatte zwei Löcher: "Nein, schick das noch nicht"
+   * enthält "schick", und die Zustimmung war an gar nichts gebunden — Lukas
+   * konnte danach andere Argumente einsetzen.
+   *
+   * Jetzt muss eine offene Anfrage für EXAKT diese Argumente existieren. Lukas
+   * legt sie beim ersten Versuch an und zeigt Issa, was er senden will; erst
+   * Issas eindeutiges "ja, schick ab" im nächsten Zug löst genau diese Anfrage
+   * ein. Ändert Lukas ein Zeichen am Text, passt der Hash nicht mehr und die
+   * Zustimmung greift nicht.
+   *
+   * Der geprüfte Text ist Issas eigener, unveränderter Nachrichtentext. Eine
+   * Prompt-Injection aus einer gelesenen Mail steht in Tool-Ausgaben, nicht
+   * darin — sie kann hier also nichts auslösen.
+   */
+  if (
+    pending &&
+    tier === "R2" &&
+    CONSENT_TOOLS.has(tool) &&
+    rawUserMessage &&
+    isAffirmation(rawUserMessage)
+  ) {
+    const [confirmed] = await db
+      .update(approvals)
+      .set({ status: "used", decidedAt: now })
+      .where(and(eq(approvals.id, pending.id), eq(approvals.status, "pending")))
+      .returning();
+    if (confirmed) {
+      logger.info({ tool, approvalId: confirmed.id }, "Freigabe durch Bestätigung im Chat");
+      return { allow: true };
+    }
+  }
 
   const row =
     pending ??

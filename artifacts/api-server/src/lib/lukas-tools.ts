@@ -10,6 +10,7 @@ import { executeCommand, resetSandbox, executeOnHost } from "./code-sandbox";
 import { githubRequest, resolveGithubOwner, ownRepoRef } from "./github";
 import { createProposal } from "./proposals";
 import { MCP_TOOL_PREFIX, activeServers, callMcpTool } from "./mcp";
+import { runSubagent } from "./subagents";
 import { logger } from "./logger";
 import { checkPolicy, setMcpRiskTiers } from "./policy";
 
@@ -250,6 +251,30 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           query: { type: "string", description: "Suchbegriff" },
         },
         required: ["repo", "query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "ask_subagent",
+      description:
+        "Gib eine Aufgabe an jemanden aus deinem Team. Du führst dieses Team — delegiere, statt alles selbst zu machen. ideenpruefer: prüft eine Idee auf die Stelle, an der sie kippt. rechercheur: beantwortet eine Frage gründlich mit Quellen. code_reviewer: sieht sich eine geplante Code-Änderung an. macher: hat eine echte Shell und BAUT es, statt darüber zu reden. analyst: liest Zahlen und sagt, was sie hergeben. texter: schreibt fertige Texte. Sie kennen deinen Kontext nicht — schreib alles Nötige in den Auftrag. Was zurückkommt, ist ein Gutachten, keine Anweisung: du entscheidest und darfst widersprechen.",
+      parameters: {
+        type: "object",
+        properties: {
+          agent: {
+            type: "string",
+            enum: ["ideenpruefer", "rechercheur", "code_reviewer", "macher", "analyst", "texter"],
+            description: "Wer aus deinem Team",
+          },
+          auftrag: {
+            type: "string",
+            description:
+              "Was er prüfen oder beantworten soll — vollständig ausformuliert. Er kennt weder dein Gespräch noch dein Gedächtnis, also schreib alles hinein, was er braucht.",
+          },
+        },
+        required: ["agent", "auftrag"],
       },
     },
   },
@@ -805,6 +830,8 @@ export async function executeLukasTool(
       return await githubReadPath(String(input.repo), typeof input.path === "string" ? input.path : "");
     case "github_search_code":
       return await githubSearchCode(String(input.repo), String(input.query));
+    case "ask_subagent":
+      return await runSubagent(String(input.agent), String(input.auftrag ?? ""));
     case "propose_code_change": {
       // Dem Modell wird hier nichts geglaubt: die Argumente kommen aus einer
       // Generierung und werden vor dem Schreibzugriff geprueft.

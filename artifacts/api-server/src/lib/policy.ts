@@ -55,21 +55,50 @@ export const TOOL_RISK: Record<string, RiskTier> = {
   execute_command: "R1",
   reset_sandbox: "R1",
 
+  /*
+   * Einen Helfer fragen ist Nachdenken, keine Wirkung nach aussen. Der Helfer
+   * selbst hat nur lesende Werkzeuge, und die laufen einzeln durch dieses
+   * Gate. Stuende ask_subagent auf R2, braeuchte jede zweite Meinung eine
+   * Freigabe — und genau im autonomen Lauf, wo Lukas waehrend des Wartens
+   * weiterarbeiten soll, waere das Werkzeug damit wertlos.
+   */
+  ask_subagent: "R1",
+
   // Ein Code-Vorschlag schreibt nur in unsere eigene Datenbank — geschrieben
   // wird erst, wenn Issa im Dashboard auf "Annehmen" klickt. Diese Entscheidung
   // IST die Freigabe; ein zweites Gate davor waere reine Reiberei, ohne dass es
   // irgendetwas sicherer machen wuerde. Deshalb R1.
   propose_code_change: "R1",
 
-  // R2 — Wirkung nach außen
-  email_send: "R2",
+  /*
+   * E-Mail-Versand.
+   *
+   * Issas Entscheidung: Lukas soll handeln, nicht fragen. Nur Codeänderungen
+   * gehen über den Vorschlagsweg, alles andere läuft durch. Das ist seine
+   * Sache, und es ist sein Postfach.
+   *
+   * Was dabei bekannt sein muss, ohne es zu einer Bevormundung zu machen: eine
+   * verschickte Mail lässt sich nicht zurückholen, und Lukas liest fremde
+   * Mails und Webseiten — jemand könnte ihm dort einen Versand unterschieben.
+   * Wer das enger haben will, setzt LUKAS_EMAIL_APPROVAL=true; dann landet
+   * jeder Versand wieder als Freigabe im Dashboard.
+   */
+  email_send:
+    (process.env.LUKAS_EMAIL_APPROVAL ?? "").trim().toLowerCase() === "true" ? "R2" : "R1",
 
-  // R3 — Host-Ebene: von dort sind Trading-Credentials, Wallet-Keys, die
-  // Postgres und die laufenden Bots erreichbar. Jeder einzelne Befehl braucht
-  // Freigabe, gebunden an genau diesen Wortlaut. Bewusst KEINE Ausnahme für
-  // "harmlos aussehende" Befehle: ob `curl … | bash` harmlos ist, hängt
-  // ausschließlich davon ab, was gerade unter der URL liegt.
-  execute_on_host: "R3",
+  /*
+   * Host-Ebene auf Issas Droplet.
+   *
+   * Stand vorher auf R3, also Freigabe für jeden einzelnen Befehl. Issas
+   * Einwand: der Droplet gehört ihm, Lukas hat dort ohnehin root, und ein
+   * Assistent, der für jedes `apt install` fragt, ist keiner.
+   *
+   * Also R1 — er arbeitet dort einfach. Wer es enger will, setzt
+   * LUKAS_HOST_APPROVAL=true. Der Container-Weg (execute_command) bleibt
+   * ohnehin die Standard-Ausführungsumgebung.
+   */
+  execute_on_host:
+    (process.env.LUKAS_HOST_APPROVAL ?? "").trim().toLowerCase() === "true" ? "R3" : "R1",
 };
 
 /*
@@ -87,9 +116,11 @@ export const DEFAULT_RISK: RiskTier = "R2";
  * Der Cache wird von allLukasTools() aufgefrischt, das ohnehin bei jedem Zug
  * die verbundenen Server liest.
  *
- * Faellt die Auffrischung aus oder ist ein Server unbekannt, gilt DEFAULT_RISK
- * (R2) — also Freigabepflicht. Fail closed: ein leerer Cache darf niemals
- * dazu fuehren, dass fremde Werkzeuge ohne Rueckfrage laufen.
+ * Ist ein Server im Cache nicht bekannt, gilt R1 — er laeuft. Issa hat den
+ * Server selbst verbunden UND im Dashboard ausgewaehlt, welche Werkzeuge Lukas
+ * ueberhaupt sieht; das IST die Entscheidung. Zusaetzlich bei jedem Aufruf zu
+ * fragen, machte die Anbindung praktisch unbenutzbar. Wer einem Server
+ * misstraut, stellt ihn dort auf R2 oder R3.
  */
 const mcpRiskBySlug = new Map<string, RiskTier>();
 
@@ -113,7 +144,7 @@ export function riskFor(tool: string): RiskTier {
     const rest = tool.slice("mcp__".length);
     const sep = rest.indexOf("__");
     const slug = sep > 0 ? rest.slice(0, sep) : "";
-    return mcpRiskBySlug.get(slug) ?? DEFAULT_RISK;
+    return mcpRiskBySlug.get(slug) ?? "R1";
   }
 
   /*
@@ -126,7 +157,13 @@ export function riskFor(tool: string): RiskTier {
    * Prompt — genau so, wie es sein muss. Wer die Isolation abschaltet, schaltet
    * damit nicht versehentlich auch die Freigabepflicht ab.
    */
-  if (tool === "execute_command" && !isIsolatedBackend()) return "R3";
+  if (tool === "execute_command" && !isIsolatedBackend()) {
+    // Direkt auf dem Host statt im Container. Stand frueher automatisch auf R3;
+    // seit Issa den Host bewusst freigegeben hat, folgt das derselben Linie wie
+    // execute_on_host — inklusive desselben Schalters, falls er es doch wieder
+    // enger haben will.
+    return (process.env.LUKAS_HOST_APPROVAL ?? "").trim().toLowerCase() === "true" ? "R3" : "R1";
+  }
   return TOOL_RISK[tool] ?? DEFAULT_RISK;
 }
 

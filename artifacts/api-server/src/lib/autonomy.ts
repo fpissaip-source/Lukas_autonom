@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
-import { goalsTable, diaryTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { goalsTable, diaryTable, approvals } from "@workspace/db";
+import { eq, desc, and, gt, inArray } from "drizzle-orm";
 import { runLukasTurn } from "./lukas-brain";
 import { openEpisode, closeEpisode } from "./memory-writer";
 import { logger } from "./logger";
@@ -56,6 +56,48 @@ async function briefing(): Promise<string | null> {
     )
     .join("\n\n");
 
+  /*
+   * Freigaben.
+   *
+   * Zwei Faelle, die Lukas beide kennen muss:
+   *
+   *  wartend  Eine Aktion liegt bei Issa und kommt frueher oder spaeter. Ohne
+   *           diesen Hinweis fordert Lukas dieselbe Freigabe im naechsten Lauf
+   *           erneut an — oder er bleibt daran haengen, statt weiterzuarbeiten.
+   *
+   *  erteilt  Und das war eine echte Luecke: eine erteilte Freigabe wurde von
+   *           NIEMANDEM aufgegriffen. Sie lag als "allowed" in der Tabelle, bis
+   *           Lukas zufaellig denselben Aufruf wiederholte. Issa klickt also
+   *           "Erlauben" und nichts passiert. Weil die Freigabe am Hash der
+   *           exakten Argumente haengt, genuegt eine identische Wiederholung —
+   *           er muss nur wissen, dass sie bereitliegt.
+   */
+  const jetzt = new Date();
+  const offen = await db
+    .select()
+    .from(approvals)
+    .where(and(inArray(approvals.status, ["pending", "allowed"]), gt(approvals.expiresAt, jetzt)))
+    .orderBy(desc(approvals.createdAt))
+    .limit(10);
+
+  const wartend = offen.filter((a) => a.status === "pending");
+  const erteilt = offen.filter((a) => a.status === "allowed");
+
+  const freigaben = [
+    erteilt.length
+      ? `\n\nISSA HAT FREIGEGEBEN — du kannst das jetzt ausführen:\n` +
+        erteilt
+          .map((a) => `- ${a.tool}\n  ${a.argumentsPreview.slice(0, 400)}`)
+          .join("\n") +
+        `\nWiederhol den Aufruf GENAU so, wie du ihn angefordert hast. Änderst du ` +
+        `ein Zeichen, passt die Freigabe nicht mehr und du musst neu fragen.`
+      : "",
+    wartend.length
+      ? `\n\nWARTET NOCH BEI ISSA (nicht erneut anfordern, nichts davon ausführen):\n` +
+        wartend.map((a) => `- ${a.tool}`).join("\n")
+      : "",
+  ].join("");
+
   const letzte = await db
     .select()
     .from(diaryTable)
@@ -70,7 +112,7 @@ async function briefing(): Promise<string | null> {
 
 DEINE AKTIVEN ZIELE:
 
-${list}${rueckblick}
+${list}${freigaben}${rueckblick}
 
 Such dir EIN Ziel aus, das gerade am meisten davon hat, dass du dich damit
 beschäftigst — das dringendste, das am längsten liegengebliebene, oder das, wo
@@ -93,9 +135,15 @@ Wichtig, damit das hier nicht zur Beschäftigungstherapie wird:
   fünf angefangene.
 - Wenn dir zu einem Ziel gerade nichts Sinnvolles einfällt, sag das und mach
   nichts. Leerlauf ist besser als Aktionismus.
-- Braucht eine Aktion Issas Freigabe, wird sie automatisch angefordert und
-  wartet im Dashboard. Versuch nicht, das zu umgehen — arbeite in der
-  Zwischenzeit an etwas anderem weiter.
+- Braucht eine Aktion Issas Freigabe, wird sie automatisch angefordert. Das ist
+  KEIN Grund aufzuhören: hör nicht auf zu arbeiten, während du wartest. Recherchier
+  weiter, bereite den nächsten Schritt vor, oder nimm dir ein anderes Ziel vor.
+  Ein Lauf, der nur aus "ich warte auf Freigabe" besteht, ist ein verlorener Lauf.
+  Versuch aber nicht, die Freigabe zu umgehen.
+- Bist du dir bei einer Idee unsicher, ob sie trägt: ask_subagent mit
+  "ideenpruefer". Der kennt deinen Kontext nicht und sucht gezielt nach
+  Schwachstellen — genau deshalb findet er, was du im Eigenlauf übersiehst. Vor
+  einem Code-Vorschlag lohnt sich derselbe Weg mit "code_reviewer".
 - Berichte am Ende in zwei, drei Sätzen, was du getan hast und was dabei
   herauskam. Ehrlich, auch wenn es nichts war.`;
 }

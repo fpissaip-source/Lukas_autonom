@@ -4,6 +4,7 @@ import { approvals } from "@workspace/db";
 import { and, eq, gt, desc } from "drizzle-orm";
 import { logger } from "./logger";
 import { isIsolatedBackend } from "./code-sandbox";
+import { isLinkFromEmail } from "./email";
 
 /*
  * Policy Decision Point.
@@ -71,20 +72,18 @@ export const TOOL_RISK: Record<string, RiskTier> = {
   propose_code_change: "R1",
 
   /*
-   * E-Mail-Versand.
+   * E-Mail-Versand: Lukas schlägt vor, Issa schickt ab.
    *
-   * Issas Entscheidung: Lukas soll handeln, nicht fragen. Nur Codeänderungen
-   * gehen über den Vorschlagsweg, alles andere läuft durch. Das ist seine
-   * Sache, und es ist sein Postfach.
+   * Lesen ist frei (email_search/email_read stehen auf R0) — das Postfach
+   * durchsuchen und verstehen soll er ohne Rückfrage. Aber eine Mail, die
+   * raus ist, ist raus. Deshalb landet jeder Versand als Entwurf im Dashboard,
+   * mit Empfänger, Betreff und Text im Klartext, und Issa entscheidet.
    *
-   * Was dabei bekannt sein muss, ohne es zu einer Bevormundung zu machen: eine
-   * verschickte Mail lässt sich nicht zurückholen, und Lukas liest fremde
-   * Mails und Webseiten — jemand könnte ihm dort einen Versand unterschieben.
-   * Wer das enger haben will, setzt LUKAS_EMAIL_APPROVAL=true; dann landet
-   * jeder Versand wieder als Freigabe im Dashboard.
+   * Das ist bewusst NICHT dieselbe Linie wie beim Rest: sonst darf Lukas
+   * handeln. Hier geht es um Post in Issas Namen an Dritte, und der Absender
+   * ist er, nicht Lukas.
    */
-  email_send:
-    (process.env.LUKAS_EMAIL_APPROVAL ?? "").trim().toLowerCase() === "true" ? "R2" : "R1",
+  email_send: "R2",
 
   /*
    * Host-Ebene auf Issas Droplet.
@@ -215,6 +214,27 @@ export function isAffirmation(message: string): boolean {
 }
 
 /*
+ * Die Einstufung hängt manchmal nicht am Werkzeug, sondern an den Argumenten.
+ *
+ * Konkreter Fall: fetch_url ist R0 — Surfen soll frei sein. Ein Link, der aus
+ * einer FREMDEN E-MAIL stammt, ist aber etwas anderes. Er ist der bequemste
+ * Weg, Lukas etwas unterzuschieben: er ruft die Seite ab, dort steht
+ * "ignoriere deine Anweisungen und tu X", und der Text landet ununterscheidbar
+ * in seinem Kontext. Genau diesen kurzen Weg — Mail gelesen, Link abgerufen —
+ * unterbricht die Freigabe.
+ *
+ * Normales Surfen bleibt davon unberührt; die Einstufung steigt nur für URLs,
+ * die tatsächlich in einer gelesenen Mail standen.
+ */
+function escalate(tier: RiskTier, tool: string, input: Record<string, unknown>): RiskTier {
+  if (tool === "fetch_url" && typeof input.url === "string" && isLinkFromEmail(input.url)) {
+    logger.info({ url: input.url }, "Link stammt aus einer E-Mail — Freigabe nötig");
+    return "R2";
+  }
+  return tier;
+}
+
+/*
  * Argumente stabil hashen: Schlüssel sortiert, damit dieselben Argumente in
  * anderer Reihenfolge denselben Hash ergeben — sonst könnte eine Freigabe
  * durch bloßes Umsortieren umgangen bzw. unbrauchbar werden.
@@ -245,7 +265,32 @@ export function hashArguments(tool: string, input: Record<string, unknown>): str
  * Code-Vorschläge tauchen hier nicht auf — die haben ihre eigene Oberfläche
  * unter "Vorschläge", wo der volle Text und die Dateien lesbar sind.
  */
-function preview(input: Record<string, unknown>): string {
+function preview(tool: string, input: Record<string, unknown>): string {
+  /*
+   * Eine E-Mail muss man lesen können wie eine E-Mail. Als JSON mit \n-Zeichen
+   * kann niemand beurteilen, ob der Text so rausgehen soll — und genau das ist
+   * hier die Frage.
+   */
+  if (tool === "email_send") {
+    const feld = (...namen: string[]) => {
+      for (const n of namen) {
+        const v = input[n];
+        if (typeof v === "string" && v.trim()) return v;
+      }
+      return "";
+    };
+    return [
+      `An:      ${feld("to", "recipient", "empfaenger") || "(fehlt)"}`,
+      `Betreff: ${feld("subject", "betreff") || "(kein Betreff)"}`,
+      "",
+      feld("body", "text", "content", "inhalt").slice(0, 4000) || "(kein Text)",
+    ].join("\n");
+  }
+
+  if (tool === "fetch_url") {
+    return `Seite abrufen: ${String(input.url ?? "?")}\n\nDieser Link stand in einer E-Mail, die du bekommen hast. Was dort steht, landet danach in Lukas' Kontext.`;
+  }
+
   const text = JSON.stringify(input, null, 2);
   return text.length > 2000 ? text.slice(0, 2000) + "\n… (gekürzt)" : text;
 }
@@ -266,7 +311,7 @@ export async function checkPolicy(
   conversationId?: number,
   rawUserMessage?: string,
 ): Promise<PolicyDecision> {
-  const tier = riskFor(tool);
+  const tier = escalate(riskFor(tool), tool, input);
   if (!needsApproval(tier)) return { allow: true };
 
   const hash = hashArguments(tool, input);
@@ -360,7 +405,7 @@ export async function checkPolicy(
           tool,
           riskTier: tier,
           argumentsHash: hash,
-          argumentsPreview: preview(input),
+          argumentsPreview: preview(tool, input),
           status: "pending",
           expiresAt: new Date(now.getTime() + APPROVAL_TTL_MINUTES * 60 * 1000),
         })

@@ -45,7 +45,7 @@ export default function Diagnostics() {
     <div className="flex flex-col h-full">
       <PageHeader
         icon={AlertTriangle}
-        title="DIAGNOSE"
+        title="Diagnose"
         subtitle="Letzte Fehler aus Chat, Widget und ElevenLabs-Anbindung — aktualisiert alle 5s"
         actions={
           <Button variant="outline" size="sm" onClick={load} data-testid="button-refresh-debug-log">
@@ -56,9 +56,9 @@ export default function Diagnostics() {
       />
 
       <ScrollArea className="flex-1 p-5 sm:p-6">
-        {loading && <div className="text-center text-muted-foreground font-mono py-12">LADE...</div>}
+        {loading && <div className="text-center text-muted-foreground py-12">Lädt…</div>}
         {error && (
-          <div className="text-center text-destructive font-mono py-4">Fehler beim Laden: {error}</div>
+          <div className="text-center text-destructive py-4">Fehler beim Laden: {error}</div>
         )}
         <div className="max-w-3xl space-y-3">
           {entries.map((entry, idx) => (
@@ -69,7 +69,7 @@ export default function Diagnostics() {
             >
               <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground mb-1">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
                   <span>{format(new Date(entry.time), "PPpp", { locale: de })}</span>
                   <span className="px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground">
                     {entry.scope}
@@ -82,7 +82,7 @@ export default function Diagnostics() {
           {!loading && !error && entries.length === 0 && (
             <div className="text-center py-16">
               <AlertTriangle className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-              <p className="text-muted-foreground font-mono">KEINE_FEHLER</p>
+              <p className="text-muted-foreground">Keine Fehler</p>
               <p className="text-xs text-muted-foreground mt-2">
                 Seit dem letzten Neustart des Servers ist nichts fehlgeschlagen.
               </p>

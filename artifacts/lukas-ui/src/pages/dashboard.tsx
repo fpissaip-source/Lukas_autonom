@@ -3,6 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Activity, Brain, Target, Film, BookOpen, Clock, Heart } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { de } from "date-fns/locale";
 import { PageHeader } from "@/components/page-header";
 
 export default function Dashboard() {
@@ -11,7 +12,7 @@ export default function Dashboard() {
   if (isLoading || !data) {
     return (
       <div className="flex flex-col h-full">
-        <PageHeader icon={Activity} title="SYSTEM_STATUS" subtitle="Lade Core Metrics…" />
+        <PageHeader icon={Activity} title="Übersicht" subtitle="Lädt…" />
         <div className="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
           <Skeleton className="h-32 w-full" />
           <Skeleton className="h-32 w-full" />
@@ -31,11 +32,11 @@ export default function Dashboard() {
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <PageHeader
         icon={Activity}
-        title="SYSTEM_OVERVIEW"
-        subtitle="Lukas Core Metrics & Status"
+        title="Übersicht"
+        subtitle="Wie es Lukas gerade geht und woran er arbeitet"
         actions={
-          <div className="text-xs font-mono text-muted-foreground">
-            LAST_SYNC: {status.lastActive ? formatDistanceToNow(new Date(status.lastActive), { addSuffix: true }) : 'UNKNOWN'}
+          <div className="text-xs text-muted-foreground">
+            Zuletzt: {status.lastActive ? formatDistanceToNow(new Date(status.lastActive), { addSuffix: true, locale: de }) : "unbekannt"}
           </div>
         }
       />
@@ -45,12 +46,12 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <Card className="bg-card/50 backdrop-blur border-border/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground font-mono">CURRENT_MOOD</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Stimmung</CardTitle>
             <Activity className="w-4 h-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold capitalize">{status.mood}</div>
-            <p className="text-xs text-muted-foreground mt-1 font-mono">ENERGY: {status.energy}</p>
+            <p className="text-xs text-muted-foreground mt-1">Energie: {status.energy}</p>
             {status.note && (
               <p className="text-xs text-muted-foreground mt-1 italic truncate" title={status.note}>
                 {status.note}
@@ -61,7 +62,7 @@ export default function Dashboard() {
 
         <Card className="bg-card/50 backdrop-blur border-border/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground font-mono">OBSESSION</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Beschäftigt ihn</CardTitle>
             <Target className="w-4 h-4 text-primary" />
           </CardHeader>
           <CardContent>
@@ -71,32 +72,32 @@ export default function Dashboard() {
 
         <Card className="bg-card/50 backdrop-blur border-border/50">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground font-mono">DATA_BANK</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Gedächtnis</CardTitle>
             <Brain className="w-4 h-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{status.memoriesCount} <span className="text-sm font-normal text-muted-foreground">memories</span></div>
-            <p className="text-xs text-muted-foreground mt-1 font-mono">ACTIVE_GOALS: {status.activeGoalsCount}</p>
+            <div className="text-2xl font-bold">{status.memoriesCount} <span className="text-sm font-normal text-muted-foreground">Erinnerungen</span></div>
+            <p className="text-xs text-muted-foreground mt-1">Aktive Ziele: {status.activeGoalsCount}</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Gefühlslage: Emotionen mit Ursache + gewachsener Charakter */}
       <div>
-        <h2 className="text-lg font-mono font-medium border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
-          <Heart className="w-4 h-4" /> EMOTIONAL_STATE
+        <h2 className="text-base font-semibold border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
+          <Heart className="w-4 h-4 text-muted-foreground" /> Gefühlslage
         </h2>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-2">
             {recentEmotions.length > 0 ? (
               recentEmotions.map((e) => (
                 <div key={e.id} className="bg-card p-3 rounded-md border border-border/50 flex items-start gap-3">
-                  <span className={`font-mono text-sm ${valenceColor(e.valence)}`}>{valenceIcon(e.valence)}</span>
+                  <span className={`text-sm ${valenceColor(e.valence)}`}>{valenceIcon(e.valence)}</span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="font-medium capitalize">{e.emotion}</span>
-                      <span className="text-xs text-muted-foreground font-mono flex-none">
-                        {e.source} · {formatDistanceToNow(new Date(e.createdAt), { addSuffix: true })}
+                      <span className="text-xs text-muted-foreground flex-none">
+                        {e.source} · {formatDistanceToNow(new Date(e.createdAt), { addSuffix: true, locale: de })}
                       </span>
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">{e.cause}</div>
@@ -112,7 +113,7 @@ export default function Dashboard() {
           <div>
             {character ? (
               <div className="bg-card p-4 rounded-md border border-border/50 space-y-3">
-                <div className="text-xs font-mono text-muted-foreground">GEWACHSENER_CHARAKTER</div>
+                <div className="text-xs text-muted-foreground">Gewachsener Charakter</div>
                 {character.selfImage && (
                   <p className="text-sm leading-relaxed italic text-muted-foreground">"{character.selfImage}"</p>
                 )}
@@ -127,11 +128,11 @@ export default function Dashboard() {
                     ] as const
                   ).map(([label, value]) => (
                     <div key={label} className="flex items-center gap-2">
-                      <span className="text-xs font-mono w-28 flex-none text-muted-foreground">{label}</span>
+                      <span className="text-xs w-28 flex-none text-muted-foreground">{label}</span>
                       <div className="flex-1 h-1.5 bg-secondary rounded overflow-hidden">
                         <div className="h-full bg-primary/70" style={{ width: `${Math.round(value * 100)}%` }} />
                       </div>
-                      <span className="text-xs font-mono w-8 text-right text-muted-foreground">
+                      <span className="text-xs w-8 text-right text-muted-foreground">
                         {Math.round(value * 100)}
                       </span>
                     </div>
@@ -151,14 +152,14 @@ export default function Dashboard() {
         <div className="space-y-6">
           {/* Recent Thoughts/Diary */}
           <div>
-            <h2 className="text-lg font-mono font-medium border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
-              <BookOpen className="w-4 h-4" /> RECENT_LOG
+            <h2 className="text-base font-semibold border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-muted-foreground" /> Zuletzt im Tagebuch
             </h2>
             {recentDiary.length > 0 ? (
-              <div className="bg-card p-4 rounded-md border border-border/50 font-mono text-sm leading-relaxed text-muted-foreground">
+              <div className="bg-card p-4 rounded-md border border-border/50 text-sm leading-relaxed text-muted-foreground">
                 {recentDiary[0].content}
                 <div className="mt-3 text-xs text-primary/60">
-                  {formatDistanceToNow(new Date(recentDiary[0].createdAt), { addSuffix: true })}
+                  {formatDistanceToNow(new Date(recentDiary[0].createdAt), { addSuffix: true, locale: de })}
                 </div>
               </div>
             ) : (
@@ -168,17 +169,17 @@ export default function Dashboard() {
 
           {/* Active Goals */}
           <div>
-            <h2 className="text-lg font-mono font-medium border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
-              <Target className="w-4 h-4" /> ACTIVE_DIRECTIVES
+            <h2 className="text-base font-semibold border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
+              <Target className="w-4 h-4 text-muted-foreground" /> Aktive Ziele
             </h2>
             <div className="space-y-3">
               {activeGoals.slice(0, 3).map(goal => (
                 <div key={goal.id} className="bg-card p-3 rounded-md border border-border/50 flex justify-between items-center">
                   <div>
                     <div className="font-medium">{goal.title}</div>
-                    <div className="text-xs text-muted-foreground font-mono mt-1">PRIORITY: {goal.priority}</div>
+                    <div className="text-xs text-muted-foreground mt-1">Priorität: {goal.priority}</div>
                   </div>
-                  <div className="text-xs px-2 py-1 bg-secondary rounded text-secondary-foreground font-mono">
+                  <div className="text-xs px-2 py-1 bg-secondary rounded text-secondary-foreground">
                     {goal.status}
                   </div>
                 </div>
@@ -193,26 +194,26 @@ export default function Dashboard() {
         <div className="space-y-6">
           {/* Media Jobs */}
           <div>
-            <h2 className="text-lg font-mono font-medium border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
-              <Film className="w-4 h-4" /> RECENT_MEDIA_PROCESSES
+            <h2 className="text-base font-semibold border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
+              <Film className="w-4 h-4 text-muted-foreground" /> Medien-Aufträge
             </h2>
             <div className="space-y-3">
               {mediaJobs.slice(0, 4).map(job => (
                 <div key={job.id} className="bg-card p-3 rounded-md border border-border/50 flex flex-col gap-2">
                   <div className="flex justify-between items-start">
                     <div className="text-sm font-medium line-clamp-1 flex-1 pr-4">{job.vision || job.prompt}</div>
-                    <div className="text-xs px-2 py-1 bg-secondary rounded text-secondary-foreground font-mono uppercase shrink-0">
+                    <div className="text-xs px-2 py-1 bg-secondary rounded text-secondary-foreground uppercase shrink-0">
                       {job.status}
                     </div>
                   </div>
-                  <div className="flex justify-between items-center text-xs text-muted-foreground font-mono">
+                  <div className="flex justify-between items-center text-xs text-muted-foreground">
                     <span>TYPE: {job.mediaType}</span>
-                    <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {formatDistanceToNow(new Date(job.createdAt))} ago</span>
+                    <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {formatDistanceToNow(new Date(job.createdAt), { locale: de })} her</span>
                   </div>
                 </div>
               ))}
               {mediaJobs.length === 0 && (
-                <div className="text-sm text-muted-foreground italic">No media processes recorded.</div>
+                <div className="text-sm text-muted-foreground italic">Noch keine Medien-Aufträge.</div>
               )}
             </div>
           </div>

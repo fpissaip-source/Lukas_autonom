@@ -80,7 +80,7 @@ export default function Approvals() {
     <div className="flex flex-col h-full">
       <PageHeader
         icon={ShieldCheck}
-        title="FREIGABEN"
+        title="Freigaben"
         subtitle="Aktionen, die Lukas nur mit deiner ausdrücklichen Zustimmung ausführen darf"
         actions={
           <Button variant="outline" size="sm" onClick={load}>
@@ -92,10 +92,10 @@ export default function Approvals() {
       <ScrollArea className="flex-1 p-5 sm:p-6">
         <div className="max-w-3xl space-y-6">
           {loading && rows.length === 0 && (
-            <div className="text-center text-muted-foreground font-mono py-12">LADE…</div>
+            <div className="text-center text-muted-foreground py-12">Lädt…</div>
           )}
           {error && (
-            <div className="text-destructive font-mono text-sm">Fehler beim Laden: {error}</div>
+            <div className="text-destructive text-sm">Fehler beim Laden: {error}</div>
           )}
 
           {pending.length === 0 && !loading && (
@@ -147,7 +147,7 @@ export default function Approvals() {
 
           {rest.length > 0 && (
             <div className="space-y-2 pt-2">
-              <h2 className="text-sm font-mono text-muted-foreground">VERLAUF</h2>
+              <h2 className="text-sm text-muted-foreground">Verlauf</h2>
               {rest.map((r) => (
                 <div
                   key={r.id}

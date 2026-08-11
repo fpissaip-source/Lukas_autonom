@@ -108,14 +108,14 @@ function ServerCard({ server, onChange }: { server: McpServer; onChange: () => v
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium">{server.name}</span>
-            <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded ${s.cls}`}>{s.label}</span>
+            <span className={`text-[11px] px-1.5 py-0.5 rounded ${s.cls}`}>{s.label}</span>
             {!server.enabled && (
-              <span className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
+              <span className="text-[11px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
                 AUS
               </span>
             )}
           </div>
-          <p className="text-xs text-muted-foreground font-mono mt-1 break-all">{server.url}</p>
+          <p className="text-xs text-muted-foreground mt-1 break-all">{server.url}</p>
         </div>
         <div className="flex gap-2 shrink-0">
           <Button size="sm" disabled={busy} onClick={connect} className="gap-1.5">
@@ -139,7 +139,7 @@ function ServerCard({ server, onChange }: { server: McpServer; onChange: () => v
         <div>
           <button
             onClick={() => setShowTools((v) => !v)}
-            className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
           >
             {showTools ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             {server.tools.length} WERKZEUGE
@@ -246,7 +246,7 @@ export default function Mcp() {
       <ScrollArea className="flex-1 p-5 sm:p-6">
         <div className="max-w-3xl space-y-6">
           <div className="bg-card border border-border rounded-lg p-4 space-y-3">
-            <h2 className="text-sm font-mono text-muted-foreground">SERVER HINZUFÜGEN</h2>
+            <h2 className="text-sm text-muted-foreground">SERVER HINZUFÜGEN</h2>
             <div className="flex flex-col sm:flex-row gap-2">
               <input
                 value={name}
@@ -259,7 +259,7 @@ export default function Mcp() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://…/mcp"
-                className="flex-[2] text-sm bg-background border border-border rounded-md px-3 py-2 font-mono"
+                className="flex-[2] text-sm bg-background border border-border rounded-md px-3 py-2"
                 data-testid="input-mcp-url"
               />
               <Button onClick={add} disabled={adding || !name.trim() || !url.trim()} className="gap-1.5">
@@ -278,9 +278,9 @@ export default function Mcp() {
             )}
           </div>
 
-          {error && <div className="text-destructive font-mono text-sm">{error}</div>}
+          {error && <div className="text-destructive text-sm">{error}</div>}
           {loading && servers.length === 0 && (
-            <div className="text-center text-muted-foreground font-mono py-12">LADE…</div>
+            <div className="text-center text-muted-foreground py-12">Lädt…</div>
           )}
 
           {!loading && servers.length === 0 && (

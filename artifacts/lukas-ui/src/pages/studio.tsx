@@ -28,6 +28,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { de } from "date-fns/locale";
 import { PageHeader } from "@/components/page-header";
 
 type MediaType = "image" | "video";
@@ -51,7 +52,7 @@ function JobStatusBadge({ status }: { status: string }) {
   };
   const cfg = configs[status] ?? configs.pending;
   return (
-    <span className={`text-xs px-2 py-0.5 rounded-full border font-mono flex items-center gap-1 ${cfg.color}`}>
+    <span className={`text-xs px-2 py-0.5 rounded-full border flex items-center gap-1 ${cfg.color}`}>
       {cfg.icon} {status.toUpperCase()}
     </span>
   );
@@ -92,7 +93,7 @@ function JobCard({ job }: { job: { id: number; requestId?: string | null; status
           <div className="text-sm font-medium leading-snug line-clamp-2">
             {job.vision ?? job.prompt}
           </div>
-          <div className="text-xs text-muted-foreground font-mono mt-1 line-clamp-1">{job.prompt}</div>
+          <div className="text-xs text-muted-foreground mt-1 line-clamp-1">{job.prompt}</div>
         </div>
         <JobStatusBadge status={displayStatus} />
       </div>
@@ -103,15 +104,15 @@ function JobCard({ job }: { job: { id: number; requestId?: string | null; status
         </div>
       )}
       <div className="flex items-center gap-3 mt-3 pt-3 border-t border-border/50">
-        <span className={`text-xs font-mono flex items-center gap-1 ${job.mediaType === "video" ? "text-purple-400" : "text-blue-400"}`}>
+        <span className={`text-xs flex items-center gap-1 ${job.mediaType === "video" ? "text-purple-400" : "text-blue-400"}`}>
           {job.mediaType === "video" ? <Film className="w-3 h-3" /> : <Image className="w-3 h-3" />}
           {job.mediaType.toUpperCase()}
         </span>
-        <span className="text-xs text-muted-foreground font-mono ml-auto">
-          {formatDistanceToNow(new Date(job.createdAt), { addSuffix: true })}
+        <span className="text-xs text-muted-foreground ml-auto">
+          {formatDistanceToNow(new Date(job.createdAt), { addSuffix: true, locale: de })}
         </span>
         {resultUrl && (
-          <a href={resultUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1 font-mono">
+          <a href={resultUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
             OPEN <ExternalLink className="w-3 h-3" />
           </a>
         )}
@@ -189,18 +190,18 @@ export default function Studio() {
       <div className="flex-1 flex flex-col border-b lg:border-b-0 lg:border-r border-border min-w-0">
         <PageHeader
           icon={Wand2}
-          title="HIGGSFIELD_STUDIO"
+          title="Studio"
           subtitle="Vision eingeben → KI erstellt perfekten Prompt → Higgsfield generiert"
         >
           {/* Steps indicator */}
           <div className="flex items-center gap-2 flex-wrap">
             {(["vision", "prompt", "generating", "done"] as Step[]).map((s, i) => (
               <div key={s} className="flex items-center gap-2">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-mono font-bold transition-colors ${
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
                   step === s ? "bg-primary text-primary-foreground" :
                   ["vision", "prompt", "generating", "done"].indexOf(step) > i ? "bg-primary/30 text-primary" : "bg-secondary text-muted-foreground"
                 }`}>{i + 1}</div>
-                <span className="text-xs font-mono text-muted-foreground hidden sm:block">
+                <span className="text-xs text-muted-foreground hidden sm:block">
                   {s === "vision" ? "VISION" : s === "prompt" ? "PROMPT" : s === "generating" ? "RENDER" : "FERTIG"}
                 </span>
                 {i < 3 && <ChevronRight className="w-3 h-3 text-muted-foreground" />}
@@ -218,21 +219,21 @@ export default function Studio() {
                   <Button
                     variant={mediaType === "image" ? "default" : "outline"}
                     onClick={() => setMediaType("image")}
-                    className="flex-1 gap-2 font-mono"
+                    className="flex-1 gap-2"
                   >
                     <Image className="w-4 h-4" /> BILD
                   </Button>
                   <Button
                     variant={mediaType === "video" ? "default" : "outline"}
                     onClick={() => setMediaType("video")}
-                    className="flex-1 gap-2 font-mono"
+                    className="flex-1 gap-2"
                   >
                     <Film className="w-4 h-4" /> VIDEO
                   </Button>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-mono text-muted-foreground">DEINE VISION</label>
+                  <label className="text-xs text-muted-foreground">DEINE VISION</label>
                   <Textarea
                     placeholder={mediaType === "image"
                       ? "z.B. Eine Frau in einem nebligen japanischen Wald bei Sonnenaufgang, cinematisch..."
@@ -240,28 +241,28 @@ export default function Studio() {
                     }
                     value={vision}
                     onChange={(e) => setVision(e.target.value)}
-                    className="min-h-[120px] font-mono text-sm resize-none"
+                    className="min-h-[120px] text-sm resize-none"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-mono text-muted-foreground">STIL-HINT (optional)</label>
+                  <label className="text-xs text-muted-foreground">STIL-HINT (optional)</label>
                   <Input
                     placeholder="cinematisch, anime, watercolor, hyperrealistic, dark..."
                     value={style}
                     onChange={(e) => setStyle(e.target.value)}
-                    className="font-mono text-sm"
+                    className="text-sm"
                   />
                 </div>
 
                 {mediaType === "video" && (
                   <div className="space-y-2">
-                    <label className="text-xs font-mono text-muted-foreground">REFERENZ-BILD URL (optional, für image-to-video)</label>
+                    <label className="text-xs text-muted-foreground">REFERENZ-BILD URL (optional, für image-to-video)</label>
                     <Input
                       placeholder="https://example.com/bild.jpg"
                       value={imageUrl}
                       onChange={(e) => setImageUrl(e.target.value)}
-                      className="font-mono text-sm"
+                      className="text-sm"
                     />
                   </div>
                 )}
@@ -269,7 +270,7 @@ export default function Studio() {
                 <Button
                   onClick={handleGeneratePrompt}
                   disabled={!vision.trim() || generatePrompt.isPending}
-                  className="w-full gap-2 font-mono h-12"
+                  className="w-full gap-2 h-12"
                 >
                   {generatePrompt.isPending ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> LUKAS ANALYSIERT...</>
@@ -284,40 +285,40 @@ export default function Studio() {
             {step === "prompt" && generatedPrompt && (
               <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
-                  <div className="text-xs font-mono text-primary mb-2">LUKAS' BEGRÜNDUNG:</div>
+                  <div className="text-xs text-primary mb-2">LUKAS' BEGRÜNDUNG:</div>
                   <p className="text-sm text-muted-foreground leading-relaxed">{generatedPrompt.reasoning}</p>
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-mono text-muted-foreground">GENERIERTER PROMPT (bearbeitbar)</label>
-                    <Badge variant="outline" className="font-mono text-xs">{generatedPrompt.suggestedModel}</Badge>
+                    <label className="text-xs text-muted-foreground">GENERIERTER PROMPT (bearbeitbar)</label>
+                    <Badge variant="outline" className="text-xs">{generatedPrompt.suggestedModel}</Badge>
                   </div>
                   <Textarea
                     value={editedPrompt}
                     onChange={(e) => setEditedPrompt(e.target.value)}
-                    className="min-h-[150px] font-mono text-sm resize-none"
+                    className="min-h-[150px] text-sm resize-none"
                   />
                 </div>
 
                 {generatedPrompt.negativePrompt && (
                   <div className="space-y-2">
-                    <label className="text-xs font-mono text-muted-foreground">NEGATIVE PROMPT</label>
-                    <div className="bg-secondary/50 rounded p-3 text-xs font-mono text-muted-foreground">
+                    <label className="text-xs text-muted-foreground">NEGATIVE PROMPT</label>
+                    <div className="bg-secondary/50 rounded p-3 text-xs text-muted-foreground">
                       {generatedPrompt.negativePrompt}
                     </div>
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-3 text-xs font-mono text-muted-foreground">
+                <div className="grid grid-cols-3 gap-3 text-xs text-muted-foreground">
                   <div className="bg-secondary/50 rounded p-3 text-center">
                     <div className="text-foreground font-medium">{generatedPrompt.aspectRatio ?? "16:9"}</div>
-                    <div>FORMAT</div>
+                    <div>Format</div>
                   </div>
                   {generatedPrompt.duration && (
                     <div className="bg-secondary/50 rounded p-3 text-center">
                       <div className="text-foreground font-medium">{generatedPrompt.duration}s</div>
-                      <div>DAUER</div>
+                      <div>Dauer</div>
                     </div>
                   )}
                   <div className="bg-secondary/50 rounded p-3 text-center">
@@ -327,10 +328,10 @@ export default function Studio() {
                 </div>
 
                 <div className="flex gap-3">
-                  <Button variant="outline" onClick={handleReset} className="font-mono flex-1">
+                  <Button variant="outline" onClick={handleReset} className="flex-1">
                     ZURÜCK
                   </Button>
-                  <Button onClick={handleGenerate} disabled={!editedPrompt.trim()} className="font-mono flex-1 gap-2">
+                  <Button onClick={handleGenerate} disabled={!editedPrompt.trim()} className="flex-1 gap-2">
                     <Send className="w-4 h-4" /> AN HIGGSFIELD SENDEN
                   </Button>
                 </div>
@@ -347,7 +348,7 @@ export default function Studio() {
                   </div>
                 </div>
                 <div className="text-center space-y-2">
-                  <div className="font-mono font-bold text-lg">HIGGSFIELD RENDERT...</div>
+                  <div className="font-bold text-lg">HIGGSFIELD RENDERT...</div>
                   <div className="text-sm text-muted-foreground">Deine Vision wird zum Leben erweckt</div>
                 </div>
               </div>
@@ -358,10 +359,10 @@ export default function Studio() {
               <div className="flex flex-col items-center justify-center py-12 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <CheckCircle2 className="w-16 h-16 text-green-400" />
                 <div className="text-center space-y-2">
-                  <div className="font-mono font-bold text-lg">JOB GESTARTET</div>
+                  <div className="font-bold text-lg">JOB GESTARTET</div>
                   <div className="text-sm text-muted-foreground">Sieh den Status in der Job-Liste rechts</div>
                 </div>
-                <Button onClick={handleReset} className="gap-2 font-mono">
+                <Button onClick={handleReset} className="gap-2">
                   <Wand2 className="w-4 h-4" /> NEUE VISION
                 </Button>
               </div>
@@ -373,7 +374,7 @@ export default function Studio() {
       {/* Right: Job list */}
       <div className="w-full lg:w-80 shrink-0 flex flex-col">
         <div className="border-b border-border p-4">
-          <h2 className="font-mono text-sm font-medium">RENDER_QUEUE</h2>
+          <h2 className="text-sm font-medium">Warteschlange</h2>
           <p className="text-xs text-muted-foreground mt-1">{jobs.length} Jobs total</p>
         </div>
         <ScrollArea className="lg:flex-1 p-4">
@@ -384,7 +385,7 @@ export default function Studio() {
             {jobs.length === 0 && (
               <div className="text-center py-12">
                 <Film className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
-                <p className="text-xs text-muted-foreground font-mono">KEINE_JOBS</p>
+                <p className="text-xs text-muted-foreground">Noch keine Aufträge</p>
               </div>
             )}
           </div>

@@ -31,12 +31,12 @@ export default function Diary() {
     <div className="flex flex-col h-full">
       <PageHeader
         icon={BookOpen}
-        title="SYSTEM_LOGS"
+        title="Tagebuch"
         subtitle="Lukas' persönliche Tagebucheinträge und Reflexionen"
       />
 
       <ScrollArea className="flex-1 p-5 sm:p-6">
-        {isLoading && <div className="text-center text-muted-foreground font-mono py-12">LOADING LOGS...</div>}
+        {isLoading && <div className="text-center text-muted-foreground py-12">Lädt…</div>}
         <div className="max-w-3xl space-y-6">
           {entries.map((entry, idx) => (
             <article key={entry.id} className="relative">
@@ -49,17 +49,17 @@ export default function Diary() {
                 </div>
                 <div className="flex-1 bg-card border border-border rounded-lg p-5 hover:border-primary/20 transition-colors">
                   <div className="flex items-center gap-3 mb-4">
-                    <span className="text-xs font-mono text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       {format(new Date(entry.createdAt), "PPpp", { locale: de })}
                     </span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${MOOD_COLORS[entry.mood] ?? MOOD_COLORS.neutral}`}>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border ${MOOD_COLORS[entry.mood] ?? MOOD_COLORS.neutral}`}>
                       {entry.mood}
                     </span>
-                    <span className={`text-xs font-mono ${ENERGY_COLORS[entry.energy] ?? "text-muted-foreground"}`}>
-                      ENERGY: {entry.energy}
+                    <span className={`text-xs ${ENERGY_COLORS[entry.energy] ?? "text-muted-foreground"}`}>
+                      Energie: {entry.energy}
                     </span>
                   </div>
-                  <div className="text-sm leading-relaxed whitespace-pre-wrap font-mono text-foreground/90">
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">
                     {entry.content}
                   </div>
                 </div>
@@ -69,7 +69,7 @@ export default function Diary() {
           {!isLoading && entries.length === 0 && (
             <div className="text-center py-16">
               <BookOpen className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-              <p className="text-muted-foreground font-mono">KEINE_LOGS_VORHANDEN</p>
+              <p className="text-muted-foreground">Keine Einträge</p>
               <p className="text-xs text-muted-foreground mt-2">Lukas schreibt nach jeder Konversation einen Tagebucheintrag.</p>
             </div>
           )}

@@ -68,7 +68,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         <Card className="w-full max-w-sm">
           <CardHeader className="items-center text-center">
             <TerminalSquare className="w-8 h-8 text-primary mb-2" />
-            <CardTitle className="font-mono">LUKAS</CardTitle>
+            <CardTitle className="text-2xl">Lukas</CardTitle>
             <CardDescription>Zugangscode eingeben, um fortzufahren</CardDescription>
           </CardHeader>
           <CardContent>
@@ -84,7 +84,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                   autoCapitalize="off"
                   autoCorrect="off"
                   spellCheck={false}
-                  className="pr-10 font-mono"
+                  className="pr-10"
                   data-testid="input-access-token"
                 />
                 <button
@@ -98,7 +98,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                 </button>
               </div>
               {tokenInput && (
-                <p className="text-xs text-muted-foreground font-mono">{tokenInput.length} Zeichen eingegeben</p>
+                <p className="text-xs text-muted-foreground">{tokenInput.length} Zeichen eingegeben</p>
               )}
               {error && (
                 <Alert variant="destructive">

@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Trash2, Search, Brain, Star } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { formatDistanceToNow } from "date-fns";
+import { de } from "date-fns/locale";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 const CATEGORIES = ["personal", "preference", "goal", "project", "finance", "gaming", "health", "learning", "trading", "work", "other"];
@@ -76,27 +77,27 @@ export default function Memory() {
     <div className="flex flex-col h-full">
       <PageHeader
         icon={Brain}
-        title="MEMORY_BANK"
+        title="Gedächtnis"
         subtitle={`${memories.length} Erinnerungen gespeichert`}
         actions={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button className="gap-2 font-mono"><Plus className="w-4 h-4" /> NEUE_ERINNERUNG</Button>
+              <Button className="gap-2"><Plus className="w-4 h-4" /> NEUE_ERINNERUNG</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle className="font-mono">ERINNERUNG_SPEICHERN</DialogTitle>
+                <DialogTitle>Erinnerung speichern</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 pt-2">
                 <Textarea
                   placeholder="Was soll Lukas wissen?"
                   value={newContent}
                   onChange={(e) => setNewContent(e.target.value)}
-                  className="min-h-[100px] font-mono text-sm"
+                  className="min-h-[100px] text-sm"
                 />
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-xs font-mono text-muted-foreground">KATEGORIE</label>
+                    <label className="text-xs text-muted-foreground">Kategorie</label>
                     <Select value={newCat} onValueChange={setNewCat}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -105,13 +106,13 @@ export default function Memory() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-mono text-muted-foreground">WICHTIGKEIT (1-10)</label>
+                    <label className="text-xs text-muted-foreground">WICHTIGKEIT (1-10)</label>
                     <Input type="number" min="1" max="10" value={newImportance} onChange={(e) => setNewImportance(e.target.value)} />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-mono text-muted-foreground">TAGS (kommagetrennt)</label>
-                  <Input placeholder="ki, projekt, wichtig" value={newTags} onChange={(e) => setNewTags(e.target.value)} className="font-mono text-sm" />
+                  <label className="text-xs text-muted-foreground">TAGS (kommagetrennt)</label>
+                  <Input placeholder="ki, projekt, wichtig" value={newTags} onChange={(e) => setNewTags(e.target.value)} className="text-sm" />
                 </div>
                 <Button onClick={handleCreate} className="w-full" disabled={!newContent.trim() || createMemory.isPending}>
                   Speichern
@@ -128,11 +129,11 @@ export default function Memory() {
               placeholder="Erinnerungen durchsuchen..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 font-mono text-sm"
+              className="pl-9 text-sm"
             />
           </div>
           <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger className="w-full sm:w-40 font-mono text-sm"><SelectValue placeholder="Kategorie" /></SelectTrigger>
+            <SelectTrigger className="w-full sm:w-40 text-sm"><SelectValue placeholder="Kategorie" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">ALLE</SelectItem>
               {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
@@ -143,7 +144,7 @@ export default function Memory() {
 
       <ScrollArea className="flex-1 p-5 sm:p-6">
         {isLoading && (
-          <div className="text-center text-muted-foreground font-mono py-12">LOADING MEMORY_BANK...</div>
+          <div className="text-center text-muted-foreground py-12">LOADING MEMORY_BANK...</div>
         )}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-5xl">
           {memories.map((m) => (
@@ -158,18 +159,18 @@ export default function Memory() {
                 </button>
               </div>
               <div className="flex items-center gap-2 mt-3 flex-wrap">
-                <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${CATEGORY_COLORS[m.category] ?? "bg-secondary text-secondary-foreground"}`}>
+                <span className={`text-xs px-2 py-0.5 rounded-full border ${CATEGORY_COLORS[m.category] ?? "bg-secondary text-secondary-foreground"}`}>
                   {m.category}
                 </span>
-                <div className="flex items-center gap-1 text-xs text-muted-foreground font-mono">
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
                   <Star className="w-3 h-3" />
                   {m.importance}/10
                 </div>
                 {m.tags?.map((tag) => (
-                  <Badge key={tag} variant="secondary" className="text-xs font-mono px-1.5 py-0">#{tag}</Badge>
+                  <Badge key={tag} variant="secondary" className="text-xs px-1.5 py-0">#{tag}</Badge>
                 ))}
-                <span className="text-xs text-muted-foreground font-mono ml-auto">
-                  {formatDistanceToNow(new Date(m.createdAt), { addSuffix: true })}
+                <span className="text-xs text-muted-foreground ml-auto">
+                  {formatDistanceToNow(new Date(m.createdAt), { addSuffix: true, locale: de })}
                 </span>
               </div>
             </div>
@@ -177,7 +178,7 @@ export default function Memory() {
           {!isLoading && memories.length === 0 && (
             <div className="col-span-2 text-center py-16">
               <Brain className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-              <p className="text-muted-foreground font-mono">MEMORY_BANK_EMPTY</p>
+              <p className="text-muted-foreground">Noch keine Erinnerungen</p>
             </div>
           )}
         </div>

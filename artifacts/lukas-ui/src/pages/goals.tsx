@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Trash2, CheckCircle2, Target, Clock, AlertCircle } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { formatDistanceToNow } from "date-fns";
+import { de } from "date-fns/locale";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -71,27 +72,27 @@ export default function Goals() {
     <div className="flex flex-col h-full">
       <PageHeader
         icon={Target}
-        title="ACTIVE_DIRECTIVES"
+        title="Ziele"
         subtitle={`${activeCount} aktiv — ${completedCount} abgeschlossen`}
         actions={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button className="gap-2 font-mono"><Plus className="w-4 h-4" /> NEUE_DIREKTIVE</Button>
+              <Button className="gap-2"><Plus className="w-4 h-4" /> Neues Ziel</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle className="font-mono">DIREKTIVE_DEFINIEREN</DialogTitle>
+                <DialogTitle>Ziel anlegen</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 pt-2">
-                <Input placeholder="Ziel-Titel" value={title} onChange={(e) => setTitle(e.target.value)} className="font-mono" />
+                <Input placeholder="Ziel-Titel" value={title} onChange={(e) => setTitle(e.target.value)} />
                 <Textarea
                   placeholder="Was genau ist das Ziel? Warum ist es wichtig?"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="min-h-[100px] font-mono text-sm"
+                  className="min-h-[100px] text-sm"
                 />
                 <div className="space-y-2">
-                  <label className="text-xs font-mono text-muted-foreground">PRIORITÄT</label>
+                  <label className="text-xs text-muted-foreground">PRIORITÄT</label>
                   <Select value={priority} onValueChange={setPriority}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -116,7 +117,7 @@ export default function Goals() {
               variant={filter === s ? "default" : "outline"}
               size="sm"
               onClick={() => setFilter(s)}
-              className="font-mono text-xs"
+              className="text-xs"
             >
               {s.toUpperCase()}
             </Button>
@@ -125,7 +126,7 @@ export default function Goals() {
       </PageHeader>
 
       <ScrollArea className="flex-1 p-5 sm:p-6">
-        {isLoading && <div className="text-center text-muted-foreground font-mono py-12">LOADING...</div>}
+        {isLoading && <div className="text-center text-muted-foreground py-12">Lädt…</div>}
         <div className="space-y-4 max-w-3xl">
           {filtered.map((g) => (
             <div key={g.id} className="group bg-card border border-border rounded-lg p-5 hover:border-primary/30 transition-colors">
@@ -136,8 +137,8 @@ export default function Goals() {
                     <h3 className="font-semibold">{g.title}</h3>
                     <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{g.description}</p>
                     <div className="mt-3 p-3 bg-background rounded border border-border/50">
-                      <div className="text-xs font-mono text-muted-foreground mb-1">FORTSCHRITT:</div>
-                      <div className="text-sm font-mono">{g.progress}</div>
+                      <div className="text-xs text-muted-foreground mb-1">Fortschritt:</div>
+                      <div className="text-sm">{g.progress}</div>
                     </div>
                   </div>
                 </div>
@@ -148,7 +149,7 @@ export default function Goals() {
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
-                  <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${PRIORITY_COLORS[g.priority] ?? ""}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${PRIORITY_COLORS[g.priority] ?? ""}`}>
                     {g.priority}
                   </span>
                 </div>
@@ -156,21 +157,21 @@ export default function Goals() {
               <div className="flex items-center gap-3 mt-4 pt-3 border-t border-border/50">
                 {g.status === "active" && (
                   <>
-                    <Button size="sm" variant="outline" onClick={() => handleStatusChange(g.id, "completed")} className="gap-1 text-xs font-mono text-green-400 border-green-400/20 hover:bg-green-400/10">
+                    <Button size="sm" variant="outline" onClick={() => handleStatusChange(g.id, "completed")} className="gap-1 text-xs text-green-400 border-green-400/20 hover:bg-green-400/10">
                       <CheckCircle2 className="w-3 h-3" /> COMPLETE
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => handleStatusChange(g.id, "failed")} className="gap-1 text-xs font-mono text-red-400 border-red-400/20 hover:bg-red-400/10">
+                    <Button size="sm" variant="outline" onClick={() => handleStatusChange(g.id, "failed")} className="gap-1 text-xs text-red-400 border-red-400/20 hover:bg-red-400/10">
                       <AlertCircle className="w-3 h-3" /> FAIL
                     </Button>
                   </>
                 )}
                 {g.status !== "active" && (
-                  <Button size="sm" variant="outline" onClick={() => handleStatusChange(g.id, "active")} className="gap-1 text-xs font-mono">
+                  <Button size="sm" variant="outline" onClick={() => handleStatusChange(g.id, "active")} className="gap-1 text-xs">
                     REAKTIVIEREN
                   </Button>
                 )}
-                <span className="text-xs text-muted-foreground font-mono ml-auto">
-                  {formatDistanceToNow(new Date(g.createdAt), { addSuffix: true })}
+                <span className="text-xs text-muted-foreground ml-auto">
+                  {formatDistanceToNow(new Date(g.createdAt), { addSuffix: true, locale: de })}
                 </span>
               </div>
             </div>
@@ -178,7 +179,7 @@ export default function Goals() {
           {!isLoading && filtered.length === 0 && (
             <div className="text-center py-16">
               <Target className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-              <p className="text-muted-foreground font-mono">KEINE_DIREKTIVEN</p>
+              <p className="text-muted-foreground">Noch keine Ziele</p>
             </div>
           )}
         </div>

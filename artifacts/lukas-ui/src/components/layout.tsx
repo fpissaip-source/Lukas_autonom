@@ -9,7 +9,6 @@ import {
   BookOpen,
   MessageSquare,
   Film,
-  TerminalSquare,
   LogOut,
   AlertTriangle,
   ShieldCheck,
@@ -36,12 +35,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }, [location, isMobile]);
 
   const navItems = [
-    { href: "/", label: "Dashboard", icon: Activity },
-    { href: "/chat", label: "Comm Link", icon: MessageSquare },
+    { href: "/", label: "Übersicht", icon: Activity },
+    { href: "/chat", label: "Chat", icon: MessageSquare },
     { href: "/studio", label: "Studio", icon: Film },
-    { href: "/memory", label: "Memory Bank", icon: Brain },
-    { href: "/goals", label: "Directives", icon: Target },
-    { href: "/diary", label: "Logs", icon: BookOpen },
+    { href: "/memory", label: "Gedächtnis", icon: Brain },
+    { href: "/goals", label: "Ziele", icon: Target },
+    { href: "/diary", label: "Tagebuch", icon: BookOpen },
     { href: "/proposals", label: "Vorschläge", icon: Lightbulb },
     { href: "/approvals", label: "Freigaben", icon: ShieldCheck },
     { href: "/mcp", label: "MCP", icon: Plug },
@@ -50,13 +49,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const sidebarContent = (
     <>
-      <div className="p-6 border-b border-border flex items-center gap-3">
-        <TerminalSquare className="w-6 h-6 text-primary shrink-0" />
+      <div className="h-16 px-5 border-b border-border flex items-center gap-3">
+        <div className="w-8 h-8 rounded-lg bg-primary/15 border border-primary/25 flex items-center justify-center shrink-0">
+          <span className="text-sm font-semibold text-primary">L</span>
+        </div>
         <div className="flex flex-col min-w-0">
-          <span className="font-mono font-bold tracking-tight">LUKAS</span>
-          <span className="text-xs text-muted-foreground flex items-center gap-2">
-            SYS.STATUS:
-            <span className={`inline-block w-2 h-2 rounded-full ${health?.status === 'ok' ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
+          <span className="font-semibold tracking-tight leading-tight">Lukas</span>
+          <span className="text-xs text-muted-foreground flex items-center gap-1.5 leading-tight">
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${health?.status === 'ok' ? 'bg-emerald-400' : 'bg-red-400'}`} />
+            {health?.status === 'ok' ? 'online' : 'offline'}
           </span>
         </div>
         {isMobile && (
@@ -80,8 +81,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
               href={item.href}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors duration-200 ${
                 isActive
-                  ? "bg-primary text-primary-foreground font-medium"
-                  : "text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
+                  ? "bg-secondary text-foreground font-medium"
+                  : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
               }`}
             >
               <item.icon className="w-4 h-4 shrink-0" />
@@ -118,8 +119,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
             >
               <Menu className="w-6 h-6" />
             </button>
-            <span className="font-mono font-bold tracking-tight">LUKAS</span>
-            <span className={`inline-block w-2 h-2 rounded-full ml-auto ${health?.status === 'ok' ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
+            <span className="font-semibold tracking-tight">Lukas</span>
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ml-auto ${health?.status === 'ok' ? 'bg-emerald-400' : 'bg-red-400'}`} />
           </div>
 
           {navOpen && (
@@ -148,7 +149,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </aside>
 
           <main className="flex-1 min-w-0 flex flex-col h-full overflow-hidden relative">
-            <div className="absolute inset-0 pointer-events-none opacity-[0.02] bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjZmZmIiAvPgo8cmVjdCB3aWR0aD0iMSIgaGVpZ2h0PSIxIiBmaWxsPSIjMDAwIiAvPgo8L3N2Zz4=')]"></div>
             <div className="flex-1 min-w-0 overflow-y-auto">{children}</div>
           </main>
         </>

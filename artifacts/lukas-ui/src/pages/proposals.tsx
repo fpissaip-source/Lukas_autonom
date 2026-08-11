@@ -90,7 +90,7 @@ function OpenProposal({
         <div className="flex items-center gap-2 flex-wrap">
           <Lightbulb className="w-4 h-4 text-amber-300 shrink-0" />
           <span className="font-medium">{proposal.title}</span>
-          <span className="text-[11px] font-mono text-muted-foreground">#{proposal.id}</span>
+          <span className="text-[11px] text-muted-foreground">#{proposal.id}</span>
         </div>
         <p className="text-sm text-muted-foreground mt-0.5">
           {proposal.repo} ·{" "}
@@ -105,14 +105,14 @@ function OpenProposal({
 
       <div className="space-y-3">
         <div>
-          <h3 className="text-xs font-mono text-muted-foreground mb-1">WAS PASSIERT</h3>
+          <h3 className="text-xs text-muted-foreground mb-1">WAS PASSIERT</h3>
           <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
             {proposal.summary}
           </p>
         </div>
         {proposal.reasoning && (
           <div>
-            <h3 className="text-xs font-mono text-muted-foreground mb-1">WARUM</h3>
+            <h3 className="text-xs text-muted-foreground mb-1">Warum</h3>
             <p className="text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap break-words">
               {proposal.reasoning}
             </p>
@@ -123,7 +123,7 @@ function OpenProposal({
       <div className="border-t border-border pt-3">
         <button
           onClick={() => setShowFiles((v) => !v)}
-          className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
         >
           {showFiles ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           {proposal.files.length} {proposal.files.length === 1 ? "DATEI" : "DATEIEN"}
@@ -136,7 +136,7 @@ function OpenProposal({
               <div key={f.path} className="border border-border rounded-md overflow-hidden">
                 <button
                   onClick={() => setOpenFile(openFile === f.path ? null : f.path)}
-                  className="w-full text-left px-3 py-2 text-xs font-mono hover:bg-secondary/50 flex items-center justify-between gap-2"
+                  className="w-full text-left px-3 py-2 text-xs hover:bg-secondary/50 flex items-center justify-between gap-2"
                 >
                   <span className="truncate">{f.path}</span>
                   <span className="text-muted-foreground shrink-0">
@@ -250,9 +250,9 @@ export default function Proposals() {
       <ScrollArea className="flex-1 p-5 sm:p-6">
         <div className="max-w-3xl space-y-6">
           {loading && rows.length === 0 && (
-            <div className="text-center text-muted-foreground font-mono py-12">LADE…</div>
+            <div className="text-center text-muted-foreground py-12">Lädt…</div>
           )}
-          {error && <div className="text-destructive font-mono text-sm">Fehler beim Laden: {error}</div>}
+          {error && <div className="text-destructive text-sm">Fehler beim Laden: {error}</div>}
 
           {!loading && open.length === 0 && (
             <div className="text-center py-10">
@@ -269,7 +269,7 @@ export default function Proposals() {
 
           {rest.length > 0 && (
             <div className="space-y-2 pt-2">
-              <h2 className="text-sm font-mono text-muted-foreground">VERLAUF</h2>
+              <h2 className="text-sm text-muted-foreground">Verlauf</h2>
               {rest.map((r) => (
                 <div key={r.id} className="bg-card/50 border border-border rounded-md px-3 py-2.5 space-y-1">
                   <div className="flex items-center justify-between gap-3 text-sm">

@@ -158,7 +158,7 @@ export function VoicePanel({ autoStart = false }: { autoStart?: boolean }) {
           {isActive ? "Beenden" : "Sprechen"}
         </Button>
 
-        <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground min-w-0">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
           {status === "speaking" && <Volume2 className="w-3.5 h-3.5 shrink-0 text-primary animate-pulse" />}
           {status === "listening" && <Ear className="w-3.5 h-3.5 shrink-0 text-primary animate-pulse" />}
           <span className="truncate">{errorMsg ?? statusLabel[status]}</span>
@@ -170,7 +170,7 @@ export function VoicePanel({ autoStart = false }: { autoStart?: boolean }) {
           <div className="space-y-1.5 text-xs">
             {transcript.map((t, i) => (
               <div key={i} className={t.role === "user" ? "text-foreground" : "text-muted-foreground"}>
-                <span className="font-mono opacity-60">{t.role === "user" ? "DU: " : "LUKAS: "}</span>
+                <span className="opacity-60">{t.role === "user" ? "DU: " : "LUKAS: "}</span>
                 {t.text}
               </div>
             ))}

@@ -79,7 +79,43 @@ export const TOOL_RISK: Record<string, RiskTier> = {
  */
 export const DEFAULT_RISK: RiskTier = "R2";
 
+/*
+ * Risikostufen der angebundenen MCP-Server, nach Kuerzel.
+ *
+ * riskFor() muss synchron bleiben — es sitzt im heissen Pfad jedes
+ * Tool-Aufrufs, und eine Datenbankabfrage pro Aufruf waere hier fehl am Platz.
+ * Der Cache wird von allLukasTools() aufgefrischt, das ohnehin bei jedem Zug
+ * die verbundenen Server liest.
+ *
+ * Faellt die Auffrischung aus oder ist ein Server unbekannt, gilt DEFAULT_RISK
+ * (R2) — also Freigabepflicht. Fail closed: ein leerer Cache darf niemals
+ * dazu fuehren, dass fremde Werkzeuge ohne Rueckfrage laufen.
+ */
+const mcpRiskBySlug = new Map<string, RiskTier>();
+
+export function setMcpRiskTiers(servers: Array<{ slug: string; riskTier: string }>): void {
+  mcpRiskBySlug.clear();
+  for (const s of servers) {
+    if (s.riskTier === "R1" || s.riskTier === "R2" || s.riskTier === "R3") {
+      mcpRiskBySlug.set(s.slug, s.riskTier);
+    }
+  }
+}
+
 export function riskFor(tool: string): RiskTier {
+  /*
+   * Werkzeuge fremder MCP-Server. Was ein Server unter "create_event" oder
+   * "send_message" wirklich tut, wissen wir nicht — die Beschreibung stammt
+   * von ihm selbst. Deshalb die Stufe, die Issa diesem Server gegeben hat,
+   * und im Zweifel R2.
+   */
+  if (tool.startsWith("mcp__")) {
+    const rest = tool.slice("mcp__".length);
+    const sep = rest.indexOf("__");
+    const slug = sep > 0 ? rest.slice(0, sep) : "";
+    return mcpRiskBySlug.get(slug) ?? DEFAULT_RISK;
+  }
+
   /*
    * execute_command ist nur deshalb R1, WEIL der Befehl in einem Container
    * landet, der die Produktions-Secrets nicht sehen kann. Diese Begründung

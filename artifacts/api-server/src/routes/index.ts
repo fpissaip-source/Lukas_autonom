@@ -9,6 +9,7 @@ import attachmentsRouter from "./attachments";
 import whatsappRouter from "./whatsapp";
 import approvalsRouter from "./approvals";
 import proposalsRouter from "./proposals";
+import mcpRouter from "./mcp";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(attachmentsRouter);
 router.use(whatsappRouter);
 router.use(approvalsRouter);
 router.use(proposalsRouter);
+router.use(mcpRouter);
 
 export default router;

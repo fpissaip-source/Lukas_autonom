@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   ShieldCheck,
   Lightbulb,
+  Plug,
   Menu,
   X
 } from "lucide-react";
@@ -43,6 +44,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/diary", label: "Logs", icon: BookOpen },
     { href: "/proposals", label: "Vorschläge", icon: Lightbulb },
     { href: "/approvals", label: "Freigaben", icon: ShieldCheck },
+    { href: "/mcp", label: "MCP", icon: Plug },
     { href: "/diagnostics", label: "Diagnose", icon: AlertTriangle },
   ];
 

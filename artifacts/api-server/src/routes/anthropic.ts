@@ -3,7 +3,7 @@ import type OpenAI from "openai";
 import { db } from "@workspace/db";
 import { conversations, messages, attachments as attachmentsTable } from "@workspace/db";
 import { eq, desc, asc, and, isNull } from "drizzle-orm";
-import { LUKAS_TOOLS, executeLukasTool } from "../lib/lukas-tools";
+import { allLukasTools, executeLukasTool } from "../lib/lukas-tools";
 import { recordEmotion } from "../lib/emotion-engine";
 import { maybeReflect } from "../lib/reflection";
 import { buildSystemPrompt } from "../lib/system-prompt";
@@ -212,7 +212,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       const result = await callLukasModel({
         route,
         maxTokens: 8192,
-        tools: LUKAS_TOOLS,
+        tools: await allLukasTools(),
         messages: convo,
       });
 

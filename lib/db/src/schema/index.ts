@@ -3,6 +3,7 @@ export * from "./messages";
 export * from "./attachments";
 export * from "./approvals";
 export * from "./proposals";
+export * from "./mcp";
 export * from "./lukas";
 export * from "./trades";
 export * from "./bankroll_history";

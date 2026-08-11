@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/check-soul-tools.mjs && node scripts/check-consent.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/ssh2": "^1.15.5",
     "@workspace/api-zod": "*",
     "@workspace/db": "*",

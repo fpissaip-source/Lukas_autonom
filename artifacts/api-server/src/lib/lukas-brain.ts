@@ -1,5 +1,5 @@
 import type OpenAI from "openai";
-import { LUKAS_TOOLS, executeLukasTool } from "./lukas-tools";
+import { allLukasTools, executeLukasTool } from "./lukas-tools";
 import { buildSystemPrompt } from "./system-prompt";
 import { recordEmotion } from "./emotion-engine";
 import { logger } from "./logger";
@@ -40,7 +40,7 @@ export async function runLukasTurn(opts: {
 }): Promise<string> {
   const systemPrompt =
     opts.systemPromptOverride ?? (await buildSystemPrompt(opts.userText.slice(0, 1000)));
-  const tools = opts.tools ?? LUKAS_TOOLS;
+  const tools = opts.tools ?? (await allLukasTools());
   const convo: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
     ...opts.history,

@@ -10,9 +10,20 @@ import { logger } from "../lib/logger";
  *   /whatsapp/webhook   Meta kann keinen Bearer-Token mitschicken; abgesichert
  *                       ist der Endpunkt durch die HMAC-Signaturpruefung
  *                       (X-Hub-Signature-256) und die Absender-Allowlist.
+ *   /lukas/mcp/callback OAuth-Rueckleitung aus dem Browser, nachdem Issa sich
+ *                       bei einem MCP-Anbieter angemeldet hat. Traegt aus
+ *                       demselben Grund keinen Token; abgesichert ueber den
+ *                       einmaligen state-Parameter, den wir beim Start des
+ *                       Vorgangs erzeugt und in der Serverzeile hinterlegt
+ *                       haben.
  */
 function isOpenPath(path: string): boolean {
-  return path === "/healthz" || path.startsWith("/public/") || path === "/whatsapp/webhook";
+  return (
+    path === "/healthz" ||
+    path.startsWith("/public/") ||
+    path === "/whatsapp/webhook" ||
+    path === "/lukas/mcp/callback"
+  );
 }
 
 let warnedAboutMissingToken = false;

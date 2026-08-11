@@ -13,6 +13,7 @@ import {
 import { openEpisode, closeEpisode, upsertClaim } from "./memory-writer";
 import { queryRows } from "./vps-db";
 import { logger } from "./logger";
+import { directModel } from "./ai/model-router";
 
 const REFLECTION_COOLDOWN_MS = 6 * 60 * 60 * 1000; // max. eine Auto-Reflexion alle 6h
 
@@ -140,7 +141,7 @@ Antworte NUR mit einem JSON-Objekt, kein Markdown:
 Zu claims: Extrahiere 0-4 konkrete, merkwürdige Aussagen aus den Gesprächen. evidenceLevel: 0=dein Gedanke, 1=deine Beobachtung aus dem Gespräch. NIEMALS höher.`;
 
   const response = await openai.chat.completions.create({
-    model: process.env.LUKAS_CORE_MODEL ?? "gpt-4o",
+    model: directModel("reasoning"),
     max_completion_tokens: 2048,
     messages: [{ role: "user", content: prompt }],
   });

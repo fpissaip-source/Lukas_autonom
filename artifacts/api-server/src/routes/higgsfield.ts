@@ -7,6 +7,8 @@ import { HIGGSFIELD_PROMPT_SYSTEM } from "../lib/lukas-soul.js";
 import { recordEmotion } from "../lib/emotion-engine";
 import { logger } from "../lib/logger";
 import { recordDebugEvent } from "../lib/debug-log";
+import { findServerWithTool, callMcpTool } from "../lib/mcp";
+import { directModel } from "../lib/ai/model-router";
 
 const router = Router();
 
@@ -35,7 +37,7 @@ Erstelle einen cinematischen, detaillierten Prompt auf Englisch der das Beste au
 Antworte NUR mit dem JSON-Objekt.`;
 
     const response = await openai.chat.completions.create({
-      model: process.env.LUKAS_CORE_MODEL ?? "gpt-4o",
+      model: directModel("general"),
       max_completion_tokens: 8192,
       messages: [
         { role: "system", content: HIGGSFIELD_PROMPT_SYSTEM },
@@ -92,6 +94,77 @@ router.post("/higgsfield/generate", async (req, res) => {
       })
       .returning();
 
+    /*
+     * Zuerst MCP.
+     *
+     * Das Studio rief Higgsfield direkt per REST-API und eigenem Schluessel
+     * auf, obwohl daneben eine fertige MCP-Verbindung mit OAuth stand. Zwei
+     * Wege zum selben Anbieter, von denen nur einer gepflegt wird, laufen
+     * frueher oder spaeter auseinander — und der Schluessel-Weg braucht einen
+     * zusaetzlichen Zugang, den man separat erneuern muss.
+     *
+     * Ist kein MCP-Server verbunden, bleibt der alte Weg als Rueckfall. Wer
+     * bisher nur den Schluessel gesetzt hat, merkt von der Umstellung nichts.
+     */
+    const viaMcp = await findServerWithTool(
+      mediaType === "video" ? "generate_video" : "generate_image",
+    ).catch(() => null);
+
+    if (viaMcp) {
+      try {
+        const args: Record<string, unknown> = { prompt };
+        if (imageUrl) args.image_url = imageUrl;
+        if (aspectRatio) args.aspect_ratio = aspectRatio;
+        if (duration && mediaType === "video") args.duration = duration;
+        if (resolution) args.resolution = resolution;
+        // model kommt aus der Studio-Auswahl; der MCP-Server nimmt es als Hinweis.
+        if (model) args.model = model;
+
+        const text = await callMcpTool(viaMcp.server.id, viaMcp.tool, args);
+
+        // MCP-Antworten sind Text. Die erste enthaltene Medien-URL ist das
+        // Ergebnis; findet sich keine, laeuft der Auftrag beim Anbieter noch
+        // und der Rohtext bleibt als Beleg stehen.
+        const url = text.match(/https?:\/\/[^\s"'<>)]+\.(?:png|jpe?g|webp|gif|mp4|webm|mov)/i)?.[0];
+        await db
+          .update(mediaJobsTable)
+          .set({
+            requestId: `mcp:${viaMcp.server.slug}`,
+            status: url ? "completed" : "processing",
+            resultUrl: url ?? null,
+            error: url ? null : text.slice(0, 1000),
+            updatedAt: new Date(),
+          })
+          .where(eq(mediaJobsTable.id, job.id));
+        job.requestId = `mcp:${viaMcp.server.slug}`;
+        job.status = url ? "completed" : "processing";
+        job.resultUrl = url ?? null;
+
+        return void res.status(202).json({
+          ...job,
+          createdAt: job.createdAt.toISOString(),
+          updatedAt: job.updatedAt.toISOString(),
+        });
+      } catch (mcpErr) {
+        const reason = `MCP-Server "${viaMcp.server.name}": ${
+          mcpErr instanceof Error ? mcpErr.message : String(mcpErr)
+        }`;
+        logger.error({ err: mcpErr, model }, reason);
+        recordDebugEvent("higgsfield/generate", reason);
+        await db
+          .update(mediaJobsTable)
+          .set({ status: "failed", error: reason, updatedAt: new Date() })
+          .where(eq(mediaJobsTable.id, job.id));
+        job.status = "failed";
+        job.error = reason;
+        return void res.status(202).json({
+          ...job,
+          createdAt: job.createdAt.toISOString(),
+          updatedAt: job.updatedAt.toISOString(),
+        });
+      }
+    }
+
     if (apiKey) {
       try {
         const body: Record<string, unknown> = { prompt };
@@ -145,9 +218,10 @@ router.post("/higgsfield/generate", async (req, res) => {
         job.error = reason;
       }
     } else {
-      // Kein API-Key konfiguriert — ehrlich als failed markieren statt den Job
-      // für immer auf "processing" hängen zu lassen.
-      const reason = "HIGGSFIELD_API_KEY ist nicht gesetzt — in den Railway-Variablen hinterlegen.";
+      // Weder MCP-Verbindung noch Schluessel — ehrlich als failed markieren
+      // statt den Job für immer auf "processing" hängen zu lassen.
+      const reason =
+        "Kein Weg zu Higgsfield: unter „MCP“ ist kein Server mit generate_image/generate_video verbunden, und HIGGSFIELD_API_KEY ist auch nicht gesetzt.";
       recordDebugEvent("higgsfield/generate", reason);
       await db
         .update(mediaJobsTable)
@@ -181,7 +255,15 @@ router.get("/higgsfield/status/:requestId", async (req, res) => {
 
     if (!job) return void res.status(404).json({ error: "Job not found" });
 
-    if (apiKey && job.status === "processing" && job.requestId) {
+    /*
+     * Auftraege ueber MCP tragen als requestId "mcp:<server>". Die gehoert
+     * nicht der Higgsfield-REST-API — sie hier weiterzureichen wuerde einen
+     * Abruf auf /requests/mcp:.../status ausloesen und jedes Mal in einen
+     * 404 laufen. Der MCP-Server liefert sein Ergebnis bereits im Tool-Aufruf.
+     */
+    const ueberMcp = job.requestId?.startsWith("mcp:") ?? false;
+
+    if (!ueberMcp && apiKey && job.status === "processing" && job.requestId) {
       try {
         const response = await fetch(
           `${HIGGSFIELD_BASE}/requests/${job.requestId}/status`,

@@ -267,3 +267,28 @@ export async function callMcpTool(
 export async function activeServers(): Promise<McpServer[]> {
   return db.select().from(mcpServers).where(eq(mcpServers.status, "connected"));
 }
+
+/*
+ * Einen verbundenen Server suchen, der ein bestimmtes Werkzeug anbietet.
+ *
+ * Damit koennen auch Teile des Dashboards MCP nutzen, die nicht ueber Lukas'
+ * Werkzeugkasten laufen — konkret das Studio. Das rief Higgsfield bisher
+ * direkt per REST-API und eigenem Schluessel auf, obwohl daneben eine fertige
+ * MCP-Verbindung mit OAuth stand. Zwei Wege zum selben Anbieter, von denen nur
+ * einer gepflegt wird, ist genau die Sorte Doppelung, die spaeter auseinander
+ * laeuft.
+ *
+ * Die erste Uebereinstimmung gewinnt; gibt es keine, liefert das null und der
+ * Aufrufer entscheidet, ob er einen Ersatzweg hat.
+ */
+export async function findServerWithTool(
+  ...toolNames: string[]
+): Promise<{ server: McpServer; tool: string } | null> {
+  for (const server of await activeServers()) {
+    if (!server.enabled) continue;
+    for (const name of toolNames) {
+      if (server.tools.some((t) => t.name === name)) return { server, tool: name };
+    }
+  }
+  return null;
+}

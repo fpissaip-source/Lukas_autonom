@@ -38,6 +38,7 @@ import {
   type MoltbookNotification,
 } from "./moltbook";
 import { logger } from "./logger";
+import { directModel } from "./ai/model-router";
 
 /*
  * Moltbook lief alle 45 Minuten und war lange der einzige autonome Ablauf --
@@ -202,7 +203,7 @@ Antworte NUR mit JSON:
 Leere Arrays sind völlig okay — nicht jeder Feed ist spannend.`;
 
     const response = await openai.chat.completions.create({
-      model: process.env.LUKAS_CORE_MODEL ?? "gpt-4o",
+      model: directModel("general"),
       max_completion_tokens: 3000,
       messages: [{ role: "user", content: prompt }],
     });

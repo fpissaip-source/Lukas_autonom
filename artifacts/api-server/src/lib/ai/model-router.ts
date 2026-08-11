@@ -174,3 +174,17 @@ export function routeLukasVoiceModel(): ModelRoute {
     nonEmpty(process.env.LUKAS_MODEL_VOICE, process.env.LUKAS_MODEL_GENERAL) ?? `openai:${core}`;
   return fallback(parseModelSpec(spec, "general", "stabile Lukas-Ausgabestimme"));
 }
+
+/*
+ * Modell-ID fuer direkte OpenAI-Aufrufe, die nicht durch callLukasModel gehen
+ * (Reflexion, Moltbook-Entscheidung, Studio-Prompt).
+ *
+ * Diese Stellen hatten `process.env.LUKAS_CORE_MODEL ?? "gpt-4o"` fest
+ * eingebaut. Seit LUKAS_CORE_MODEL normalerweise leer ist, waeren sie damit
+ * dauerhaft auf gpt-4o haengengeblieben, waehrend der Chat laengst auf der
+ * 5.6-Familie laeuft — zwei Modellstaende im selben System, ohne dass es
+ * jemandem auffaellt.
+ */
+export function directModel(profile: ModelProfile = "general"): string {
+  return configured(profile, "direkter Aufruf ohne Router").model;
+}

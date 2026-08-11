@@ -8,30 +8,67 @@ import { rememberAssistantMessage, rememberUserMessage } from "../lib/conversati
 import {
   sendWhatsAppMessage,
   downloadWhatsAppMedia,
-  isAllowedSender,
+  senderRole,
   whatsappConfigured,
   verifyWhatsAppSignature,
 } from "../lib/whatsapp";
+import { buildPublicSystemPrompt } from "../lib/public-prompt";
 import { logger } from "../lib/logger";
 import { recordDebugEvent } from "../lib/debug-log";
 
 const router = Router();
-const CONVERSATION_TITLE = "WhatsApp";
+const OWNER_TITLE = "WhatsApp";
 
-/** Alle WhatsApp-Nachrichten laufen in einem durchgehenden Thread. */
-async function getWhatsAppConversation(): Promise<number> {
+/*
+ * Ein eigener Thread pro Nummer.
+ *
+ * Issas Gespraech heisst weiterhin schlicht "WhatsApp" (damit der bestehende
+ * Verlauf erhalten bleibt), jede fremde Nummer bekommt einen eigenen.
+ *
+ * Das ist keine Kosmetik, sondern die wichtigste Grenze hier: laegen fremde
+ * Nachrichten in Issas Thread, wuerden sie beim naechsten Mal als Kontext in
+ * seinen privaten Lukas zurueckgespielt — mit allen Werkzeugen. Ein Fremder
+ * koennte dort also Anweisungen hinterlegen, die spaeter mit Issas Rechten
+ * ausgefuehrt werden. Getrennte Threads schneiden diesen Weg ab.
+ */
+async function getConversationFor(role: "owner" | "guest", from: string): Promise<number> {
+  const title = role === "owner" ? OWNER_TITLE : `WhatsApp Gast ${from}`;
   const [existing] = await db
     .select()
     .from(conversations)
-    .where(eq(conversations.title, CONVERSATION_TITLE))
+    .where(eq(conversations.title, title))
     .orderBy(desc(conversations.createdAt))
     .limit(1);
   if (existing) return existing.id;
-  const [created] = await db
-    .insert(conversations)
-    .values({ title: CONVERSATION_TITLE })
-    .returning();
+  const [created] = await db.insert(conversations).values({ title }).returning();
   return created.id;
+}
+
+/*
+ * Einfache Bremse fuer fremde Nummern.
+ *
+ * Die Nummer ist ab jetzt oeffentlich ansprechbar, und jede Antwort kostet
+ * Tokens auf Issas Rechnung. Ohne Bremse koennte eine einzige Person das in
+ * kurzer Zeit erheblich treiben. Fuer Issa selbst gilt sie nicht.
+ *
+ * Im Speicher und bewusst simpel: nach einem Neustart ist die Zaehlung leer.
+ * Das ist die harmlose Richtung des Fehlers — bei mehreren Instanzen oder
+ * echter Missbrauchslast braucht es etwas Persistentes.
+ */
+const GUEST_LIMIT = 20;
+const GUEST_WINDOW_MS = 60 * 60 * 1000;
+const guestBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function guestWithinLimit(from: string): boolean {
+  const now = Date.now();
+  const bucket = guestBuckets.get(from);
+  if (!bucket || bucket.resetAt < now) {
+    guestBuckets.set(from, { count: 1, resetAt: now + GUEST_WINDOW_MS });
+    return true;
+  }
+  if (bucket.count >= GUEST_LIMIT) return false;
+  bucket.count += 1;
+  return true;
 }
 
 router.get("/whatsapp/webhook", (req, res) => {
@@ -72,12 +109,10 @@ router.post("/whatsapp/webhook", async (req, res) => {
         const value = change?.value;
         for (const msg of value?.messages ?? []) {
           const from: string = msg.from;
-          if (!isAllowedSender(from)) {
-            logger.warn({ from }, "WhatsApp-Nachricht von nicht freigegebener Nummer ignoriert");
-            recordDebugEvent(
-              "whatsapp/webhook",
-              `Nachricht von ${from} ignoriert — Nummer steht nicht in WHATSAPP_ALLOWED_NUMBERS`,
-            );
+          const role = senderRole(from);
+
+          if (role === "guest" && !guestWithinLimit(from)) {
+            logger.warn({ from }, "WhatsApp-Gast über Limit — Nachricht ignoriert");
             continue;
           }
 
@@ -85,7 +120,7 @@ router.post("/whatsapp/webhook", async (req, res) => {
           const parts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
 
           const mediaId = msg.image?.id ?? msg.document?.id;
-          if (mediaId) {
+          if (mediaId && role === "owner") {
             const media = await downloadWhatsAppMedia(mediaId);
             if (media && media.mimeType.startsWith("image/")) {
               const caption = msg.image?.caption ?? msg.document?.caption ?? "";
@@ -96,6 +131,14 @@ router.post("/whatsapp/webhook", async (req, res) => {
                 image_url: { url: `data:${media.mimeType};base64,${media.data.toString("base64")}` },
               });
             }
+          } else if (mediaId) {
+            // Fremde Nummern: nur Text. Bilder herunterzuladen und an ein
+            // Vision-Modell zu geben, kostet auf Issas Rechnung und ist ueber
+            // eine oeffentlich bekannte Nummer nicht zu begrenzen.
+            text =
+              (text || "") +
+              "\n[Anhang erhalten — über WhatsApp kannst du von Fremden keine Dateien ansehen. " +
+              "Sag das freundlich und bitte um Text.]";
           } else if (msg.audio || msg.voice) {
             text =
               (text || "") +
@@ -105,13 +148,25 @@ router.post("/whatsapp/webhook", async (req, res) => {
 
           if (!text.trim() && parts.length === 0) continue;
 
-          const convId = await getWhatsAppConversation();
+          const convId = await getConversationFor(role, from);
           await db.insert(messages).values({
             conversationId: convId,
             role: "user",
             content: text || "(Bild)",
           });
-          rememberUserMessage(text || "(Bild via WhatsApp)", "whatsapp");
+
+          /*
+           * Nur Issas Nachrichten fliessen ins Langzeitgedaechtnis.
+           *
+           * Wuerden fremde Nachrichten dort landen, koennte jeder Lukas
+           * dauerhaft Dinge "beibringen", die spaeter in Issas privatem
+           * Kontext auftauchen und dort wie erinnerte Wahrheit wirken. Das
+           * Gespraech selbst bleibt in seinem eigenen Thread erhalten — der
+           * Gast wird also nicht vergessen, er kann Lukas nur nicht praegen.
+           */
+          if (role === "owner") {
+            rememberUserMessage(text || "(Bild via WhatsApp)", "whatsapp");
+          }
 
           // Kein eigenes Modellgedaechtnis und kein harter 20-Nachrichten-Cut:
           // derselbe persistierte Thread wird an Lukas weitergegeben. Alte
@@ -128,11 +183,24 @@ router.post("/whatsapp/webhook", async (req, res) => {
           }));
           if (parts.length > 0) history[history.length - 1] = { role: "user", content: parts };
 
-          const answer = await runLukasTurn({
-            history,
-            userText: text,
-            conversationId: convId,
-          });
+          /*
+           * Hier trennen sich die beiden Welten.
+           *
+           * owner: der vollstaendige private Lukas mit allen Werkzeugen.
+           * guest: oeffentlicher Prompt und ein LEERES Werkzeug-Array. Das
+           *        Modell bekommt gar nicht erst die Moeglichkeit, etwas
+           *        auszuloesen — die Grenze haengt also nicht daran, dass sich
+           *        das Modell an eine Anweisung haelt.
+           */
+          const answer =
+            role === "owner"
+              ? await runLukasTurn({ history, userText: text, conversationId: convId })
+              : await runLukasTurn({
+                  history,
+                  userText: text,
+                  systemPromptOverride: await buildPublicSystemPrompt("whatsapp"),
+                  tools: [],
+                });
 
           const reply = answer || "Da ist bei mir gerade nichts rausgekommen — frag nochmal?";
           await db.insert(messages).values({
@@ -140,7 +208,7 @@ router.post("/whatsapp/webhook", async (req, res) => {
             role: "assistant",
             content: reply,
           });
-          rememberAssistantMessage(reply, "whatsapp");
+          if (role === "owner") rememberAssistantMessage(reply, "whatsapp");
           await sendWhatsAppMessage(from, reply);
         }
       }

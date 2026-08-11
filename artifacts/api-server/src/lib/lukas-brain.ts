@@ -23,8 +23,24 @@ export async function runLukasTurn(opts: {
   history: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
   userText: string;
   conversationId?: number;
+  /*
+   * Fertiger System-Prompt statt Issas privatem. Wird fuer Gespraeche mit
+   * Fremden benutzt (WhatsApp von einer unbekannten Nummer): dann darf NICHTS
+   * Privates in den Kontext, also auch nicht ueber buildSystemPrompt().
+   */
+  systemPromptOverride?: string;
+  /*
+   * Werkzeuge fuer diesen Durchlauf. Standard: alle. Ein leeres Array heisst
+   * "reines Gespraech" — das Modell bekommt dann gar nicht erst die
+   * Moeglichkeit, etwas auszuloesen. Das ist die harte Grenze fuer Fremde:
+   * kein Verlass auf eine Prompt-Anweisung, sondern schlicht keine Werkzeuge
+   * im Aufruf.
+   */
+  tools?: OpenAI.Chat.Completions.ChatCompletionTool[];
 }): Promise<string> {
-  const systemPrompt = await buildSystemPrompt(opts.userText.slice(0, 1000));
+  const systemPrompt =
+    opts.systemPromptOverride ?? (await buildSystemPrompt(opts.userText.slice(0, 1000)));
+  const tools = opts.tools ?? LUKAS_TOOLS;
   const convo: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
     ...opts.history,
@@ -44,7 +60,7 @@ export async function runLukasTurn(opts: {
     const result = await callLukasModel({
       route,
       maxTokens: 8192,
-      tools: LUKAS_TOOLS,
+      tools,
       messages: convo,
     });
 

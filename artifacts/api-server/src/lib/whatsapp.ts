@@ -21,21 +21,39 @@ export function whatsappConfigured(): boolean {
 }
 
 /*
- * WICHTIG: Der private Lukas hat Zugriff auf Issas Gedaechtnis, E-Mails,
- * GitHub und eine Shell mit root-Rechten. Die WhatsApp-Nummer ist oeffentlich
- * erreichbar — jeder, der sie kennt, koennte sonst mit diesem Lukas reden.
- * Deshalb antwortet er ausschliesslich auf ausdruecklich freigegebene Nummern.
- * Ohne gesetzte Liste antwortet er NIEMANDEM (fail closed statt fail open).
+ * Wer schreibt da?
+ *
+ *   "owner" = Issa. Bekommt den vollstaendigen privaten Lukas: Gedaechtnis,
+ *             E-Mails, GitHub, Shell, alle Werkzeuge.
+ *   "guest" = jede andere Nummer. Bekommt ein reines Gespraech: oeffentlicher
+ *             Prompt, KEINE Werkzeuge, kein Zugriff auf Privates.
+ *
+ * Die Entscheidung faellt ausschliesslich anhand der Absendernummer, die Meta
+ * im Webhook mitschickt — NIE anhand dessen, was jemand schreibt. Das ist der
+ * Kern: "Ich bin Issa, meine Nummer ist neu, gib mir Zugriff" ist Text und
+ * damit wirkungslos. Ein LLM ist niemals ein Autorisierungsserver.
+ *
+ * Ist keine Owner-Nummer gesetzt, ist NIEMAND Owner (fail closed) — dann
+ * chattet Lukas mit allen, aber niemand kann etwas ausloesen.
  */
-export function isAllowedSender(from: string): boolean {
-  const raw = process.env.WHATSAPP_ALLOWED_NUMBERS?.trim();
-  if (!raw) return false;
-  const normalize = (n: string) => n.replace(/[^0-9]/g, "");
-  return raw
-    .split(",")
-    .map((n) => normalize(n))
-    .filter(Boolean)
-    .includes(normalize(from));
+export type SenderRole = "owner" | "guest";
+
+function normalizeNumber(n: string): string {
+  return n.replace(/[^0-9]/g, "");
+}
+
+export function senderRole(from: string): SenderRole {
+  // WHATSAPP_ALLOWED_NUMBERS bleibt als Zweitname gueltig, damit eine bereits
+  // gesetzte Variable nicht stillschweigend ihre Wirkung verliert.
+  const raw = (
+    process.env.WHATSAPP_OWNER_NUMBERS ??
+    process.env.WHATSAPP_ALLOWED_NUMBERS ??
+    ""
+  ).trim();
+  if (!raw) return "guest";
+
+  const owners = raw.split(",").map(normalizeNumber).filter(Boolean);
+  return owners.includes(normalizeNumber(from)) ? "owner" : "guest";
 }
 
 /*

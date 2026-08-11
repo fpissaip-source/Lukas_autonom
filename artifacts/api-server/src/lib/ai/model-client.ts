@@ -290,6 +290,75 @@ export async function callLukasModel(input: CallInput): Promise<LukasModelResult
       // Exakt dieselbe vorbereitete Lukas-Historie geht an den Fallback.
       return await callOpenAI({ ...prepared, route: fallback });
     }
+
+    /*
+     * OpenAI-Modell nicht nutzbar — z.B. weil der Account es nicht
+     * freigeschaltet hat oder die ID nicht mehr existiert.
+     *
+     * Vorher flog der Fehler hier ungebremst durch und riss den kompletten Zug
+     * mit: im Chat stand nur noch "Hmm, da ist etwas schiefgelaufen". Genau so
+     * ist der oeffentliche Chat schon einmal ausgefallen, nachdem eine neue
+     * Modell-ID eingetragen wurde, die der Account nicht hatte.
+     *
+     * Jetzt: einmal auf den Core zurueckfallen und die kaputte ID fuer eine
+     * Weile merken, damit nicht jeder Aufruf erneut in denselben Fehler
+     * laeuft. Eine falsche Modell-ID kostet damit Qualitaet, nicht die
+     * Funktion.
+     */
+    const core = process.env.LUKAS_CORE_MODEL?.trim() || "gpt-4o";
+    if (prepared.route.model !== core && isModelUnavailable(err)) {
+      markModelBroken(prepared.route.model, err);
+      return await callOpenAI({
+        ...prepared,
+        route: {
+          provider: "openai",
+          model: core,
+          profile: prepared.route.profile,
+          reason: `Fallback: ${prepared.route.model} nicht nutzbar`,
+        },
+      });
+    }
     throw err;
   }
+}
+
+/*
+ * Modelle, die dieser Account gerade nicht nutzen kann. Nur im Speicher und
+ * mit Ablauf: nach einem Neustart oder einer Stunde wird es erneut versucht —
+ * eine Freischaltung soll nicht bis zum naechsten Deploy unbemerkt bleiben.
+ */
+const brokenModels = new Map<string, number>();
+const BROKEN_TTL_MS = 60 * 60 * 1000;
+
+export function isModelBroken(model: string): boolean {
+  const until = brokenModels.get(model);
+  if (until === undefined) return false;
+  if (Date.now() > until) {
+    brokenModels.delete(model);
+    return false;
+  }
+  return true;
+}
+
+function markModelBroken(model: string, err: unknown): void {
+  brokenModels.set(model, Date.now() + BROKEN_TTL_MS);
+  logger.error(
+    { model, err },
+    "Modell nicht nutzbar — Lukas arbeitet vorerst mit dem Core-Modell weiter",
+  );
+}
+
+/** Fehlerbilder, bei denen ein anderes Modell nicht hilft, dieses aber tot ist. */
+function isModelUnavailable(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  const message = String((err as { message?: string })?.message ?? "").toLowerCase();
+  if (status === 404) return true;
+  if (status === 403 && message.includes("model")) return true;
+  return (
+    message.includes("does not exist") ||
+    message.includes("do not have access") ||
+    message.includes("unknown model") ||
+    message.includes("unsupported model") ||
+    message.includes("invalid model")
+  );
 }

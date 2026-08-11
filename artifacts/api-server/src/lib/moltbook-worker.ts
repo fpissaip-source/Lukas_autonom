@@ -39,7 +39,13 @@ import {
 } from "./moltbook";
 import { logger } from "./logger";
 
-const CYCLE_MS = 45 * 60 * 1000;
+/*
+ * Moltbook lief alle 45 Minuten und war lange der einzige autonome Ablauf --
+ * dadurch bestand Lukas' gesamtes Eigenleben aus Scrollen in einem sozialen
+ * Netzwerk. Seit es die zielgetriebene Autonomie gibt (lib/autonomy.ts), ist
+ * Moltbook EINE Taetigkeit unter vielen und braucht diesen Takt nicht mehr.
+ */
+const CYCLE_MS = Number(process.env.LUKAS_MOLTBOOK_INTERVAL_MIN ?? 240) * 60 * 1000;
 const MAX_COMMENTS_PER_CYCLE = 3;
 const MAX_POSTS_PER_CYCLE = 1;
 const MAX_UPVOTES_PER_CYCLE = 5;

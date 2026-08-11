@@ -26,6 +26,7 @@ const serialize = (r: typeof mcpServers.$inferSelect) => ({
   status: r.status,
   lastError: r.lastError,
   tools: r.tools.map((t) => ({ name: t.name, description: t.description })),
+  selectedTools: r.selectedTools,
   toolsUpdatedAt: r.toolsUpdatedAt?.toISOString() ?? null,
   riskTier: r.riskTier,
   enabled: r.enabled,
@@ -166,6 +167,8 @@ router.get("/lukas/mcp/callback", async (req, res) => {
 const PatchBody = z.object({
   riskTier: z.enum(["R1", "R2", "R3"]).optional(),
   enabled: z.boolean().optional(),
+  // Leere Liste heisst "automatisch die ersten paar" — siehe Schema.
+  selectedTools: z.array(z.string().max(120)).max(60).optional(),
 });
 
 router.patch("/lukas/mcp/:id", async (req, res) => {

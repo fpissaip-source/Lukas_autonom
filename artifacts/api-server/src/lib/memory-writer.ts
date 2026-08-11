@@ -27,7 +27,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 // ── Episoden ───────────────────────────────────────────────────────────────
 
 export async function openEpisode(
-  kind: "moltbook_session" | "chat" | "reflection" | "trading",
+  kind: "moltbook_session" | "chat" | "reflection" | "trading" | "autonomer_lauf",
   details: Record<string, unknown> = {},
 ): Promise<Episode> {
   const [row] = await db.insert(episodesTable).values({ kind, details }).returning();

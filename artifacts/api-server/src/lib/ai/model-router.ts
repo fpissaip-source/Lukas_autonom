@@ -38,20 +38,49 @@ function parseModelSpec(spec: string, profile: ModelProfile, reason: string): Mo
   return { provider: "openai", model: value, profile, reason };
 }
 
+/*
+ * Standardbesetzung der Rollen.
+ *
+ * Die 5.6-Familie (sol/terra/luna) loest die alte base/mini/nano-Benennung ab.
+ * Lukas waehlt pro Nachricht selbst, welche Rolle passt — kurze Rueckfrage
+ * bekommt luna, ein normales Gespraech terra, Denkarbeit und Code sol.
+ *
+ * Warum das jetzt gefahrlos ist: schlaegt ein Modell fehl, weil der Account es
+ * nicht freigeschaltet hat, faellt model-client.ts einmal auf LUKAS_CORE_MODEL
+ * zurueck und merkt sich die ID fuer eine Stunde. Ohne dieses Netz hat exakt
+ * diese Umstellung schon einmal den oeffentlichen Chat lahmgelegt. Eine
+ * Modell-ID, die der Account nicht hat, kostet damit Qualitaet, nicht die
+ * Funktion.
+ *
+ * Jede Rolle bleibt per Umgebungsvariable ueberschreibbar.
+ */
+const DEFAULTS: Record<ModelProfile, string> = {
+  fast: "openai:gpt-5.6-luna",
+  general: "openai:gpt-5.6-terra",
+  reasoning: "openai:gpt-5.6-sol",
+  code: "openai:gpt-5.6-sol",
+  vision: "openai:gpt-5.6-terra",
+  long_context: "openai:gpt-5.6-sol",
+};
+
 function configured(profile: ModelProfile, reason: string): ModelRoute {
-  const core = nonEmpty(process.env.LUKAS_CORE_MODEL) ?? "gpt-4o";
-  const general = nonEmpty(process.env.LUKAS_MODEL_GENERAL) ?? `openai:${core}`;
-  const fastFallback =
-    nonEmpty(process.env.LUKAS_FAST_MODEL, process.env.LUKAS_PUBLIC_MODEL) ?? "gpt-4o-mini";
-  const reasoning = nonEmpty(process.env.LUKAS_MODEL_REASONING) ?? general;
+  // Ist LUKAS_CORE_MODEL ausdruecklich gesetzt, gewinnt es ueber die
+  // Standardbesetzung — sonst koennte man nicht mehr gezielt zurueckstellen.
+  const core = nonEmpty(process.env.LUKAS_CORE_MODEL);
+  const general = nonEmpty(process.env.LUKAS_MODEL_GENERAL) ?? (core ? `openai:${core}` : DEFAULTS.general);
+  const reasoning = nonEmpty(process.env.LUKAS_MODEL_REASONING) ?? (core ? general : DEFAULTS.reasoning);
+  const fastFallback = nonEmpty(process.env.LUKAS_FAST_MODEL, process.env.LUKAS_PUBLIC_MODEL);
 
   const specs: Record<ModelProfile, string> = {
-    fast: nonEmpty(process.env.LUKAS_MODEL_FAST) ?? `openai:${fastFallback}`,
+    fast:
+      nonEmpty(process.env.LUKAS_MODEL_FAST) ??
+      (fastFallback ? `openai:${fastFallback}` : DEFAULTS.fast),
     general,
     reasoning,
-    code: nonEmpty(process.env.LUKAS_MODEL_CODE) ?? reasoning,
-    vision: nonEmpty(process.env.LUKAS_MODEL_VISION) ?? general,
-    long_context: nonEmpty(process.env.LUKAS_MODEL_LONG_CONTEXT) ?? reasoning,
+    code: nonEmpty(process.env.LUKAS_MODEL_CODE) ?? (core ? reasoning : DEFAULTS.code),
+    vision: nonEmpty(process.env.LUKAS_MODEL_VISION) ?? (core ? general : DEFAULTS.vision),
+    long_context:
+      nonEmpty(process.env.LUKAS_MODEL_LONG_CONTEXT) ?? (core ? reasoning : DEFAULTS.long_context),
   };
   return parseModelSpec(specs[profile], profile, reason);
 }

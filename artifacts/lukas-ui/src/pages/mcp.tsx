@@ -17,6 +17,7 @@ type McpServer = {
   lastError: string | null;
   tools: McpTool[];
   toolsUpdatedAt: string | null;
+  selectedTools: string[];
   riskTier: "R1" | "R2" | "R3";
   enabled: boolean;
   authorized: boolean;
@@ -76,7 +77,17 @@ function ServerCard({ server, onChange }: { server: McpServer; onChange: () => v
     }
   };
 
-  const patch = async (values: Partial<Pick<McpServer, "riskTier" | "enabled">>) => {
+  const toggleTool = (name: string) => {
+    const current = proposalSelection();
+    const next = current.includes(name) ? current.filter((n) => n !== name) : [...current, name];
+    patch({ selectedTools: next });
+  };
+  // Leere Auswahl = "die ersten paar automatisch". Fuer die Anzeige machen wir
+  // daraus die tatsaechlich wirksame Liste, sonst sieht man keine Haken.
+  const proposalSelection = () =>
+    server.selectedTools.length ? server.selectedTools : server.tools.slice(0, 12).map((t) => t.name);
+
+  const patch = async (values: Partial<Pick<McpServer, "riskTier" | "enabled" | "selectedTools">>) => {
     setBusy(true);
     try {
       await api(`/${server.id}`, { method: "PATCH", body: JSON.stringify(values) });
@@ -142,18 +153,32 @@ function ServerCard({ server, onChange }: { server: McpServer; onChange: () => v
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
           >
             {showTools ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-            {server.tools.length} WERKZEUGE
+            {proposalSelection().length} von {server.tools.length} Werkzeugen aktiv
           </button>
           {showTools && (
             <ul className="mt-2 space-y-1">
-              {server.tools.map((t) => (
-                <li key={t.name} className="text-xs border border-border rounded px-2 py-1.5">
-                  <span className="font-mono">{t.name}</span>
-                  {t.description && (
-                    <p className="text-muted-foreground mt-0.5 break-words">{t.description}</p>
-                  )}
-                </li>
-              ))}
+              {server.tools.map((t) => {
+                const an = proposalSelection().includes(t.name);
+                return (
+                  <li key={t.name} className="text-xs border border-border rounded px-2 py-1.5">
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={an}
+                        disabled={busy}
+                        onChange={() => toggleTool(t.name)}
+                        className="mt-0.5 shrink-0"
+                      />
+                      <span className="min-w-0">
+                        <span className={`font-mono ${an ? "" : "text-muted-foreground"}`}>{t.name}</span>
+                        {t.description && (
+                          <p className="text-muted-foreground mt-0.5 break-words">{t.description}</p>
+                        )}
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

@@ -52,6 +52,17 @@ export const mcpServers = pgTable("lukas_mcp_servers", {
   toolsUpdatedAt: timestamp("tools_updated_at", { withTimezone: true }),
 
   /*
+   * Welche Werkzeuge dieses Servers Lukas tatsaechlich bekommt. Leer = die
+   * ersten paar automatisch.
+   *
+   * Der Grund ist handfest: Higgsfield meldet 81 Werkzeuge. Alle davon werden
+   * bei JEDEM Modellaufruf mitgeschickt — rund 20.000 Token, bevor auch nur
+   * ein Wort Gespraech dazukommt. Bei einem Minutenlimit von 30.000 Token ist
+   * damit jede Anfrage tot. Deshalb waehlt Issa aus, was er wirklich braucht.
+   */
+  selectedTools: jsonb("selected_tools").$type<string[]>().notNull().default([]),
+
+  /*
    * Risikostufe fuer ALLE Werkzeuge dieses Servers.
    *
    * Standard R2, also Freigabe vor jedem Aufruf. Das ist bewusst streng: was

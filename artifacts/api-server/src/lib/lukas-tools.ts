@@ -133,11 +133,16 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "fetch_url",
       description:
-        "Rufe eine URL ab und erhalte den Textinhalt der Seite. Nutze das, wenn Issa dir einen Link gibt oder du eine konkrete Webseite analysieren willst.",
+        "Rufe eine URL ab und erhalte ihren Inhalt. Nutze das, wenn Issa dir einen Link gibt oder du eine Webseite auswerten willst. Lange Seiten kommen in Abschnitten: am Ende der Antwort steht, wie viele Zeichen noch fehlen und mit welchem offset du weiterliest — bei einer Recherche liest du weiter, statt dich mit dem ersten Abschnitt zufriedenzugeben. Baut eine Seite ihren Inhalt erst im Browser auf, bekommst du stattdessen die eingebetteten Rohdaten (JSON); die sind unformatiert, enthalten aber den echten Inhalt.",
       parameters: {
         type: "object",
         properties: {
           url: { type: "string", description: "Die vollständige URL (https://...)" },
+          offset: {
+            type: "integer",
+            description:
+              "Ab welchem Zeichen weitergelesen werden soll. Standard 0. Für den nächsten Abschnitt den Wert nehmen, den die vorige Antwort genannt hat.",
+          },
         },
         required: ["url"],
       },
@@ -391,21 +396,98 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-async function fetchUrl(url: string): Promise<string> {
+const FETCH_PAGE_SIZE = 15000;
+
+/*
+ * Moderne Seiten (Next.js, React) liefern beim rohen Abruf nur eine leere
+ * Huelle — der sichtbare Inhalt entsteht erst im Browser. Die Daten SIND aber
+ * da: sie stecken als JSON in <script>-Bloecken, genau denen, die stripHtml
+ * vorher weggeworfen hat.
+ *
+ * Ohne das hier haette Lukas bei so einer Seite "die ist leer" gemeldet und
+ * dabei ausgerechnet das entsorgt, wonach er gesucht hat.
+ */
+function extractEmbeddedJson(html: string): string {
+  // Set statt Array: __NEXT_DATA__ traegt selbst type="application/json" und
+  // wird sonst von beiden Mustern erfasst — der komplette Datenblock stuende
+  // doppelt in Lukas' Kontext. Bei einer grossen Seite waere das die Haelfte
+  // des Platzes, den er zum Lesen hat.
+  const blobs = new Set<string>();
+
+  const nextData = html.match(
+    /<script[^>]+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i,
+  );
+  if (nextData?.[1]?.trim()) blobs.add(nextData[1].trim());
+
+  const jsonScripts = html.matchAll(
+    /<script[^>]+type="application\/(?:ld\+)?json"[^>]*>([\s\S]*?)<\/script>/gi,
+  );
+  for (const m of jsonScripts) {
+    if (m[1]?.trim()) blobs.add(m[1].trim());
+  }
+
+  return [...blobs].join("\n\n");
+}
+
+async function fetchUrl(url: string, offset = 0): Promise<string> {
   const parsed = new URL(url);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("Nur http/https URLs sind erlaubt");
   }
   const res = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; LukasAgent/1.0)" },
-    signal: AbortSignal.timeout(15000),
+    // Manche Seiten liefern Bots absichtlich weniger aus. Ein normaler
+    // Browser-Kennstring bekommt dieselbe Seite wie ein Mensch.
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+    },
+    signal: AbortSignal.timeout(20000),
     redirect: "follow",
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} beim Abruf von ${url}`);
+
   const contentType = res.headers.get("content-type") ?? "";
   const body = await res.text();
-  const text = contentType.includes("html") ? stripHtml(body) : body;
-  return text.length > 12000 ? text.slice(0, 12000) + "\n\n[... gekürzt]" : text;
+
+  let full: string;
+  let hinweis = "";
+
+  if (contentType.includes("html")) {
+    const visible = stripHtml(body);
+    const embedded = extractEmbeddedJson(body);
+
+    // Kaum sichtbarer Text, aber eingebettete Daten -> reine App-Huelle.
+    if (visible.length < 500 && embedded.length > 0) {
+      full = embedded;
+      hinweis =
+        "[Diese Seite baut ihren Inhalt erst im Browser auf. Sichtbarer Text war " +
+        "praktisch leer — was folgt, sind die eingebetteten Rohdaten der Seite (JSON). " +
+        "Darin stehen die eigentlichen Inhalte, nur unformatiert.]\n\n";
+    } else if (embedded.length > 0) {
+      full = visible + "\n\n--- EINGEBETTETE DATEN (JSON) ---\n" + embedded;
+    } else {
+      full = visible;
+    }
+  } else {
+    full = body;
+  }
+
+  const start = Math.max(0, offset);
+  const slice = full.slice(start, start + FETCH_PAGE_SIZE);
+
+  if (!slice) {
+    return `Ab Position ${start} kommt nichts mehr — das Dokument hat ${full.length} Zeichen.`;
+  }
+
+  const end = start + slice.length;
+  const kopf = `[Zeichen ${start}–${end} von insgesamt ${full.length}]\n`;
+  const fuss =
+    end < full.length
+      ? `\n\n[... weiter geht es mit fetch_url(url, offset=${end}) — es fehlen noch ${full.length - end} Zeichen]`
+      : "";
+
+  return hinweis + kopf + slice + fuss;
 }
 
 async function webSearch(query: string): Promise<string> {
@@ -694,7 +776,10 @@ export async function executeLukasTool(
       return "Status aktualisiert.";
     }
     case "fetch_url":
-      return await fetchUrl(String(input.url));
+      return await fetchUrl(
+        String(input.url),
+        typeof input.offset === "number" ? input.offset : 0,
+      );
     case "web_search":
       return await webSearch(String(input.query));
     case "query_memory": {

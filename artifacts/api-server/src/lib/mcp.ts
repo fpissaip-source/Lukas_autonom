@@ -237,6 +237,42 @@ export async function connectAndListTools(id: number, authorizationCode?: string
   }
 }
 
+/*
+ * MCP-Server duerfen ihre Argumente beliebig strukturieren. Higgsfields
+ * generate_image/generate_video erwartet die eigentlichen Generierungswerte
+ * unter einem Objektfeld "params". Das Studio hatte sie bisher flach gesendet,
+ * obwohl das gespeicherte inputSchema den Container beschreibt — dadurch kam
+ * -32602 "Invalid input at params".
+ *
+ * Wir raten nicht anhand des Servernamens. Wenn das konkrete Tool-Schema an der
+ * Wurzel ein Objektfeld "params" besitzt und die gelieferten Argumente nicht
+ * bereits so verpackt sind, wird der Payload passend zum Schema verschachtelt.
+ * Andere MCP-Server und Tools bleiben unveraendert.
+ */
+function adaptArgsToToolSchema(
+  row: McpServer,
+  toolName: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const tool = row.tools.find((t) => t.name === toolName);
+  const schema = tool?.inputSchema as Record<string, unknown> | undefined;
+  const properties = schema?.properties as Record<string, unknown> | undefined;
+  if (!properties || !("params" in properties) || "params" in args) return args;
+
+  const required = Array.isArray(schema?.required)
+    ? (schema.required as unknown[]).filter((x): x is string => typeof x === "string")
+    : [];
+
+  // Ein optionales params neben anderen echten Root-Feldern ist kein Signal,
+  // alles blind einzupacken. Bei Higgsfield ist params Pflicht bzw. der einzige
+  // eigentliche Eingabecontainer.
+  const rootKeys = Object.keys(properties).filter((key) => key !== "params");
+  if (!required.includes("params") && rootKeys.length > 0) return args;
+
+  logger.info({ server: row.name, tool: toolName }, "MCP-Argumente unter params verschachtelt");
+  return { params: args };
+}
+
 export async function callMcpTool(
   serverId: number,
   toolName: string,
@@ -247,7 +283,8 @@ export async function callMcpTool(
 
   const client = await connect(row);
   try {
-    const result = await client.callTool({ name: toolName, arguments: args });
+    const adaptedArgs = adaptArgsToToolSchema(row, toolName, args);
+    const result = await client.callTool({ name: toolName, arguments: adaptedArgs });
 
     // MCP-Antworten sind eine Liste von Inhaltsteilen. Fuer Lukas' Kontext
     // zaehlt der Text; Bilder o.ae. werden benannt statt roh eingefuegt.

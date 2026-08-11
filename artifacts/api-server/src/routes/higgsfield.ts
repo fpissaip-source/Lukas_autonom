@@ -7,7 +7,13 @@ import { HIGGSFIELD_PROMPT_SYSTEM } from "../lib/lukas-soul.js";
 import { recordEmotion } from "../lib/emotion-engine";
 import { logger } from "../lib/logger";
 import { recordDebugEvent } from "../lib/debug-log";
-import { findServerWithTool, callMcpTool } from "../lib/mcp";
+import {
+  findServerWithTool,
+  callMcpTool,
+  extractMediaUrl,
+  extractJobId,
+  pollMcpJob,
+} from "../lib/mcp";
 import { directModel } from "../lib/ai/model-router";
 
 const router = Router();
@@ -122,22 +128,37 @@ router.post("/higgsfield/generate", async (req, res) => {
 
         const text = await callMcpTool(viaMcp.server.id, viaMcp.tool, args);
 
-        // MCP-Antworten sind Text. Die erste enthaltene Medien-URL ist das
-        // Ergebnis; findet sich keine, laeuft der Auftrag beim Anbieter noch
-        // und der Rohtext bleibt als Beleg stehen.
-        const url = text.match(/https?:\/\/[^\s"'<>)]+\.(?:png|jpe?g|webp|gif|mp4|webm|mov)/i)?.[0];
+        /*
+         * MCP-Antworten sind Text. Zwei Faelle:
+         *  - Die Antwort enthaelt schon die fertige Datei -> fertig.
+         *  - Sie enthaelt eine Auftragsnummer -> die MUSS mit in die requestId,
+         *    sonst kann spaeter niemand mehr nachfragen. Genau daran hing ein
+         *    Bild 20 Minuten auf "processing": ohne Nummer gab es nichts, womit
+         *    man haette nachfassen koennen.
+         */
+        const url = extractMediaUrl(text);
+        const jobId = url ? null : extractJobId(text);
+        const requestId = `mcp:${viaMcp.server.id}:${jobId ?? ""}`;
+
+        // Ohne URL und ohne Nummer kann nie etwas nachkommen — dann ist der
+        // Auftrag gescheitert und sagt das, statt ewig zu laufen.
+        const status = url ? "completed" : jobId ? "processing" : "failed";
+
         await db
           .update(mediaJobsTable)
           .set({
-            requestId: `mcp:${viaMcp.server.slug}`,
-            status: url ? "completed" : "processing",
+            requestId,
+            status,
             resultUrl: url ?? null,
-            error: url ? null : text.slice(0, 1000),
+            error:
+              status === "failed"
+                ? `Der MCP-Server hat weder eine Datei noch eine Auftragsnummer zurückgegeben. Antwort war:\n${text.slice(0, 900)}`
+                : null,
             updatedAt: new Date(),
           })
           .where(eq(mediaJobsTable.id, job.id));
-        job.requestId = `mcp:${viaMcp.server.slug}`;
-        job.status = url ? "completed" : "processing";
+        job.requestId = requestId;
+        job.status = status;
         job.resultUrl = url ?? null;
 
         return void res.status(202).json({
@@ -256,12 +277,61 @@ router.get("/higgsfield/status/:requestId", async (req, res) => {
     if (!job) return void res.status(404).json({ error: "Job not found" });
 
     /*
-     * Auftraege ueber MCP tragen als requestId "mcp:<server>". Die gehoert
-     * nicht der Higgsfield-REST-API — sie hier weiterzureichen wuerde einen
-     * Abruf auf /requests/mcp:.../status ausloesen und jedes Mal in einen
-     * 404 laufen. Der MCP-Server liefert sein Ergebnis bereits im Tool-Aufruf.
+     * Auftraege ueber MCP tragen "mcp:<serverId>:<auftragsnummer>". Die
+     * Nummer gehoert nicht der Higgsfield-REST-API — dort nachzufragen wuerde
+     * jedes Mal in einen 404 laufen.
+     *
+     * Stattdessen wird beim MCP-Server selbst nachgefragt. Das hatte ich beim
+     * ersten Wurf komplett vergessen: der Auftrag ging auf "processing" und
+     * blieb dort fuer immer, weil niemand mehr nachfasste.
      */
     const ueberMcp = job.requestId?.startsWith("mcp:") ?? false;
+
+    if (ueberMcp && job.status === "processing" && job.requestId) {
+      const [, serverIdText, jobId] = job.requestId.split(":");
+      const serverId = Number.parseInt(serverIdText ?? "", 10);
+
+      const abbrechen = async (grund: string) => {
+        await db
+          .update(mediaJobsTable)
+          .set({ status: "failed", error: grund, updatedAt: new Date() })
+          .where(eq(mediaJobsTable.id, job.id));
+        job.status = "failed";
+        job.error = grund;
+      };
+
+      if (!Number.isInteger(serverId) || !jobId) {
+        /*
+         * Auftraege aus der ersten Fassung tragen nur "mcp:<slug>" — ohne
+         * Auftragsnummer gibt es nichts, wonach man fragen koennte. Genau
+         * so ein Auftrag drehte 20 Minuten lang.
+         */
+        await abbrechen(
+          "Dieser Auftrag stammt aus einer älteren Fassung ohne Auftragsnummer — es lässt sich nicht mehr nachfragen, ob er fertig wurde. Bitte neu starten.",
+        );
+      } else {
+        try {
+          const url = await pollMcpJob(serverId, jobId);
+          if (url) {
+            await db
+              .update(mediaJobsTable)
+              .set({ status: "completed", resultUrl: url, error: null, updatedAt: new Date() })
+              .where(eq(mediaJobsTable.id, job.id));
+            job.status = "completed";
+            job.resultUrl = url;
+          } else if (Date.now() - job.createdAt.getTime() > 20 * 60 * 1000) {
+            // Nach 20 Minuten ohne Ergebnis ist es kein "laeuft noch" mehr.
+            // Ein Auftrag, der nie einen Endzustand erreicht, ist schlimmer
+            // als einer, der ehrlich scheitert.
+            await abbrechen(
+              "Seit über 20 Minuten kein Ergebnis vom MCP-Server. Der Auftrag gilt als gescheitert — schau in der Diagnose nach Details.",
+            );
+          }
+        } catch (err) {
+          logger.warn({ err, requestId: job.requestId }, "MCP-Statusabfrage fehlgeschlagen");
+        }
+      }
+    }
 
     if (!ueberMcp && apiKey && job.status === "processing" && job.requestId) {
       try {

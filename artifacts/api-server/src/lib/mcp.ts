@@ -269,6 +269,63 @@ export async function activeServers(): Promise<McpServer[]> {
 }
 
 /*
+ * Aus einer MCP-Textantwort die fertige Mediendatei ziehen.
+ *
+ * Genau das war die Luecke: generate_image liefert bei Higgsfield KEINE
+ * fertige URL, sondern eine Auftragsnummer. Mein erster Wurf hat nur nach
+ * einer URL gesucht, keine gefunden, den Auftrag auf "processing" gesetzt —
+ * und weil MCP-Auftraege bewusst nicht mehr gegen die REST-API gepollt werden,
+ * hat danach NIEMAND mehr nachgefasst. Der Auftrag haengt dann ewig.
+ */
+export function extractMediaUrl(text: string): string | null {
+  return (
+    text.match(/https?:\/\/[^\s"'<>)\\]+\.(?:png|jpe?g|webp|gif|mp4|webm|mov)(?:\?[^\s"'<>)\\]*)?/i)?.[0] ??
+    null
+  );
+}
+
+/*
+ * Eine Auftrags-/Generierungsnummer aus der Antwort holen, damit spaeter
+ * nachgefragt werden kann. MCP-Server antworten in Prosa oder JSON, also
+ * mehrere Muster probieren statt eines zu erraten.
+ */
+export function extractJobId(text: string): string | null {
+  const uuid = text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  if (uuid) return uuid[0];
+  const keyed = text.match(/"(?:job_?id|generation_?id|id)"\s*:\s*"([^"]{6,})"/i);
+  if (keyed) return keyed[1];
+  return null;
+}
+
+/*
+ * Bei einem laufenden Auftrag nachfragen.
+ *
+ * Higgsfield bietet dafuer jobs_wait und show_generation_by_ids an. Welche
+ * Werkzeuge ein Server wirklich hat, wissen wir erst zur Laufzeit — deshalb
+ * der Reihe nach durchprobieren, statt eines fest zu verdrahten.
+ */
+export async function pollMcpJob(serverId: number, jobId: string): Promise<string | null> {
+  const row = await getRow(serverId);
+  const kandidaten: Array<{ tool: string; args: Record<string, unknown> }> = [
+    { tool: "show_generation_by_ids", args: { ids: [jobId] } },
+    { tool: "job_display", args: { job_id: jobId } },
+    { tool: "jobs_wait", args: { job_ids: [jobId] } },
+  ];
+
+  for (const k of kandidaten) {
+    if (!row.tools.some((t) => t.name === k.tool)) continue;
+    try {
+      const text = await callMcpTool(serverId, k.tool, k.args);
+      const url = extractMediaUrl(text);
+      if (url) return url;
+    } catch (err) {
+      logger.warn({ err, tool: k.tool, jobId }, "MCP-Nachfrage fehlgeschlagen");
+    }
+  }
+  return null;
+}
+
+/*
  * Einen verbundenen Server suchen, der ein bestimmtes Werkzeug anbietet.
  *
  * Damit koennen auch Teile des Dashboards MCP nutzen, die nicht ueber Lukas'

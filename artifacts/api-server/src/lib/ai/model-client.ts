@@ -144,25 +144,153 @@ function toAnthropicMessages(
   return { system: systemParts.join("\n\n"), messages: out };
 }
 
+/*
+ * OpenAI Function Tools akzeptieren an der Wurzel nur ein Objekt-Schema.
+ * Fremde MCP-Server (u.a. Higgsfield) liefern teilweise oneOf/anyOf/allOf etc.
+ * direkt oben. Ein einziges solches Tool wuerde sonst den gesamten Request mit
+ * HTTP 400 ablehnen. Deshalb wird DIREKT an der Provider-Grenze nochmals
+ * normalisiert, unabhaengig davon, woher das Tool stammt.
+ */
+function sanitizeOpenAIToolSchema(schema: unknown): Record<string, unknown> {
+  const empty: Record<string, unknown> = { type: "object", properties: {} };
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return empty;
+
+  const source = schema as Record<string, unknown>;
+  let base: Record<string, unknown> = { ...source };
+
+  // Wenn das eigentliche Objekt in genau einer Variante steckt, behalten wir
+  // dessen Felder statt sie beim Entfernen von oneOf/anyOf/allOf zu verlieren.
+  for (const key of ["oneOf", "anyOf", "allOf"] as const) {
+    const variants = source[key];
+    if (Array.isArray(variants)) {
+      const objectVariant = variants.find(
+        (v) => v && typeof v === "object" && !Array.isArray(v) && (v as any).type === "object",
+      );
+      if (objectVariant) base = { ...base, ...(objectVariant as Record<string, unknown>) };
+    }
+  }
+
+  for (const key of ["oneOf", "anyOf", "allOf", "not", "enum", "const"]) delete base[key];
+  base.type = "object";
+  if (!base.properties || typeof base.properties !== "object" || Array.isArray(base.properties)) {
+    base.properties = {};
+  }
+  return base;
+}
+
+function toResponsesTools(tools: OpenAI.Chat.Completions.ChatCompletionTool[] | undefined): any[] {
+  return (tools ?? [])
+    .filter((tool: any) => tool?.type === "function" && tool.function?.name)
+    .map((tool: any) => ({
+      type: "function",
+      name: String(tool.function.name),
+      description: String(tool.function.description ?? ""),
+      parameters: sanitizeOpenAIToolSchema(tool.function.parameters),
+      // Viele Lukas/MCP-Schemas haben optionale Felder und sind nicht im
+      // strict-JSON-Schema-Subset formuliert. Validierung macht weiterhin das
+      // Tool selbst; wichtig ist hier, dass OpenAI den Werkzeugkasten annimmt.
+      strict: false,
+    }));
+}
+
+function toResponsesContent(content: unknown): any {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return String(content ?? "");
+
+  const out: any[] = [];
+  for (const part of content as any[]) {
+    if (part?.type === "text") {
+      out.push({ type: "input_text", text: String(part.text ?? "") });
+      continue;
+    }
+    if (part?.type === "image_url") {
+      const url = String(part.image_url?.url ?? "");
+      if (url) out.push({ type: "input_image", image_url: url, detail: part.image_url?.detail ?? "auto" });
+      continue;
+    }
+    if (part?.type === "file") {
+      const fileData = String(part.file?.file_data ?? "");
+      if (fileData) {
+        out.push({
+          type: "input_file",
+          file_data: fileData,
+          filename: String(part.file?.filename ?? "document"),
+        });
+      }
+    }
+  }
+  return out.length ? out : "";
+}
+
+function toResponsesInput(messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[]): any[] {
+  const out: any[] = [];
+
+  for (const message of messages as any[]) {
+    if (message.role === "tool") {
+      out.push({
+        type: "function_call_output",
+        call_id: String(message.tool_call_id ?? ""),
+        output: typeof message.content === "string" ? message.content : JSON.stringify(message.content),
+      });
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      const text = asText(message.content);
+      if (text) out.push({ role: "assistant", content: text });
+      for (const tc of message.tool_calls ?? []) {
+        if (tc?.type !== "function") continue;
+        out.push({
+          type: "function_call",
+          call_id: String(tc.id ?? ""),
+          name: String(tc.function?.name ?? ""),
+          arguments: String(tc.function?.arguments ?? "{}"),
+        });
+      }
+      continue;
+    }
+
+    if (message.role === "system" || message.role === "developer" || message.role === "user") {
+      out.push({ role: message.role, content: toResponsesContent(message.content) });
+      continue;
+    }
+
+    // Unbekannte Chat-Rollen nicht still verlieren.
+    out.push({ role: "user", content: toResponsesContent(message.content) });
+  }
+
+  return out;
+}
+
 async function callOpenAI(input: CallInput): Promise<LukasModelResult> {
+  /*
+   * Lukas ist ein Tool-Agent. Die 5.6-Reasoning-Modelle unterstuetzen Function
+   * Tools nicht zusammen mit reasoning_effort auf /v1/chat/completions. Die
+   * Responses API ist der vorgesehene Pfad fuer genau diese Kombination.
+   */
   const request: any = {
     model: input.route.model,
-    max_completion_tokens: input.maxTokens ?? 8192,
-    messages: input.messages,
+    max_output_tokens: input.maxTokens ?? 8192,
+    input: toResponsesInput(input.messages),
   };
-  if (input.tools?.length) request.tools = input.tools;
+  const tools = toResponsesTools(input.tools);
+  if (tools.length) request.tools = tools;
 
-  const response = await openai.chat.completions.create(request);
-  const choice = response.choices[0];
+  const response: any = await openai.responses.create(request);
   const toolCalls: LukasToolCall[] = [];
-  for (const tc of choice?.message.tool_calls ?? []) {
-    if (tc.type !== "function") continue;
-    toolCalls.push({ id: tc.id, name: tc.function.name, arguments: tc.function.arguments });
+  for (const item of response.output ?? []) {
+    if (item?.type !== "function_call") continue;
+    toolCalls.push({
+      id: String(item.call_id ?? item.id ?? `tool_${Date.now()}_${toolCalls.length}`),
+      name: String(item.name ?? ""),
+      arguments: String(item.arguments ?? "{}"),
+    });
   }
+
   return {
-    content: choice?.message.content ?? "",
+    content: String(response.output_text ?? ""),
     toolCalls,
-    finishReason: choice?.finish_reason ?? null,
+    finishReason: toolCalls.length ? "tool_calls" : String(response.status ?? "stop"),
     route: input.route,
   };
 }

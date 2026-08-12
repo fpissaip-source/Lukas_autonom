@@ -270,7 +270,13 @@ async function callOpenAI(input: CallInput): Promise<LukasModelResult> {
    */
   const request: any = {
     model: input.route.model,
-    max_output_tokens: input.maxTokens ?? 8192,
+    /*
+     * Bei den Reasoning-Modellen zaehlen die Denk-Tokens mit. 8192 waren fuer
+     * chat.completions ein sinnvoller Deckel fuer die reine Antwort; hier
+     * teilen sich Denken und Antwort dasselbe Budget. Deshalb hoeher, und per
+     * Variable nachstellbar.
+     */
+    max_output_tokens: input.maxTokens ?? Number(process.env.LUKAS_MAX_OUTPUT_TOKENS ?? 16384),
     input: toResponsesInput(input.messages),
   };
   const tools = toResponsesTools(input.tools);
@@ -287,8 +293,28 @@ async function callOpenAI(input: CallInput): Promise<LukasModelResult> {
     });
   }
 
+  const content = String(response.output_text ?? "");
+
+  /*
+   * Leere Antwort ohne Werkzeugaufruf ist kein Ergebnis, sondern ein Ausfall.
+   *
+   * Bei der Responses-API zaehlen die Denk-Tokens der 5.6-Modelle gegen
+   * max_output_tokens. Reicht das Budget nicht, kommt status "incomplete"
+   * zurueck — mit leerem Text und ohne Werkzeug. Stillschweigend
+   * durchgereicht landet das im Chat als leere Antwort, ohne dass irgendwo
+   * steht, warum. Deshalb hier mit dem echten Grund abbrechen — der landet im
+   * Log und in der Diagnose, statt als Raetsel im Chat.
+   */
+  if (!content && toolCalls.length === 0) {
+    const grund = response.incomplete_details?.reason ?? response.status ?? "unbekannt";
+    throw new Error(
+      `Modell ${input.route.model} hat nichts geliefert (Status: ${grund}). ` +
+        `Bei "max_output_tokens" hilft ein groesseres Budget ueber LUKAS_MAX_OUTPUT_TOKENS.`,
+    );
+  }
+
   return {
-    content: String(response.output_text ?? ""),
+    content,
     toolCalls,
     finishReason: toolCalls.length ? "tool_calls" : String(response.status ?? "stop"),
     route: input.route,

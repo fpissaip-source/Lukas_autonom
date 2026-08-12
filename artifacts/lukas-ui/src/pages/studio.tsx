@@ -33,6 +33,7 @@ import { PageHeader } from "@/components/page-header";
 
 type MediaType = "image" | "video";
 type Step = "vision" | "prompt" | "generating" | "done";
+type KatalogModell = { id: string; wofuer: string };
 
 interface GeneratedPromptData {
   prompt: string;
@@ -131,6 +132,44 @@ export default function Studio() {
   const [generatedPrompt, setGeneratedPrompt] = useState<GeneratedPromptData | null>(null);
   const [editedPrompt, setEditedPrompt] = useState("");
 
+  /*
+   * Modell, Format und Dauer sind Vorschlaege von Lukas — und Vorschlaege muss
+   * man aendern koennen. Vorher standen die drei Werte als nackter Text da:
+   * kein Feld, kein Klick, nichts. Bei einem Bild stand dort sogar eine Dauer,
+   * die es gar nicht gibt.
+   */
+  const [chosenModel, setChosenModel] = useState("");
+  const [aspectRatio, setAspectRatio] = useState("16:9");
+  const [durationSec, setDurationSec] = useState(5);
+
+  /*
+   * Der Modellkatalog kommt vom Server. Er hier noch einmal einzutippen waere
+   * eine zweite Liste, die beim naechsten neuen Modell veraltet — und genau so
+   * ist das Studio vorher auf drei Namen stehengeblieben, die es im MCP-Katalog
+   * gar nicht gibt.
+   */
+  const [katalog, setKatalog] = useState<Record<MediaType, KatalogModell[]>>({
+    image: [],
+    video: [],
+  });
+  useEffect(() => {
+    const token = localStorage.getItem("lukas_token");
+    fetch(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/higgsfield/models`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => data && setKatalog(data))
+      .catch(() => {});
+  }, []);
+
+  // Solange der Katalog nicht da ist, steht wenigstens Lukas' Wahl zur Auswahl.
+  const modelle =
+    katalog[mediaType].length > 0
+      ? katalog[mediaType]
+      : chosenModel
+        ? [{ id: chosenModel, wofuer: "Vorschlag von Lukas" }]
+        : [];
+
   const { data: jobs = [] } = useGetMediaJobs();
   const generatePrompt = useGenerateHiggsfieldPrompt();
   const generateMedia = useGenerateMedia();
@@ -147,6 +186,9 @@ export default function Studio() {
     });
     setGeneratedPrompt(result);
     setEditedPrompt(result.prompt);
+    setChosenModel(result.suggestedModel);
+    setAspectRatio(result.aspectRatio ?? "16:9");
+    setDurationSec(result.duration ?? 5);
     setStep("prompt");
   };
 
@@ -156,11 +198,12 @@ export default function Studio() {
     try {
       await generateMedia.mutateAsync({
         data: {
-          model: generatedPrompt.suggestedModel,
+          model: chosenModel || generatedPrompt.suggestedModel,
           prompt: editedPrompt,
           imageUrl: imageUrl || undefined,
-          aspectRatio: generatedPrompt.aspectRatio ?? undefined,
-          duration: generatedPrompt.duration ?? undefined,
+          aspectRatio,
+          // Ein Bild hat keine Dauer — das Feld bleibt dann weg.
+          duration: mediaType === "video" ? durationSec : undefined,
           vision,
         },
       });
@@ -292,7 +335,11 @@ export default function Studio() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-xs text-muted-foreground">GENERIERTER PROMPT (bearbeitbar)</label>
-                    <Badge variant="outline" className="text-xs">{generatedPrompt.suggestedModel}</Badge>
+                    {chosenModel !== generatedPrompt.suggestedModel && (
+                      <Badge variant="outline" className="text-xs">
+                        Lukas wollte {generatedPrompt.suggestedModel}
+                      </Badge>
+                    )}
                   </div>
                   <Textarea
                     value={editedPrompt}
@@ -310,21 +357,52 @@ export default function Studio() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-3 text-xs text-muted-foreground">
-                  <div className="bg-secondary/50 rounded p-3 text-center">
-                    <div className="text-foreground font-medium">{generatedPrompt.aspectRatio ?? "16:9"}</div>
-                    <div>Format</div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground">MODELL</label>
+                    <select
+                      value={chosenModel}
+                      onChange={(e) => setChosenModel(e.target.value)}
+                      className="w-full bg-secondary/50 border border-border rounded-md px-3 py-2 text-sm"
+                    >
+                      {modelle.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.id} — {m.wofuer}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                  {generatedPrompt.duration && (
-                    <div className="bg-secondary/50 rounded p-3 text-center">
-                      <div className="text-foreground font-medium">{generatedPrompt.duration}s</div>
-                      <div>Dauer</div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground">FORMAT</label>
+                    <select
+                      value={aspectRatio}
+                      onChange={(e) => setAspectRatio(e.target.value)}
+                      className="w-full bg-secondary/50 border border-border rounded-md px-3 py-2 text-sm"
+                    >
+                      {["16:9", "9:16", "1:1", "4:3", "3:4"].map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                          {r === "9:16" ? " (Hochkant, TikTok/Reels)" : r === "16:9" ? " (Quer)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Dauer gibt es nur beim Video. Bei einem Bild ergibt sie keinen Sinn. */}
+                  {mediaType === "video" && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-muted-foreground">DAUER (Sekunden)</label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={60}
+                        value={durationSec}
+                        onChange={(e) => setDurationSec(Math.max(1, Number(e.target.value) || 1))}
+                        className="text-sm"
+                      />
                     </div>
                   )}
-                  <div className="bg-secondary/50 rounded p-3 text-center">
-                    <div className="text-foreground font-medium">{mediaType.toUpperCase()}</div>
-                    <div>TYP</div>
-                  </div>
                 </div>
 
                 <div className="flex gap-3">

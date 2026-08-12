@@ -13,8 +13,14 @@ import {
   extractMediaUrl,
   extractJobId,
   pollMcpJob,
+  importMediaUrl,
 } from "../lib/mcp";
 import { directModel } from "../lib/ai/model-router";
+import {
+  resolveHiggsfieldModel,
+  higgsfieldMediaType,
+  HIGGSFIELD_MODELS,
+} from "../lib/higgsfield-models";
 
 const router = Router();
 
@@ -61,14 +67,22 @@ Antworte NUR mit dem JSON-Objekt.`;
       return void res.status(500).json({ error: "Failed to parse AI response", raw: text });
     }
 
+    /*
+     * Was das Modell vorschlaegt, wird hier auf etwas Gueltiges gezogen.
+     *
+     * Zwei Dinge, die Issa aufgefallen sind: erstens stand bei einem BILD eine
+     * Dauer — sinnlos, ein Bild hat keine. Sie kam schlicht daher, dass der
+     * Wert des Modells ungeprueft durchgereicht wurde. Zweitens muss der
+     * Modellname im MCP-Katalog existieren; ein frei erfundener Name faellt
+     * sonst erst beim Generieren auf.
+     */
+    const typ = mediaType === "video" ? "video" : "image";
     res.json({
       prompt: parsed.prompt ?? "",
       negativePrompt: parsed.negativePrompt ?? null,
-      suggestedModel: parsed.suggestedModel ?? (mediaType === "video"
-        ? "bytedance/seedance/v1/pro/image-to-video"
-        : "higgsfield-ai/soul/standard"),
+      suggestedModel: resolveHiggsfieldModel(typ, parsed.suggestedModel as string | undefined),
       aspectRatio: parsed.aspectRatio ?? "16:9",
-      duration: parsed.duration ?? (mediaType === "video" ? 5 : null),
+      duration: typ === "video" ? Number(parsed.duration ?? 5) : null,
       reasoning: parsed.reasoning ?? "",
     });
   } catch (err: unknown) {
@@ -84,7 +98,12 @@ router.post("/higgsfield/generate", async (req, res) => {
     if (!model || !prompt)
       return void res.status(400).json({ error: "model and prompt required" });
 
-    const mediaType = model.includes("video") ? "video" : "image";
+    /*
+     * "video" im Namen zu suchen hat funktioniert, solange die Modellnamen
+     * lange Pfade waren ("...image-to-video"). Die Katalog-IDs heissen
+     * seedance_2_5 oder soul_2 — da steht nichts von Video drin.
+     */
+    const mediaType = higgsfieldMediaType(model);
     const apiKey = getHiggsfieldAuth();
 
     const [job] = await db
@@ -118,13 +137,31 @@ router.post("/higgsfield/generate", async (req, res) => {
 
     if (viaMcp) {
       try {
-        const args: Record<string, unknown> = { prompt };
-        if (imageUrl) args.image_url = imageUrl;
+        /*
+         * Die Argumente muessen dem MCP-Schema entsprechen, nicht dem alten
+         * REST-Body. Drei konkrete Unterschiede, an denen es gescheitert ist:
+         *
+         *  - "model" ist Pflicht und muss eine Katalog-ID sein.
+         *  - "image_url" und "resolution" gibt es dort nicht. Ein Referenzbild
+         *    geht ueber medias[] mit einer media_id, ausdruecklich NICHT als
+         *    https-Adresse — dafuer muss die URL vorher importiert werden.
+         *  - "duration" existiert nur beim Video.
+         */
+        const katalogModell = resolveHiggsfieldModel(mediaType, model);
+        const args: Record<string, unknown> = { prompt, model: katalogModell };
         if (aspectRatio) args.aspect_ratio = aspectRatio;
-        if (duration && mediaType === "video") args.duration = duration;
-        if (resolution) args.resolution = resolution;
-        // model kommt aus der Studio-Auswahl; der MCP-Server nimmt es als Hinweis.
-        if (model) args.model = model;
+        if (duration && mediaType === "video") args.duration = Number(duration);
+
+        if (imageUrl) {
+          const mediaId = await importMediaUrl(viaMcp.server.id, String(imageUrl));
+          if (mediaId) {
+            args.medias = [{ value: mediaId, role: mediaType === "video" ? "start_image" : "image" }];
+          } else {
+            // Lieber ohne Referenzbild generieren als mit einem Feld, das der
+            // Server verwirft — aber sichtbar, statt es zu verschlucken.
+            logger.warn({ imageUrl }, "Referenzbild nicht importierbar, generiere ohne");
+          }
+        }
 
         const text = await callMcpTool(viaMcp.server.id, viaMcp.tool, args);
 
@@ -264,6 +301,17 @@ router.post("/higgsfield/generate", async (req, res) => {
 });
 
 // ── STATUS ─────────────────────────────────────────────────────────────────
+/*
+ * Der Modellkatalog fuer das Studio.
+ *
+ * Das Dashboard soll die Auswahl anzeigen koennen, ohne die Liste ein zweites
+ * Mal zu fuehren — zwei Listen laufen frueher oder spaeter auseinander, und
+ * genau daran ist die alte Modellwahl gescheitert.
+ */
+router.get("/higgsfield/models", (_req, res) => {
+  res.json(HIGGSFIELD_MODELS);
+});
+
 router.get("/higgsfield/status/:requestId", async (req, res) => {
   try {
     const { requestId } = req.params;

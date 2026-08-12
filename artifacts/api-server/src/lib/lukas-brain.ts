@@ -57,9 +57,10 @@ export async function runLukasTurn(opts: {
       usedTools,
       iteration: i,
     });
+    // Budget bewusst offen lassen — siehe callOpenAI: bei Reasoning-Modellen
+    // teilen sich Denken und Antwort dasselbe max_output_tokens.
     const result = await callLukasModel({
       route,
-      maxTokens: 8192,
       tools,
       messages: convo,
     });

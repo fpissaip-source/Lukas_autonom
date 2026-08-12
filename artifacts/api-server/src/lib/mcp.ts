@@ -337,16 +337,25 @@ export function extractJobId(text: string): string | null {
 /*
  * Bei einem laufenden Auftrag nachfragen.
  *
- * Higgsfield bietet dafuer jobs_wait und show_generation_by_ids an. Welche
- * Werkzeuge ein Server wirklich hat, wissen wir erst zur Laufzeit — deshalb
- * der Reihe nach durchprobieren, statt eines fest zu verdrahten.
+ * Higgsfield bietet dafuer jobs_wait, show_generation_by_ids und job_display
+ * an. Welche Werkzeuge ein Server wirklich hat, wissen wir erst zur Laufzeit —
+ * deshalb der Reihe nach durchprobieren, statt eines fest zu verdrahten.
+ *
+ * WICHTIG sind hier die Argumentnamen. Mein erster Wurf hat sie geraten
+ * (ids/job_id/job_ids) und lag bei allen dreien daneben: die echten Schemata
+ * verlangen jobs:[{index,job_id}] bzw. id. Jede Nachfrage flog also in einen
+ * Schema-Fehler, wurde nur als Warnung geloggt, und der Auftrag stand
+ * weiterhin auf "processing" bis er nach 20 Minuten als gescheitert galt.
+ * Genau so sind die beiden FAILED-Eintraege im Studio entstanden.
  */
 export async function pollMcpJob(serverId: number, jobId: string): Promise<string | null> {
   const row = await getRow(serverId);
+  const jobs = [{ index: 0, job_id: jobId }];
   const kandidaten: Array<{ tool: string; args: Record<string, unknown> }> = [
-    { tool: "show_generation_by_ids", args: { ids: [jobId] } },
-    { tool: "job_display", args: { job_id: jobId } },
-    { tool: "jobs_wait", args: { job_ids: [jobId] } },
+    // jobs_wait wartet kurz aktiv ab und liefert Ergebnis-URLs — der guenstigste Weg.
+    { tool: "jobs_wait", args: { jobs, timeout_seconds: 10 } },
+    { tool: "show_generation_by_ids", args: { jobs } },
+    { tool: "job_display", args: { id: jobId } },
   ];
 
   for (const k of kandidaten) {
@@ -360,6 +369,31 @@ export async function pollMcpJob(serverId: number, jobId: string): Promise<strin
     }
   }
   return null;
+}
+
+/*
+ * Ein Bild aus dem Netz in den MCP-Server holen.
+ *
+ * Higgsfield nimmt Referenzbilder NICHT als URL entgegen — im Schema steht
+ * ausdruecklich, dass in medias[].value eine media_id gehoert und keine
+ * https://-Adresse. Das Studio hat bisher die URL flach als image_url
+ * mitgeschickt; das Feld gibt es dort gar nicht, es wurde stillschweigend
+ * ignoriert. Ein Video "aus diesem Bild" war damit nie eins.
+ *
+ * Der richtige Weg ist zweistufig: media_import_url liefert eine media_id,
+ * die dann als Referenz mitgegeben wird.
+ */
+export async function importMediaUrl(serverId: number, url: string): Promise<string | null> {
+  const row = await getRow(serverId);
+  if (!row.tools.some((t) => t.name === "media_import_url")) return null;
+  try {
+    const text = await callMcpTool(serverId, "media_import_url", { url });
+    const uuid = text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    return uuid ? uuid[0] : null;
+  } catch (err) {
+    logger.warn({ err, url }, "Referenzbild konnte nicht importiert werden");
+    return null;
+  }
 }
 
 /*

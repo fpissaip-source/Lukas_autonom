@@ -200,7 +200,25 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     const usedTools: string[] = [];
     const attachmentKinds = pendingAttachments.map((a) => attachmentKind(a.mimeType, a.filename));
 
-    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+    /*
+     * Der Stopp-Knopf im Chat muss auch hier ankommen.
+     *
+     * Im Dashboard bricht er die Verbindung ab (AbortController). Das allein
+     * stoppt aber nur die Anzeige: der Zug hier lief weiter, rief Werkzeuge auf,
+     * kostete Geld und schrieb am Ende trotzdem eine Antwort in die Datenbank,
+     * die beim naechsten Laden auftauchte. Ein Stopp, der nichts stoppt, ist
+     * schlimmer als keiner.
+     *
+     * Deshalb: Verbindungsabbruch merken, vor jedem Modellaufruf und vor jedem
+     * Werkzeug pruefen. Ein bereits laufendes Werkzeug laeuft zu Ende — danach
+     * ist Schluss.
+     */
+    let abgebrochen = false;
+    res.on("close", () => {
+      if (!res.writableEnded) abgebrochen = true;
+    });
+
+    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS && !abgebrochen; iteration++) {
       const route = routeLukasModel({
         userText: String(content),
         hasAttachments: pendingAttachments.length > 0,
@@ -209,9 +227,10 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         iteration,
       });
 
+      // Ohne festen Deckel: das Budget kommt aus dem Modell-Client, damit die
+      // Denk-Tokens der Reasoning-Modelle die Antwort nicht auffressen.
       const result = await callLukasModel({
         route,
-        maxTokens: 8192,
         tools: await allLukasTools(),
         messages: convo,
       });
@@ -230,6 +249,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       });
 
       for (const toolCall of result.toolCalls) {
+        if (abgebrochen) break;
         usedTools.push(toolCall.name);
         res.write(`data: ${JSON.stringify({ tool: toolCall.name })}\n\n`);
 
@@ -274,6 +294,25 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     }
 
     const draft = internalDraftPieces.join("").trim();
+
+    /*
+     * Abgebrochen: kein weiterer Modellaufruf mehr (renderLukasVoice waere
+     * genau das). Was bis dahin entstanden ist, wird trotzdem gespeichert und
+     * als gestoppt markiert — sonst faengt der naechste Turn ohne jede Spur an
+     * und Lukas weiss nicht, dass Issa ihn unterbrochen hat.
+     */
+    if (abgebrochen) {
+      if (draft) {
+        await db.insert(messages).values({
+          conversationId: convId,
+          role: "assistant",
+          content: `${draft}\n\n[Von Issa gestoppt.]`,
+        });
+      }
+      logger.info({ conversationId: convId, usedTools }, "Chat vom Client gestoppt");
+      return;
+    }
+
     const fullResponse = draft
       ? await renderLukasVoice({ systemPrompt, conversation: convo, draft })
       : "";

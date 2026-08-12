@@ -58,3 +58,4 @@ graphify-out/
 memory-vault/
 __pycache__/
 .consent-check-*/
+.higgsfield-check-*/

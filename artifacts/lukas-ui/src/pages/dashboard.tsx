@@ -1,10 +1,85 @@
 import { useGetLukasDashboard } from "@workspace/api-client-react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Activity, Brain, Target, Film, BookOpen, Clock, Heart } from "lucide-react";
+import {
+  Activity,
+  Brain,
+  Target,
+  Film,
+  BookOpen,
+  Clock,
+  Heart,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  type LucideIcon,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { de } from "date-fns/locale";
 import { PageHeader } from "@/components/page-header";
+
+/*
+ * Ein Abschnitt der Uebersicht.
+ *
+ * Vorher hatte jede Ueberschrift eine Linie darunter — das ergab optisch ein
+ * gegliedertes Dokument, kein Produkt. Die Trennung machen jetzt Abstand und
+ * die Karten selbst.
+ */
+function Abschnitt({
+  icon: Icon,
+  titel,
+  verzoegerung = 0,
+  children,
+}: {
+  icon: LucideIcon;
+  titel: string;
+  verzoegerung?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rise" style={{ animationDelay: `${verzoegerung}ms` }}>
+      <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+        <Icon className="w-4 h-4" /> {titel}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+function Kennzahl({
+  icon: Icon,
+  label,
+  wert,
+  zusatz,
+  verzoegerung = 0,
+}: {
+  icon: LucideIcon;
+  label: string;
+  wert: string;
+  zusatz?: string;
+  verzoegerung?: number;
+}) {
+  return (
+    <div className="card-soft rise p-5" style={{ animationDelay: `${verzoegerung}ms` }}>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <span className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+          <Icon className="w-4 h-4 text-primary" />
+        </span>
+      </div>
+      <div className="text-2xl font-semibold tracking-tight leading-tight text-balance">{wert}</div>
+      {zusatz && <p className="text-xs text-muted-foreground mt-1.5">{zusatz}</p>}
+    </div>
+  );
+}
+
+/** Leerer Zustand — sagt, was fehlt, nicht "No data". */
+function Leer({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground text-center text-pretty">
+      {text}
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { data, isLoading } = useGetLukasDashboard();
@@ -14,110 +89,125 @@ export default function Dashboard() {
       <div className="flex flex-col h-full">
         <PageHeader icon={Activity} title="Übersicht" subtitle="Lädt…" />
         <div className="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
-          <Skeleton className="h-32 w-full" />
-          <Skeleton className="h-32 w-full" />
-          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-32 w-full rounded-2xl" />
+          <Skeleton className="h-32 w-full rounded-2xl" />
+          <Skeleton className="h-32 w-full rounded-2xl" />
         </div>
       </div>
     );
   }
 
-  const { status, activeGoals, recentDiary, recentMemories, mediaJobs, recentEmotions, character } = data;
+  const { status, activeGoals, recentDiary, mediaJobs, recentEmotions, character } = data;
 
-  const valenceColor = (v: number) =>
-    v >= 0.3 ? "text-emerald-400" : v <= -0.3 ? "text-red-400" : "text-amber-300";
-  const valenceIcon = (v: number) => (v >= 0.3 ? "▲" : v <= -0.3 ? "▼" : "◆");
+  /*
+   * Gefuehle mit Richtung statt mit ASCII-Zeichen.
+   *
+   * Dort standen ▲ ▼ ◆ — genau die Sorte Zeichen, die eine Oberflaeche nach
+   * Terminal aussehen laesst. Ein Pfeil-Icon sagt dasselbe und gehoert in eine
+   * Anwendung.
+   */
+  const stimmung = (v: number) =>
+    v >= 0.3
+      ? { Icon: TrendingUp, farbe: "text-emerald-400", hg: "bg-emerald-400/10" }
+      : v <= -0.3
+        ? { Icon: TrendingDown, farbe: "text-red-400", hg: "bg-red-400/10" }
+        : { Icon: Minus, farbe: "text-amber-300", hg: "bg-amber-300/10" };
+
+  const zustandText: Record<string, string> = {
+    active: "läuft",
+    paused: "pausiert",
+    done: "erledigt",
+    completed: "erledigt",
+    pending: "wartet",
+    processing: "läuft",
+    failed: "fehlgeschlagen",
+  };
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div>
       <PageHeader
         icon={Activity}
         title="Übersicht"
         subtitle="Wie es Lukas gerade geht und woran er arbeitet"
         actions={
           <div className="text-xs text-muted-foreground">
-            Zuletzt: {status.lastActive ? formatDistanceToNow(new Date(status.lastActive), { addSuffix: true, locale: de }) : "unbekannt"}
+            Zuletzt aktiv:{" "}
+            {status.lastActive
+              ? formatDistanceToNow(new Date(status.lastActive), { addSuffix: true, locale: de })
+              : "unbekannt"}
           </div>
         }
       />
 
-      <div className="p-5 sm:p-6 space-y-6">
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <Card className="bg-card/50 backdrop-blur border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Stimmung</CardTitle>
-            <Activity className="w-4 h-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold capitalize">{status.mood}</div>
-            <p className="text-xs text-muted-foreground mt-1">Energie: {status.energy}</p>
-            {status.note && (
-              <p className="text-xs text-muted-foreground mt-1 italic truncate" title={status.note}>
-                {status.note}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+      <div className="p-5 sm:p-6 space-y-8 max-w-6xl">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Kennzahl
+            icon={Activity}
+            label="Stimmung"
+            wert={status.mood}
+            zusatz={status.note ? status.note : `Energie: ${status.energy}`}
+          />
+          <Kennzahl
+            icon={Target}
+            label="Beschäftigt ihn"
+            wert={status.obsession || "Nichts Bestimmtes"}
+            verzoegerung={60}
+          />
+          <Kennzahl
+            icon={Brain}
+            label="Gedächtnis"
+            wert={`${status.memoriesCount} Erinnerungen`}
+            zusatz={`${status.activeGoalsCount} aktive Ziele`}
+            verzoegerung={120}
+          />
+        </div>
 
-        <Card className="bg-card/50 backdrop-blur border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Beschäftigt ihn</CardTitle>
-            <Target className="w-4 h-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-lg font-medium leading-tight">{status.obsession || 'None'}</div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card/50 backdrop-blur border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Gedächtnis</CardTitle>
-            <Brain className="w-4 h-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{status.memoriesCount} <span className="text-sm font-normal text-muted-foreground">Erinnerungen</span></div>
-            <p className="text-xs text-muted-foreground mt-1">Aktive Ziele: {status.activeGoalsCount}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Gefühlslage: Emotionen mit Ursache + gewachsener Charakter */}
-      <div>
-        <h2 className="text-base font-semibold border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
-          <Heart className="w-4 h-4 text-muted-foreground" /> Gefühlslage
-        </h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="space-y-2">
-            {recentEmotions.length > 0 ? (
-              recentEmotions.map((e) => (
-                <div key={e.id} className="bg-card p-3 rounded-md border border-border/50 flex items-start gap-3">
-                  <span className={`text-sm ${valenceColor(e.valence)}`}>{valenceIcon(e.valence)}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="font-medium capitalize">{e.emotion}</span>
-                      <span className="text-xs text-muted-foreground flex-none">
-                        {e.source} · {formatDistanceToNow(new Date(e.createdAt), { addSuffix: true, locale: de })}
+        <Abschnitt icon={Heart} titel="Gefühlslage" verzoegerung={180}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="space-y-2.5">
+              {recentEmotions.length > 0 ? (
+                recentEmotions.map((e, i) => {
+                  const { Icon, farbe, hg } = stimmung(e.valence);
+                  return (
+                    <div
+                      key={e.id}
+                      className="card-soft rise p-3.5 flex items-start gap-3"
+                      style={{ animationDelay: `${200 + i * 50}ms` }}
+                    >
+                      <span
+                        className={`w-8 h-8 rounded-xl ${hg} flex items-center justify-center shrink-0`}
+                      >
+                        <Icon className={`w-4 h-4 ${farbe}`} />
                       </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="font-medium capitalize">{e.emotion}</span>
+                          <span className="text-xs text-muted-foreground flex-none">
+                            {formatDistanceToNow(new Date(e.createdAt), {
+                              addSuffix: true,
+                              locale: de,
+                            })}
+                          </span>
+                        </div>
+                        <div className="text-sm text-muted-foreground mt-0.5 text-pretty">
+                          {e.cause}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">{e.cause}</div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-sm text-muted-foreground italic">
-                Noch keine emotionalen Ereignisse — Lukas' Gefühlsleben beginnt mit dem ersten Gespräch.
-              </div>
-            )}
-          </div>
-          <div>
+                  );
+                })
+              ) : (
+                <Leer text="Noch keine Gefühle festgehalten — das beginnt mit dem ersten Gespräch." />
+              )}
+            </div>
+
             {character ? (
-              <div className="bg-card p-4 rounded-md border border-border/50 space-y-3">
-                <div className="text-xs text-muted-foreground">Gewachsener Charakter</div>
+              <div className="card-soft p-5 space-y-4 self-start">
+                <div className="text-sm text-muted-foreground">Gewachsener Charakter</div>
                 {character.selfImage && (
-                  <p className="text-sm leading-relaxed italic text-muted-foreground">"{character.selfImage}"</p>
+                  <p className="text-sm leading-relaxed text-pretty">„{character.selfImage}"</p>
                 )}
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   {(
                     [
                       ["Selbstvertrauen", character.traits.confidence],
@@ -126,13 +216,19 @@ export default function Dashboard() {
                       ["Verspieltheit", character.traits.playfulness],
                       ["Ehrgeiz", character.traits.ambition],
                     ] as const
-                  ).map(([label, value]) => (
-                    <div key={label} className="flex items-center gap-2">
+                  ).map(([label, value], i) => (
+                    <div key={label} className="flex items-center gap-3">
                       <span className="text-xs w-28 flex-none text-muted-foreground">{label}</span>
-                      <div className="flex-1 h-1.5 bg-secondary rounded overflow-hidden">
-                        <div className="h-full bg-primary/70" style={{ width: `${Math.round(value * 100)}%` }} />
+                      <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-primary/60 to-primary transition-[width] duration-700 ease-out"
+                          style={{
+                            width: `${Math.round(value * 100)}%`,
+                            transitionDelay: `${300 + i * 80}ms`,
+                          }}
+                        />
                       </div>
-                      <span className="text-xs w-8 text-right text-muted-foreground">
+                      <span className="text-xs w-8 text-right text-muted-foreground tabular-nums">
                         {Math.round(value * 100)}
                       </span>
                     </div>
@@ -140,85 +236,80 @@ export default function Dashboard() {
                 </div>
               </div>
             ) : (
-              <div className="text-sm text-muted-foreground italic">
-                Charakter formt sich mit der ersten Reflexion.
-              </div>
+              <Leer text="Sein Charakter formt sich mit der ersten Reflexion." />
             )}
           </div>
-        </div>
-      </div>
+        </Abschnitt>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="space-y-6">
-          {/* Recent Thoughts/Diary */}
-          <div>
-            <h2 className="text-base font-semibold border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-muted-foreground" /> Zuletzt im Tagebuch
-            </h2>
-            {recentDiary.length > 0 ? (
-              <div className="bg-card p-4 rounded-md border border-border/50 text-sm leading-relaxed text-muted-foreground">
-                {recentDiary[0].content}
-                <div className="mt-3 text-xs text-primary/60">
-                  {formatDistanceToNow(new Date(recentDiary[0].createdAt), { addSuffix: true, locale: de })}
-                </div>
-              </div>
-            ) : (
-              <div className="text-sm text-muted-foreground italic">No recent logs.</div>
-            )}
-          </div>
-
-          {/* Active Goals */}
-          <div>
-            <h2 className="text-base font-semibold border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
-              <Target className="w-4 h-4 text-muted-foreground" /> Aktive Ziele
-            </h2>
-            <div className="space-y-3">
-              {activeGoals.slice(0, 3).map(goal => (
-                <div key={goal.id} className="bg-card p-3 rounded-md border border-border/50 flex justify-between items-center">
-                  <div>
-                    <div className="font-medium">{goal.title}</div>
-                    <div className="text-xs text-muted-foreground mt-1">Priorität: {goal.priority}</div>
-                  </div>
-                  <div className="text-xs px-2 py-1 bg-secondary rounded text-secondary-foreground">
-                    {goal.status}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="space-y-8">
+            <Abschnitt icon={BookOpen} titel="Zuletzt im Tagebuch" verzoegerung={240}>
+              {recentDiary.length > 0 ? (
+                <div className="card-soft p-5 text-sm leading-relaxed text-pretty">
+                  {recentDiary[0].content}
+                  <div className="mt-3 text-xs text-muted-foreground">
+                    {formatDistanceToNow(new Date(recentDiary[0].createdAt), {
+                      addSuffix: true,
+                      locale: de,
+                    })}
                   </div>
                 </div>
-              ))}
-              {activeGoals.length === 0 && (
-                <div className="text-sm text-muted-foreground italic">No active directives.</div>
+              ) : (
+                <Leer text="Noch kein Eintrag." />
               )}
-            </div>
-          </div>
-        </div>
+            </Abschnitt>
 
-        <div className="space-y-6">
-          {/* Media Jobs */}
-          <div>
-            <h2 className="text-base font-semibold border-b border-border/50 pb-2 mb-4 flex items-center gap-2">
-              <Film className="w-4 h-4 text-muted-foreground" /> Medien-Aufträge
-            </h2>
-            <div className="space-y-3">
-              {mediaJobs.slice(0, 4).map(job => (
-                <div key={job.id} className="bg-card p-3 rounded-md border border-border/50 flex flex-col gap-2">
-                  <div className="flex justify-between items-start">
-                    <div className="text-sm font-medium line-clamp-1 flex-1 pr-4">{job.vision || job.prompt}</div>
-                    <div className="text-xs px-2 py-1 bg-secondary rounded text-secondary-foreground uppercase shrink-0">
-                      {job.status}
+            <Abschnitt icon={Target} titel="Aktive Ziele" verzoegerung={280}>
+              <div className="space-y-2.5">
+                {activeGoals.slice(0, 3).map((goal) => (
+                  <div
+                    key={goal.id}
+                    className="card-soft p-4 flex justify-between items-center gap-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{goal.title}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        Priorität {goal.priority}
+                      </div>
                     </div>
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-secondary text-secondary-foreground shrink-0">
+                      {zustandText[goal.status] ?? goal.status}
+                    </span>
+                  </div>
+                ))}
+                {activeGoals.length === 0 && <Leer text="Keine aktiven Ziele." />}
+              </div>
+            </Abschnitt>
+          </div>
+
+          <Abschnitt icon={Film} titel="Medien-Aufträge" verzoegerung={320}>
+            <div className="space-y-2.5">
+              {mediaJobs.slice(0, 4).map((job) => (
+                <div key={job.id} className="card-soft p-4 space-y-2">
+                  <div className="flex justify-between items-start gap-3">
+                    <div className="text-sm font-medium line-clamp-2 flex-1">
+                      {job.vision || job.prompt}
+                    </div>
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-secondary text-secondary-foreground shrink-0">
+                      {zustandText[job.status] ?? job.status}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center text-xs text-muted-foreground">
-                    <span>TYPE: {job.mediaType}</span>
-                    <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {formatDistanceToNow(new Date(job.createdAt), { locale: de })} her</span>
+                    <span>{job.mediaType === "video" ? "Video" : "Bild"}</span>
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {formatDistanceToNow(new Date(job.createdAt), {
+                        addSuffix: true,
+                        locale: de,
+                      })}
+                    </span>
                   </div>
                 </div>
               ))}
-              {mediaJobs.length === 0 && (
-                <div className="text-sm text-muted-foreground italic">Noch keine Medien-Aufträge.</div>
-              )}
+              {mediaJobs.length === 0 && <Leer text="Noch keine Medien-Aufträge." />}
             </div>
-          </div>
+          </Abschnitt>
         </div>
-      </div>
       </div>
     </div>
   );

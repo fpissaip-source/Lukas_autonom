@@ -15,9 +15,50 @@ import { rememberAssistantMessage, rememberUserMessage } from "../lib/conversati
 import { routeLukasModel } from "../lib/ai/model-router";
 import { callLukasModel } from "../lib/ai/model-client";
 import { renderLukasVoice } from "../lib/ai/voice-renderer";
+import type { ToolStep } from "@workspace/db";
+import type { Response } from "express";
 
 const router = Router();
 const MAX_TOOL_ITERATIONS = 8;
+
+/*
+ * Ein Arbeitsschritt, wie ihn Issa sehen soll.
+ *
+ * Bisher lief im Chat nur "[⚙ execute_command]" durch — der Name des
+ * Werkzeugs und sonst nichts. Welchen Befehl Lukas abgesetzt hat, was er einen
+ * Subagenten gefragt hat und was zurueckkam, war nirgends sichtbar.
+ *
+ * Gekuerzt wird bewusst grosszuegig: ein Werkzeugergebnis kann eine ganze
+ * Webseite sein, und die gehoert weder in die Leitung noch in die Datenbank.
+ * 4000 Zeichen reichen, um zu verstehen, was passiert ist.
+ */
+const SCHRITT_MAX = 4000;
+
+function kuerze(text: string): string {
+  return text.length > SCHRITT_MAX
+    ? `${text.slice(0, SCHRITT_MAX)}\n\n[… ${text.length - SCHRITT_MAX} weitere Zeichen]`
+    : text;
+}
+
+function zeigeSchritt(
+  tool: string,
+  input: Record<string, unknown>,
+  result: string,
+  ok: boolean,
+  ms: number,
+  res: Response,
+): ToolStep {
+  const schritt: ToolStep = {
+    tool,
+    input: kuerze(JSON.stringify(input, null, 2)),
+    result: kuerze(result),
+    ok,
+    ms,
+  };
+  // Sofort raus, damit man beim Zuschauen schon sieht, was er gerade getan hat.
+  res.write(`data: ${JSON.stringify({ step: schritt })}\n\n`);
+  return schritt;
+}
 
 router.get("/anthropic/conversations", async (_req, res) => {
   try {
@@ -222,6 +263,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
 
     const internalDraftPieces: string[] = [];
     const usedTools: string[] = [];
+    const schritte: ToolStep[] = [];
     const attachmentKinds = pendingAttachments.map((a) => attachmentKind(a.mimeType, a.filename));
 
     /*
@@ -284,19 +326,27 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
           // Das Tool meldet fehlende/ungueltige Parameter selbst.
         }
 
+        const begonnen = Date.now();
         try {
           const toolResult = await executeLukasTool(toolCall.name, input, {
             rawUserMessage: String(content),
             conversationId: convId,
           });
           convo.push({ role: "tool", tool_call_id: toolCall.id, content: toolResult });
+          schritte.push(
+            zeigeSchritt(toolCall.name, input, toolResult, true, Date.now() - begonnen, res),
+          );
         } catch (err) {
           logger.warn({ err, tool: toolCall.name }, "Lukas tool failed");
+          const grund = `Fehler: ${err instanceof Error ? err.message : String(err)}`;
           convo.push({
             role: "tool",
             tool_call_id: toolCall.id,
-            content: `Fehler: ${err instanceof Error ? err.message : String(err)}`,
+            content: grund,
           });
+          schritte.push(
+            zeigeSchritt(toolCall.name, input, grund, false, Date.now() - begonnen, res),
+          );
           if (toolCall.name !== "feel") {
             recordEmotion({
               emotion: "frustration",
@@ -331,6 +381,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
           conversationId: convId,
           role: "assistant",
           content: `${draft}\n\n[Hier abgebrochen — die Verbindung zum Chat war weg.]`,
+          steps: schritte.length ? schritte : null,
         });
       }
       logger.info({ conversationId: convId, usedTools }, "Chat abgebrochen");
@@ -365,6 +416,9 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       conversationId: convId,
       role: "assistant",
       content: antwort,
+      // Die Arbeitsschritte gehoeren an die Antwort, nicht in den fluechtigen
+      // Stream — sonst sind sie nach dem Neuladen weg.
+      steps: schritte.length ? schritte : null,
     });
     if (fullResponse) rememberAssistantMessage(fullResponse, "dashboard");
 

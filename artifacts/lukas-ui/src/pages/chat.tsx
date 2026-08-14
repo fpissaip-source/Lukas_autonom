@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { takeCompleteLines, parseSseData } from "@/lib/sse";
+import { ToolSteps, type ToolStep } from "@/components/tool-steps";
 import { VoicePanel } from "@/components/voice-panel";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -69,13 +70,93 @@ function renderWithLinks(text: string) {
   );
 }
 
-function Avatar({ who }: { who: "lukas" | "issa" }) {
-  return who === "lukas" ? (
-    <div className="w-7 h-7 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center text-[11px] font-semibold text-primary shrink-0">L</div>
-  ) : (
-    <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center text-[11px] font-semibold text-muted-foreground shrink-0">I</div>
+/*
+ * Eine Sprechblase — Lukas links am Rand, Issa rechts am Rand.
+ *
+ * Zwei Dinge standen dem vorher im Weg. Erstens hatte nur Issa eine Blase;
+ * Lukas' Antworten standen als nackter Text ueber die volle Breite und lasen
+ * sich wie ein Ausgabe-Log. Zweitens sass neben jeder Blase ein Avatar-Kreis
+ * und hat sie um dessen Breite von der Kante weggeschoben — genau die Kante,
+ * an der sie kleben soll.
+ *
+ * Deshalb: keine Avatare mehr. In einem Gespraech zwischen genau zwei Leuten
+ * sagt die Seite bereits, wer spricht — so macht es auch jeder Messenger.
+ *
+ * 85% Maximalbreite, weil eine Blase ueber die ganze Breite optisch keine
+ * Seite mehr hat.
+ */
+function Bubble({
+  own,
+  zeit,
+  wartet,
+  children,
+}: {
+  own: boolean;
+  zeit?: string;
+  wartet?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`flex flex-col min-w-0 animate-in fade-in duration-300 ${
+        own ? "items-end slide-in-from-right-3" : "items-start slide-in-from-left-3"
+      }`}
+    >
+      <div
+        className={`max-w-[85%] min-w-0 px-4 py-3 border shadow-sm transition-colors ${
+          own
+            ? "bg-primary/20 border-primary/25 rounded-2xl rounded-br-sm"
+            : "bg-card border-border/70 rounded-2xl rounded-bl-sm"
+        }`}
+      >
+        {children}
+      </div>
+      {zeit && (
+        <div className="text-[11px] text-muted-foreground/60 mt-1.5 px-1 flex items-center gap-1.5">
+          {wartet && <Loader2 className="w-3 h-3 animate-spin" />}
+          {zeit}
+        </div>
+      )}
+    </div>
   );
 }
+
+/*
+ * Was Lukas gerade tut, statt drei hüpfender Punkte.
+ *
+ * Die Punkte sagen "es passiert etwas" — mehr nicht. Wenn er zwei Minuten
+ * recherchiert, will man wissen, WAS gerade laeuft. Der Name des aktuellen
+ * Werkzeugs steht deshalb dabei.
+ */
+function Denkt({ tool }: { tool: string | null }) {
+  const text = tool ? TOOL_TEXT[tool] ?? "arbeitet" : "denkt nach";
+  return (
+    <div className="flex items-center gap-2.5 py-1" aria-live="polite">
+      <span className="relative flex w-2.5 h-2.5 shrink-0">
+        <span className="absolute inline-flex h-full w-full rounded-full bg-primary/50 animate-ping" />
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary" />
+      </span>
+      <span className="text-sm bg-gradient-to-r from-muted-foreground via-foreground to-muted-foreground bg-[length:200%_100%] bg-clip-text text-transparent animate-[shimmer_2s_linear_infinite]">
+        Lukas {text}…
+      </span>
+    </div>
+  );
+}
+
+/** Werkzeugname → was das für Issa bedeutet, im Verlaufsform. */
+const TOOL_TEXT: Record<string, string> = {
+  execute_command: "führt einen Befehl aus",
+  execute_on_host: "arbeitet auf dem Server",
+  ask_subagent: "fragt sein Team",
+  fetch_url: "liest eine Seite",
+  web_search: "sucht im Netz",
+  query_memory: "sucht in seinem Gedächtnis",
+  remember: "merkt sich etwas",
+  email_search: "durchsucht das Postfach",
+  email_read: "liest eine Mail",
+  email_send: "schreibt eine Mail",
+  feel: "sortiert seine Gefühle",
+};
 
 export default function Chat() {
   const qc = useQueryClient();
@@ -88,6 +169,10 @@ export default function Chat() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [optimisticMsg, setOptimisticMsg] = useState<string | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
+  /** Werkzeug, das gerade laeuft — fuer die Denkanzeige. */
+  const [liveTool, setLiveTool] = useState<string | null>(null);
+  /** Fertige Schritte dieses Zuges, damit man beim Zuschauen schon klicken kann. */
+  const [liveSteps, setLiveSteps] = useState<ToolStep[]>([]);
   const [sentAttachments, setSentAttachments] = useState<Attachment[]>([]);
   const [atBottom, setAtBottom] = useState(true);
 
@@ -194,6 +279,8 @@ export default function Chat() {
     setStreaming(false);
     setStreamContent("");
     setOptimisticMsg(null);
+    setLiveTool(null);
+    setLiveSteps([]);
     if (activeId) qc.invalidateQueries({ queryKey: getGetAnthropicConversationQueryKey(activeId) });
   }, [activeId, qc]);
 
@@ -210,6 +297,8 @@ export default function Chat() {
     setStreaming(true);
     setStreamContent("");
     setStreamError(null);
+    setLiveTool(null);
+    setLiveSteps([]);
     setAtBottom(true);
 
     try {
@@ -245,7 +334,13 @@ export default function Chat() {
           const parsed = parseSseData(zeile);
           if (!parsed) continue;
           if (parsed.content) setStreamContent((prev) => prev + String(parsed.content));
-          if (parsed.tool) setStreamContent((prev) => `${prev}\n[⚙ ${String(parsed.tool)}]\n`);
+          // Werkzeuge stehen nicht mehr als "[⚙ name]" im Text — sie sind
+          // eigene, anklickbare Schritte.
+          if (parsed.tool) setLiveTool(String(parsed.tool));
+          if (parsed.step) {
+            setLiveSteps((prev) => [...prev, parsed.step as ToolStep]);
+            setLiveTool(null);
+          }
           // Ein Fehler gehört sichtbar in den Chat, nicht in die Konsole.
           if (parsed.error) setStreamError(String(parsed.error));
           if (parsed.done) done = true;
@@ -262,6 +357,10 @@ export default function Chat() {
       setStreaming(false);
       setStreamContent("");
       setOptimisticMsg(null);
+      setLiveTool(null);
+      // Die Schritte haengen jetzt an der gespeicherten Nachricht — die lokale
+      // Kopie darf weg, sonst stuenden sie doppelt da.
+      setLiveSteps([]);
       qc.invalidateQueries({ queryKey: getGetAnthropicConversationQueryKey(activeId) });
     }
   }, [input, activeId, streaming, qc, pending.length]);
@@ -326,72 +425,71 @@ export default function Chat() {
                     {allMessages.map((m) => {
                       const own = m.role === "user";
                       const files = sentAttachments.filter((a) => a.messageId === m.id);
+                      const steps = (m as { steps?: ToolStep[] | null }).steps ?? [];
                       return (
-                        <div key={m.id} className={`flex gap-3 min-w-0 ${own ? "justify-end" : ""}`}>
-                          {!own && <Avatar who="lukas" />}
-                          <div className={`min-w-0 ${own ? "max-w-[85%]" : "flex-1"}`}>
-                            <div className={own ? "bg-secondary rounded-2xl rounded-tr-md px-4 py-3" : ""}>
-                              <div className="text-[15px] leading-7 whitespace-pre-wrap break-words">{renderWithLinks(m.content)}</div>
-                              {files.length > 0 && (
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                  {files.map((a) => {
-                                    const Icon = attachmentIcon(a.kind);
-                                    return a.kind === "image" ? (
-                                      <a key={a.id} href={`${BASE}${a.url}`} target="_blank" rel="noreferrer">
-                                        <img src={`${BASE}${a.url}`} alt={a.filename} className="max-h-52 rounded-xl border border-border" />
-                                      </a>
-                                    ) : (
-                                      <a key={a.id} href={`${BASE}${a.url}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm hover:border-primary/40 transition-colors">
-                                        <Icon className="w-4 h-4 text-primary shrink-0" />
-                                        <span className="truncate max-w-[180px]">{a.filename}</span>
-                                        <span className="text-muted-foreground text-xs">{formatSize(a.sizeBytes)}</span>
-                                      </a>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                            <div className={`text-xs text-muted-foreground/60 mt-1.5 ${own ? "text-right" : ""}`}>{chatTime(m.createdAt)}</div>
+                        <Bubble key={m.id} own={own} zeit={chatTime(m.createdAt)}>
+                          <div className="text-[15px] leading-7 whitespace-pre-wrap break-words">
+                            {renderWithLinks(m.content)}
                           </div>
-                          {own && <Avatar who="issa" />}
-                        </div>
+                          {files.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {files.map((a) => {
+                                const Icon = attachmentIcon(a.kind);
+                                return a.kind === "image" ? (
+                                  <a key={a.id} href={`${BASE}${a.url}`} target="_blank" rel="noreferrer">
+                                    <img
+                                      src={`${BASE}${a.url}`}
+                                      alt={a.filename}
+                                      className="max-h-52 rounded-xl border border-border transition-transform duration-200 hover:scale-[1.02]"
+                                    />
+                                  </a>
+                                ) : (
+                                  <a
+                                    key={a.id}
+                                    href={`${BASE}${a.url}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center gap-2 rounded-xl border border-border bg-card/80 px-3 py-2 text-sm hover:border-primary/40 transition-colors"
+                                  >
+                                    <Icon className="w-4 h-4 text-primary shrink-0" />
+                                    <span className="truncate max-w-[180px]">{a.filename}</span>
+                                    <span className="text-muted-foreground text-xs">{formatSize(a.sizeBytes)}</span>
+                                  </a>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {!own && steps.length > 0 && <ToolSteps steps={steps} />}
+                        </Bubble>
                       );
                     })}
 
                     {optimisticMsg && (
-                      <div className="flex gap-3 justify-end min-w-0">
-                        <div className="min-w-0 max-w-[85%]">
-                          <div className="bg-secondary/60 rounded-2xl rounded-tr-md px-4 py-3">
-                            <div className="text-[15px] leading-7 whitespace-pre-wrap break-words">{renderWithLinks(optimisticMsg)}</div>
-                          </div>
-                          <div className="text-xs text-muted-foreground/60 mt-1.5 text-right flex items-center justify-end gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> senden…</div>
+                      <Bubble own zeit="senden…" wartet>
+                        <div className="text-[15px] leading-7 whitespace-pre-wrap break-words">
+                          {renderWithLinks(optimisticMsg)}
                         </div>
-                        <Avatar who="issa" />
-                      </div>
+                      </Bubble>
                     )}
 
                     {streaming && (
-                      <div className="flex gap-3 min-w-0">
-                        <Avatar who="lukas" />
-                        <div className="flex-1 min-w-0">
-                          {streamContent ? (
-                            <div className="text-[15px] leading-7 whitespace-pre-wrap break-words">{streamContent}<span className="animate-pulse">▌</span></div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 py-2" aria-label="Lukas schreibt">
-                              <span className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:0ms]" />
-                              <span className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:150ms]" />
-                              <span className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:300ms]" />
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      <Bubble own={false}>
+                        {streamContent ? (
+                          <div className="text-[15px] leading-7 whitespace-pre-wrap break-words">
+                            {streamContent}
+                            <span className="inline-block w-[3px] h-[1.1em] align-[-0.15em] ml-0.5 bg-primary animate-pulse rounded-full" />
+                          </div>
+                        ) : (
+                          <Denkt tool={liveTool} />
+                        )}
+                        {liveSteps.length > 0 && <ToolSteps steps={liveSteps} />}
+                      </Bubble>
                     )}
 
                     {/* Ein Fehler bleibt stehen, bis die naechste Nachricht raus geht. */}
                     {streamError && !streaming && (
-                      <div className="flex gap-3 min-w-0">
-                        <Avatar who="lukas" />
-                        <div className="flex-1 min-w-0 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
+                      <div className="flex min-w-0 animate-in fade-in slide-in-from-left-3 duration-300">
+                        <div className="min-w-0 max-w-[85%] rounded-2xl rounded-bl-sm border border-destructive/30 bg-destructive/10 px-4 py-3">
                           <div className="text-sm font-medium text-destructive mb-1">
                             Die Antwort ist nicht angekommen
                           </div>

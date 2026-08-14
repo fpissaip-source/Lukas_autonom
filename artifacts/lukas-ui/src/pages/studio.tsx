@@ -52,9 +52,16 @@ function JobStatusBadge({ status }: { status: string }) {
     failed: { color: "bg-red-500/10 text-red-400 border-red-500/20", icon: <AlertCircle className="w-3 h-3" /> },
   };
   const cfg = configs[status] ?? configs.pending;
+  // Kein GESCHREI in Grossbuchstaben — der Zustand auf Deutsch reicht.
+  const text: Record<string, string> = {
+    pending: "wartet",
+    processing: "läuft",
+    completed: "fertig",
+    failed: "fehlgeschlagen",
+  };
   return (
-    <span className={`text-xs px-2 py-0.5 rounded-full border flex items-center gap-1 ${cfg.color}`}>
-      {cfg.icon} {status.toUpperCase()}
+    <span className={`text-xs px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${cfg.color}`}>
+      {cfg.icon} {text[status] ?? status}
     </span>
   );
 }
@@ -107,14 +114,14 @@ function JobCard({ job }: { job: { id: number; requestId?: string | null; status
       <div className="flex items-center gap-3 mt-3 pt-3 border-t border-border/50">
         <span className={`text-xs flex items-center gap-1 ${job.mediaType === "video" ? "text-purple-400" : "text-blue-400"}`}>
           {job.mediaType === "video" ? <Film className="w-3 h-3" /> : <Image className="w-3 h-3" />}
-          {job.mediaType.toUpperCase()}
+          {job.mediaType === "video" ? "Video" : "Bild"}
         </span>
         <span className="text-xs text-muted-foreground ml-auto">
           {formatDistanceToNow(new Date(job.createdAt), { addSuffix: true, locale: de })}
         </span>
         {resultUrl && (
           <a href={resultUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
-            OPEN <ExternalLink className="w-3 h-3" />
+            Öffnen <ExternalLink className="w-3 h-3" />
           </a>
         )}
       </div>
@@ -245,7 +252,7 @@ export default function Studio() {
                   ["vision", "prompt", "generating", "done"].indexOf(step) > i ? "bg-primary/30 text-primary" : "bg-secondary text-muted-foreground"
                 }`}>{i + 1}</div>
                 <span className="text-xs text-muted-foreground hidden sm:block">
-                  {s === "vision" ? "VISION" : s === "prompt" ? "PROMPT" : s === "generating" ? "RENDER" : "FERTIG"}
+                  {s === "vision" ? "Vision" : s === "prompt" ? "Prompt" : s === "generating" ? "Rendern" : "Fertig"}
                 </span>
                 {i < 3 && <ChevronRight className="w-3 h-3 text-muted-foreground" />}
               </div>
@@ -264,19 +271,19 @@ export default function Studio() {
                     onClick={() => setMediaType("image")}
                     className="flex-1 gap-2"
                   >
-                    <Image className="w-4 h-4" /> BILD
+                    <Image className="w-4 h-4" /> Bild
                   </Button>
                   <Button
                     variant={mediaType === "video" ? "default" : "outline"}
                     onClick={() => setMediaType("video")}
                     className="flex-1 gap-2"
                   >
-                    <Film className="w-4 h-4" /> VIDEO
+                    <Film className="w-4 h-4" /> Video
                   </Button>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">DEINE VISION</label>
+                  <label className="text-xs text-muted-foreground">Deine Vision</label>
                   <Textarea
                     placeholder={mediaType === "image"
                       ? "z.B. Eine Frau in einem nebligen japanischen Wald bei Sonnenaufgang, cinematisch..."
@@ -289,7 +296,7 @@ export default function Studio() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">STIL-HINT (optional)</label>
+                  <label className="text-xs text-muted-foreground">Stil (optional)</label>
                   <Input
                     placeholder="cinematisch, anime, watercolor, hyperrealistic, dark..."
                     value={style}
@@ -300,7 +307,7 @@ export default function Studio() {
 
                 {mediaType === "video" && (
                   <div className="space-y-2">
-                    <label className="text-xs text-muted-foreground">REFERENZ-BILD URL (optional, für image-to-video)</label>
+                    <label className="text-xs text-muted-foreground">Referenzbild-URL (optional, als Ausgangsbild)</label>
                     <Input
                       placeholder="https://example.com/bild.jpg"
                       value={imageUrl}
@@ -316,9 +323,9 @@ export default function Studio() {
                   className="w-full gap-2 h-12"
                 >
                   {generatePrompt.isPending ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> LUKAS ANALYSIERT...</>
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Lukas denkt nach…</>
                   ) : (
-                    <><Sparkles className="w-4 h-4" /> PROMPT GENERIEREN</>
+                    <><Sparkles className="w-4 h-4" /> Prompt erstellen</>
                   )}
                 </Button>
               </div>
@@ -334,7 +341,7 @@ export default function Studio() {
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs text-muted-foreground">GENERIERTER PROMPT (bearbeitbar)</label>
+                    <label className="text-xs text-muted-foreground">Prompt — du kannst ihn ändern</label>
                     {chosenModel !== generatedPrompt.suggestedModel && (
                       <Badge variant="outline" className="text-xs">
                         Lukas wollte {generatedPrompt.suggestedModel}
@@ -350,7 +357,7 @@ export default function Studio() {
 
                 {generatedPrompt.negativePrompt && (
                   <div className="space-y-2">
-                    <label className="text-xs text-muted-foreground">NEGATIVE PROMPT</label>
+                    <label className="text-xs text-muted-foreground">Was vermieden werden soll</label>
                     <div className="bg-secondary/50 rounded p-3 text-xs text-muted-foreground">
                       {generatedPrompt.negativePrompt}
                     </div>
@@ -359,7 +366,7 @@ export default function Studio() {
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <label className="text-xs text-muted-foreground">MODELL</label>
+                    <label className="text-xs text-muted-foreground">Modell</label>
                     <select
                       value={chosenModel}
                       onChange={(e) => setChosenModel(e.target.value)}
@@ -374,7 +381,7 @@ export default function Studio() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs text-muted-foreground">FORMAT</label>
+                    <label className="text-xs text-muted-foreground">Format</label>
                     <select
                       value={aspectRatio}
                       onChange={(e) => setAspectRatio(e.target.value)}
@@ -392,7 +399,7 @@ export default function Studio() {
                   {/* Dauer gibt es nur beim Video. Bei einem Bild ergibt sie keinen Sinn. */}
                   {mediaType === "video" && (
                     <div className="space-y-1.5">
-                      <label className="text-xs text-muted-foreground">DAUER (Sekunden)</label>
+                      <label className="text-xs text-muted-foreground">Dauer in Sekunden</label>
                       <Input
                         type="number"
                         min={1}
@@ -407,10 +414,10 @@ export default function Studio() {
 
                 <div className="flex gap-3">
                   <Button variant="outline" onClick={handleReset} className="flex-1">
-                    ZURÜCK
+                    Zurück
                   </Button>
                   <Button onClick={handleGenerate} disabled={!editedPrompt.trim()} className="flex-1 gap-2">
-                    <Send className="w-4 h-4" /> AN HIGGSFIELD SENDEN
+                    <Send className="w-4 h-4" /> An Higgsfield senden
                   </Button>
                 </div>
               </div>
@@ -437,8 +444,8 @@ export default function Studio() {
               <div className="flex flex-col items-center justify-center py-12 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <CheckCircle2 className="w-16 h-16 text-green-400" />
                 <div className="text-center space-y-2">
-                  <div className="font-bold text-lg">JOB GESTARTET</div>
-                  <div className="text-sm text-muted-foreground">Sieh den Status in der Job-Liste rechts</div>
+                  <div className="font-bold text-lg">Auftrag läuft</div>
+                  <div className="text-sm text-muted-foreground">Den Fortschritt siehst du in der Warteschlange</div>
                 </div>
                 <Button onClick={handleReset} className="gap-2">
                   <Wand2 className="w-4 h-4" /> NEUE VISION

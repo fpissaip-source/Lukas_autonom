@@ -142,9 +142,59 @@
   }
 }
 
+/*
+ * Ein Lichtstreif, der ueber Text wandert. Wird fuer "Lukas denkt nach…"
+ * benutzt: ruhiger als hüpfende Punkte und sagt trotzdem, dass etwas laeuft.
+ */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Sanftes Auftauchen fuer Karten und Listen. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+  /*
+   * Karten, die sich wie eine App anfuehlen statt wie Tabellenzeilen: leichter
+   * Verlauf statt Flaeche, und beim Zeigen hebt sie sich minimal an.
+   */
+  .card-soft {
+    background: linear-gradient(
+      160deg,
+      color-mix(in oklch, var(--card) 92%, white 3%),
+      color-mix(in oklch, var(--card) 96%, transparent)
+    );
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    transition:
+      transform 0.2s ease,
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+  .card-soft:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in oklch, var(--primary) 35%, transparent);
+    box-shadow: 0 8px 30px -12px color-mix(in oklch, var(--primary) 30%, transparent);
+  }
+  .rise {
+    animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   }
   .text-pretty {
     text-wrap: pretty;

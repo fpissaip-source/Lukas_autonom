@@ -17,18 +17,10 @@ import { callLukasModel } from "../lib/ai/model-client";
 import { renderLukasVoice } from "../lib/ai/voice-renderer";
 import type { ToolStep } from "@workspace/db";
 import type { Response } from "express";
+import { Arbeitsschleife } from "../lib/arbeitsschleife";
 
 const router = Router();
 
-/*
- * Wie viele Werkzeugrunden ein Zug haben darf.
- *
- * 8 war zu knapp: eine Recherche mit einem Abruf, einer Suche und ein paar
- * Befehlen war damit aufgebraucht, bevor Lukas ueberhaupt zum Antworten kam.
- * Die Runden kosten Zeit, aber die Verbindung haelt jetzt (Heartbeat), und am
- * Ende steht in jedem Fall eine Antwort (Abschlussrunde ohne Werkzeuge).
- */
-const MAX_TOOL_ITERATIONS = Number(process.env.LUKAS_MAX_TOOL_ROUNDS ?? 12);
 
 /*
  * Ein Arbeitsschritt, wie ihn Issa sehen soll.
@@ -302,7 +294,14 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       if (!res.writableEnded) abgebrochen = true;
     });
 
-    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS && !abgebrochen; iteration++) {
+    /*
+     * Keine feste Rundenzahl. Braucht er 15 Seiten oder 20 Befehle, macht er
+     * 15 Seiten und 20 Befehle. Gegen Im-Kreis-Laufen hilft ihm ein Hinweis,
+     * keine Bremse — siehe lib/arbeitsschleife.ts.
+     */
+    const schleife = new Arbeitsschleife();
+    while (schleife.darfWeiter() && !abgebrochen) {
+      const iteration = schleife.naechsteRunde();
       const route = routeLukasModel({
         userText: String(content),
         hasAttachments: pendingAttachments.length > 0,
@@ -334,6 +333,10 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
           function: { name: tc.name, arguments: tc.arguments },
         })),
       });
+
+      // Erst nach den Ergebnissen einfuegen: zwischen Aufruf und Ergebnis darf
+      // nichts stehen, sonst weist die API den ganzen Aufruf zurueck.
+      const hinweise = schleife.hinweise(result.toolCalls);
 
       for (const toolCall of result.toolCalls) {
         if (abgebrochen) break;
@@ -380,6 +383,8 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         }
       }
 
+      convo.push(...hinweise);
+
       if (
         internalDraftPieces.length > 0 &&
         !internalDraftPieces[internalDraftPieces.length - 1].endsWith("\n")
@@ -421,7 +426,10 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
      */
     let abschluss = draft;
     if (nochAmArbeiten) {
-      logger.info({ conversationId: convId, usedTools }, "Werkzeuggrenze erreicht — Abschluss ohne Werkzeuge");
+      logger.info(
+        { conversationId: convId, usedTools, runden: schleife.rundenZahl },
+        "Zug endete mitten in der Arbeit — Abschluss ohne Werkzeuge",
+      );
       try {
         const letzte = await callLukasModel({
           route: routeLukasModel({
@@ -429,7 +437,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
             hasAttachments: pendingAttachments.length > 0,
             attachmentKinds,
             usedTools,
-            iteration: MAX_TOOL_ITERATIONS,
+            iteration: schleife.rundenZahl,
           }),
           messages: [
             ...convo,

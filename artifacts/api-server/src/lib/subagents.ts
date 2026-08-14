@@ -1,4 +1,7 @@
 import type OpenAI from "openai";
+import { db } from "@workspace/db";
+import { subagentsTable, type Subagent as DbSubagent } from "@workspace/db";
+import { eq, desc, sql } from "drizzle-orm";
 import { LUKAS_TOOLS } from "./lukas-tools";
 import { runLukasTurn } from "./lukas-brain";
 import { logger } from "./logger";
@@ -31,6 +34,7 @@ import { logger } from "./logger";
 export type SubagentId =
   | "ideenpruefer"
   | "rechercheur"
+  | "scraper"
   | "code_reviewer"
   | "macher"
   | "analyst"
@@ -43,7 +47,7 @@ type Subagent = {
   prompt: string;
 };
 
-const LESEN = ["web_search", "fetch_url", "query_memory"];
+const LESEN = ["web_search", "fetch_url", "browse_page", "query_memory"];
 
 export const SUBAGENTS: Record<SubagentId, Subagent> = {
   ideenpruefer: {
@@ -86,6 +90,39 @@ Deine Antwort:
   wäre die schädlichste Art zu antworten.
 
 Keine Einleitung, kein "Gerne!". Fang beim Ergebnis an.`,
+  },
+
+  scraper: {
+    // Der Einzige mit Browser UND Shell: Sammeln heisst oft, eine Seite zu
+    // oeffnen und die Ausbeute anschliessend zu sortieren, zu zaehlen oder in
+    // eine Tabelle zu schreiben. Ohne Shell endet er beim Vorlesen.
+    tools: ["browse_page", "fetch_url", "web_search", "execute_command", "reset_sandbox"],
+    name: "Sammler",
+    prompt: `Du holst Daten von Webseiten. Vollständig, nicht stichprobenartig.
+
+Dein Werkzeug ist browse_page: ein echter Browser. Er wartet, bis die Seite
+fertig gebaut ist, scrollt bis nichts mehr nachkommt und drückt "Mehr laden".
+Nimm ihn zuerst — fetch_url liefert bei modernen Seiten nur eine leere Hülle.
+
+So arbeitest du:
+1. Erst hinsehen: Was ist eine Zeile in dieser Liste? Welche Felder hat sie?
+   Steht das Interessante im Text oder in den Bild-/Video-Adressen?
+2. Dann sammeln. Blättere weiter, solange es weitergeht — mit offset im
+   Ergebnis, mit höherem scrolls, mit den Links auf Unterseiten. Hör NICHT
+   nach der ersten Seite auf. Wenn eine Liste 200 Einträge hat, willst du 200.
+3. Dann ordnen. Gleiche Felder für jeden Eintrag, in einer Tabelle oder als
+   JSON. Für größere Mengen nimm die Shell: schreib die Daten in eine Datei,
+   zähl sie, entdopple sie, statt alles im Kopf zu halten.
+
+Deine Antwort:
+- Die Daten selbst, strukturiert. Nicht eine Beschreibung davon.
+- Wie viele Einträge es sind und wie viele Seiten du durchgegangen bist.
+- Was du NICHT bekommen hast und warum — Login nötig, blockiert, nicht
+  vorhanden. Diese Lücke gehört dazu; sie zu verschweigen ist die schädlichste
+  Art zu antworten, weil dann jemand mit unvollständigen Daten weiterrechnet.
+
+Wenn eine Seite dich aussperrt, sag das direkt. Versuch nicht, an einer
+Anmeldung oder einer Blockade vorbeizukommen.`,
   },
 
   code_reviewer: {
@@ -159,6 +196,107 @@ Entwurf mit Platzhaltern.
   },
 };
 
+/*
+ * Mitarbeiter, die Lukas selbst eingestellt hat.
+ *
+ * Die sechs oben sind die Grundausstattung. Merkt er, dass er staendig
+ * dieselbe Art Auftrag hat, soll er dafuer eine eigene Rolle anlegen — und die
+ * beim naechsten Mal wiederfinden. Ein Team, das nach jedem Zug vergessen ist,
+ * ist keins.
+ */
+export async function eigeneSubagents(): Promise<DbSubagent[]> {
+  try {
+    return await db.select().from(subagentsTable).orderBy(desc(subagentsTable.einsaetze));
+  } catch (err) {
+    logger.warn({ err }, "Eigene Mitarbeiter konnten nicht geladen werden");
+    return [];
+  }
+}
+
+/** Werkzeugnamen, die es wirklich gibt. Alles andere waere ein Versprechen ins Leere. */
+function bekannteWerkzeuge(): Set<string> {
+  return new Set(
+    LUKAS_TOOLS.filter((t) => t.type === "function").map((t) => (t as any).function.name),
+  );
+}
+
+export async function createSubagent(opts: {
+  slug: string;
+  name: string;
+  prompt: string;
+  tools: string[];
+  zweck?: string;
+}): Promise<string> {
+  const slug = opts.slug.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_");
+  if (!slug) throw new Error("Der Kurzname darf nicht leer sein.");
+  if (slug in SUBAGENTS) {
+    throw new Error(`"${slug}" ist bereits eine deiner Grundrollen — nimm einen anderen Namen.`);
+  }
+  if (!opts.prompt.trim()) {
+    throw new Error("Ohne Auftrag ist der Mitarbeiter nur ein Name. Beschreibe, was er tut.");
+  }
+
+  /*
+   * Kein ask_subagent im Werkzeugkasten eines Mitarbeiters.
+   *
+   * Sonst stellt ein Mitarbeiter einen Mitarbeiter ein, der einen Mitarbeiter
+   * einstellt — eine Kette, die niemand mehr ueberblickt oder bezahlt. Dieselbe
+   * Grenze gilt fuer die Grundrollen; sie darf nicht dadurch fallen, dass Lukas
+   * sich einen neuen Helfer selbst zusammenstellt.
+   */
+  const bekannt = bekannteWerkzeuge();
+  const verboten = ["ask_subagent", "create_subagent"];
+  const unbekannt = opts.tools.filter((t) => !bekannt.has(t));
+  if (unbekannt.length) {
+    throw new Error(
+      `Diese Werkzeuge gibt es nicht: ${unbekannt.join(", ")}. Verfügbar sind u.a. ` +
+        `browse_page, fetch_url, web_search, execute_command, query_memory.`,
+    );
+  }
+  const tools = opts.tools.filter((t) => !verboten.includes(t));
+
+  const [row] = await db
+    .insert(subagentsTable)
+    .values({
+      slug,
+      name: opts.name.trim() || slug,
+      prompt: opts.prompt.trim(),
+      tools,
+      zweck: opts.zweck?.trim() || null,
+    })
+    .onConflictDoUpdate({
+      target: subagentsTable.slug,
+      set: {
+        name: opts.name.trim() || slug,
+        prompt: opts.prompt.trim(),
+        tools,
+        zweck: opts.zweck?.trim() || null,
+      },
+    })
+    .returning();
+
+  logger.info({ slug, tools }, "Mitarbeiter angelegt");
+  return (
+    `Mitarbeiter "${row.name}" (${row.slug}) ist eingestellt und bleibt gespeichert. ` +
+    `Werkzeuge: ${tools.length ? tools.join(", ") : "keine"}. ` +
+    `Du rufst ihn mit ask_subagent(helfer="${row.slug}", auftrag="…").`
+  );
+}
+
+/** Die Liste, die Lukas sich ansieht — Grundrollen und eigene zusammen. */
+export async function subagentUebersicht(): Promise<string> {
+  const zeilen = (Object.keys(SUBAGENTS) as SubagentId[]).map(
+    (id) => `- ${id} (${SUBAGENTS[id].name}) — Grundrolle`,
+  );
+  for (const a of await eigeneSubagents()) {
+    zeilen.push(
+      `- ${a.slug} (${a.name}) — selbst eingestellt${a.zweck ? `: ${a.zweck}` : ""}` +
+        ` · Werkzeuge: ${a.tools.join(", ") || "keine"} · ${a.einsaetze}× eingesetzt`,
+    );
+  }
+  return zeilen.join("\n");
+}
+
 export function subagentList(): string {
   return (Object.keys(SUBAGENTS) as SubagentId[])
     .map((id) => `${id} (${SUBAGENTS[id].name})`)
@@ -166,9 +304,23 @@ export function subagentList(): string {
 }
 
 export async function runSubagent(id: string, auftrag: string): Promise<string> {
-  const agent = SUBAGENTS[id as SubagentId];
+  let agent: Subagent | undefined = SUBAGENTS[id as SubagentId];
+  let gespeichert: DbSubagent | undefined;
+
   if (!agent) {
-    throw new Error(`Unbekannter Helfer "${id}". Verfügbar: ${subagentList()}`);
+    // Eigene Mitarbeiter kommen aus der Datenbank — deshalb gibt es sie noch,
+    // wenn Lukas sie Wochen spaeter wieder braucht.
+    [gespeichert] = await db.select().from(subagentsTable).where(eq(subagentsTable.slug, id));
+    if (gespeichert) {
+      agent = { name: gespeichert.name, tools: gespeichert.tools, prompt: gespeichert.prompt };
+    }
+  }
+
+  if (!agent) {
+    throw new Error(
+      `Unbekannter Helfer "${id}".\n\nVerfügbar:\n${await subagentUebersicht()}\n\n` +
+        `Passt keiner: stell dir mit create_subagent einen ein, der passt.`,
+    );
   }
   if (!auftrag.trim()) throw new Error("Ohne Auftrag kann der Helfer nichts prüfen.");
 
@@ -179,6 +331,15 @@ export async function runSubagent(id: string, auftrag: string): Promise<string> 
   );
 
   logger.info({ helfer: id, werkzeuge: tools.length }, "Subagent gestartet");
+
+  // Einsatzzaehler: damit Lukas in der Uebersicht sieht, wen er wirklich
+  // braucht — und wen er sich einmal ausgedacht und nie wieder gerufen hat.
+  if (gespeichert) {
+    db.update(subagentsTable)
+      .set({ einsaetze: sql`${subagentsTable.einsaetze} + 1`, zuletztGenutzt: new Date() })
+      .where(eq(subagentsTable.id, gespeichert.id))
+      .catch((err) => logger.warn({ err }, "Einsatzzähler nicht aktualisiert"));
+  }
 
   const antwort = await runLukasTurn({
     history: [{ role: "user", content: auftrag }],

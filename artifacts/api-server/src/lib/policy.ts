@@ -67,6 +67,10 @@ export const TOOL_RISK: Record<string, RiskTier> = {
    * weiterarbeiten soll, waere das Werkzeug damit wertlos.
    */
   ask_subagent: "R1",
+  list_subagents: "R0",
+  // Einen Mitarbeiter einstellen ist internes Schreiben und umkehrbar — und
+  // seine Werkzeuge kann er ohnehin nur aus dem waehlen, was Lukas selbst hat.
+  create_subagent: "R1",
 
   // Ein Code-Vorschlag schreibt nur in unsere eigene Datenbank — geschrieben
   // wird erst, wenn Issa im Dashboard auf "Annehmen" klickt. Diese Entscheidung

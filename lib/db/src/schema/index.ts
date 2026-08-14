@@ -8,3 +8,4 @@ export * from "./lukas";
 export * from "./trades";
 export * from "./bankroll_history";
 export * from "./memory";
+export * from "./subagents";

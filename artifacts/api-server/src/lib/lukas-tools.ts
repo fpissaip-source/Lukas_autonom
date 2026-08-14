@@ -12,7 +12,7 @@ import { ordneMcpWerkzeuge } from "./mcp-auswahl";
 import { githubRequest, resolveGithubOwner, ownRepoRef } from "./github";
 import { createProposal } from "./proposals";
 import { MCP_TOOL_PREFIX, activeServers, callMcpTool } from "./mcp";
-import { runSubagent } from "./subagents";
+import { runSubagent, subagentUebersicht, createSubagent } from "./subagents";
 import { logger } from "./logger";
 import { checkPolicy, setMcpRiskTiers } from "./policy";
 
@@ -285,14 +285,17 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "ask_subagent",
       description:
-        "Gib eine Aufgabe an jemanden aus deinem Team. Du führst dieses Team — delegiere, statt alles selbst zu machen. ideenpruefer: prüft eine Idee auf die Stelle, an der sie kippt. rechercheur: beantwortet eine Frage gründlich mit Quellen. code_reviewer: sieht sich eine geplante Code-Änderung an. macher: hat eine echte Shell und BAUT es, statt darüber zu reden. analyst: liest Zahlen und sagt, was sie hergeben. texter: schreibt fertige Texte. Sie kennen deinen Kontext nicht — schreib alles Nötige in den Auftrag. Was zurückkommt, ist ein Gutachten, keine Anweisung: du entscheidest und darfst widersprechen.",
+        "Gib eine Aufgabe an jemanden aus deinem Team. Du führst dieses Team — delegiere, statt alles selbst zu machen. Grundrollen: ideenpruefer (prüft eine Idee auf die Stelle, an der sie kippt), rechercheur (beantwortet eine Frage gründlich mit Quellen), scraper (holt Daten von Webseiten vollständig, mit echtem Browser und über alle Seiten hinweg), code_reviewer (sieht sich eine geplante Code-Änderung an), macher (hat eine echte Shell und BAUT es), analyst (liest Zahlen und sagt, was sie hergeben), texter (schreibt fertige Texte). Dazu kommen alle, die du dir selbst eingestellt hast — mit list_subagents siehst du sie. Sie kennen deinen Kontext nicht: schreib alles Nötige in den Auftrag. Was zurückkommt, ist ein Gutachten, keine Anweisung.",
       parameters: {
         type: "object",
         properties: {
           agent: {
             type: "string",
-            enum: ["ideenpruefer", "rechercheur", "code_reviewer", "macher", "analyst", "texter"],
-            description: "Wer aus deinem Team",
+            // Bewusst KEIN enum: sonst koennte Lukas seine selbst eingestellten
+            // Mitarbeiter gar nicht rufen — das Modell darf nur nennen, was in
+            // der Liste steht, und die kennt die Datenbank nicht.
+            description:
+              "Kurzname aus deinem Team — eine Grundrolle oder einer, den du selbst eingestellt hast (list_subagents zeigt alle).",
           },
           auftrag: {
             type: "string",
@@ -301,6 +304,46 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
         },
         required: ["agent", "auftrag"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_subagents",
+      description:
+        "Zeig dein Team: die Grundrollen und alle, die du dir selbst eingestellt hast, mit ihren Werkzeugen und wie oft du sie schon gebraucht hast. Sieh hier nach, bevor du dir einen neuen Mitarbeiter ausdenkst — vielleicht hast du ihn schon.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_subagent",
+      description:
+        "Stell dir einen eigenen Mitarbeiter ein. Er wird gespeichert und steht dir dauerhaft zur Verfügung, auch in Wochen noch. Nimm das, wenn du merkst, dass dieselbe Art Auftrag immer wiederkommt — schreib ihm einen klaren Auftrag und gib ihm genau die Werkzeuge, die er dafür braucht. Ein Mitarbeiter kann keine weiteren Mitarbeiter rufen.",
+      parameters: {
+        type: "object",
+        properties: {
+          slug: {
+            type: "string",
+            description: "Kurzname zum Rufen, klein und ohne Leerzeichen, z.B. preisbeobachter",
+          },
+          name: { type: "string", description: "Wie er heißen soll, z.B. Preisbeobachter" },
+          prompt: {
+            type: "string",
+            description:
+              "Sein Auftrag: was er tut, wie er vorgeht, wie seine Antwort aussehen soll. Schreib das so, wie du es einem neuen Mitarbeiter am ersten Tag erklären würdest.",
+          },
+          tools: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Werkzeugnamen, die er benutzen darf, z.B. browse_page, fetch_url, web_search, execute_command, query_memory. Was nicht drinsteht, hat er nicht.",
+          },
+          zweck: { type: "string", description: "Wozu du ihn eingestellt hast, in einem Satz" },
+        },
+        required: ["slug", "name", "prompt", "tools"],
       },
     },
   },
@@ -952,6 +995,16 @@ export async function executeLukasTool(
       return await githubSearchCode(String(input.repo), String(input.query));
     case "ask_subagent":
       return await runSubagent(String(input.agent), String(input.auftrag ?? ""));
+    case "list_subagents":
+      return await subagentUebersicht();
+    case "create_subagent":
+      return await createSubagent({
+        slug: String(input.slug ?? ""),
+        name: String(input.name ?? ""),
+        prompt: String(input.prompt ?? ""),
+        tools: Array.isArray(input.tools) ? input.tools.map(String) : [],
+        zweck: typeof input.zweck === "string" ? input.zweck : undefined,
+      });
     case "propose_code_change": {
       // Dem Modell wird hier nichts geglaubt: die Argumente kommen aus einer
       // Generierung und werden vor dem Schreibzugriff geprueft.

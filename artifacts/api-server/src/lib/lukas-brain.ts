@@ -6,14 +6,13 @@ import { logger } from "./logger";
 import { routeLukasModel } from "./ai/model-router";
 import { callLukasModel } from "./ai/model-client";
 import { renderLukasVoice } from "./ai/voice-renderer";
+import { Arbeitsschleife } from "./arbeitsschleife";
 
 /*
  * Ein Lukas-Durchlauf ohne Streaming — fuer Kanaele wie WhatsApp.
  * Spezialmodelle arbeiten intern. Sichtbar wird ausschliesslich die stabile
  * Lukas-Ausgabeschicht, damit Providerwechsel keine Identitaetswechsel werden.
  */
-
-const MAX_TOOL_ITERATIONS = 8;
 
 function historyHasMultimodal(history: OpenAI.Chat.Completions.ChatCompletionMessageParam[]): boolean {
   return history.some((message: any) => Array.isArray(message.content));
@@ -50,7 +49,13 @@ export async function runLukasTurn(opts: {
   const usedTools: string[] = [];
   const hasAttachments = historyHasMultimodal(opts.history);
 
-  for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+  /*
+   * Keine feste Rundenzahl mehr. Er arbeitet, solange er vorankommt; wenn er
+   * sich wiederholt, bekommt er das gesagt statt abgeschnitten zu werden.
+   */
+  const schleife = new Arbeitsschleife();
+  while (schleife.darfWeiter()) {
+    const i = schleife.naechsteRunde();
     const route = routeLukasModel({
       userText: opts.userText,
       hasAttachments,
@@ -77,6 +82,15 @@ export async function runLukasTurn(opts: {
         function: { name: tc.name, arguments: tc.arguments },
       })),
     });
+
+    /*
+     * Hinweise JETZT berechnen, aber erst NACH den Tool-Ergebnissen einfuegen.
+     *
+     * Auf eine Assistenten-Nachricht mit tool_calls muessen unmittelbar die
+     * zugehoerigen Ergebnisse folgen — schiebt man eine System-Nachricht
+     * dazwischen, weist die API den ganzen Aufruf zurueck.
+     */
+    const hinweise = schleife.hinweise(result.toolCalls);
 
     for (const tc of result.toolCalls) {
       usedTools.push(tc.name);
@@ -110,6 +124,12 @@ export async function runLukasTurn(opts: {
         }
       }
     }
+
+    convo.push(...hinweise);
+  }
+
+  if (schleife.notbremseGriff()) {
+    logger.warn({ runden: schleife.rundenZahl }, "Notbremse gegriffen — echte Endlosschleife?");
   }
 
   const draft = textPieces.join("\n\n").trim();

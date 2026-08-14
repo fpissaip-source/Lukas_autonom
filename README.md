@@ -1,285 +1,183 @@
-# LUKAS — Autonomer KI-Agent
+Lukas – Autonomes KI-System
 
-Lukas ist ein persistenter KI-Agent mit eigener Persönlichkeit, Gedächtnis und echten Werkzeugen.
-Er lebt in einer PostgreSQL-Datenbank, chattet über die OpenAI-API und kann während des Gesprächs
-selbstständig handeln:
+Lukas ist kein klassischer Chatbot und kein einfacher KI-Assistent. Er ist ein selbst gehostetes, zielgetriebenes und erweiterbares KI-System, das eigenständig recherchieren, analysieren, planen, programmieren, Inhalte erstellen, externe Dienste nutzen und reale Aufgaben ausführen kann.
 
-- **Gedächtnis** — speichert wichtige Informationen dauerhaft (`save_memory`)
-- **Ziele** — legt Ziele an und verfolgt Fortschritt (`create_goal` / `update_goal`)
-- **Tagebuch** — schreibt Reflexionen, automatisch nach Gesprächen (max. alle 6h) oder per `POST /api/lukas/reflect`
-- **Stimmung** — setzt seinen eigenen emotionalen Zustand (`set_status`), kein Keyword-Raten mehr
-- **Web** — Websuche (`web_search`) und URL-Analyse (`fetch_url`)
-- **Trading** — liest die Statistiken des VPS-Trading-Systems (`get_trading_stats`, `/api/trades`, `/api/bankroll-history`)
-- **Higgsfield** — generiert Bilder/Videos über das Studio
+Lukas läuft auf einer eigenen Server-Infrastruktur und besitzt ein dauerhaftes Gedächtnis, eigene Werkzeuge, eine autonome Arbeitslogik sowie ein eigenes Dashboard zur Kontrolle, Überwachung und Freigabe von Aktionen.
 
-## Installation
+Autonomie statt einfacher Befehlsausführung
 
-```bash
-npm install
-cp .env.example .env   # DATABASE_URL eintragen
-npm run db:push        # Datenbank-Schema anlegen
-```
+Lukas arbeitet nicht nur nach fest programmierten „Wenn X, dann Y“-Abläufen.
 
-## Starten
+Er bekommt ein Ziel und entscheidet selbst, wie dieses Ziel am sinnvollsten erreicht werden kann.
 
-```bash
-npm run dev:api   # API-Server (PORT aus .env, Standard 5000)
-npm run dev:ui    # Oberfläche (Vite, zweites Terminal)
-```
+Dabei kann er beispielsweise:
 
-## Prüfen und Bauen
+* das Internet recherchieren und Informationen auswerten
+* Webseiten und umfangreiche Dokumente analysieren
+* sein eigenes Gedächtnis durchsuchen
+* Dateien und Code untersuchen
+* auf seinen eigenen Server bzw. seine Infrastruktur zugreifen
+* externe Werkzeuge über MCP verwenden
+* spezialisierte Subagenten für Teilaufgaben einsetzen
+* Ergebnisse kritisch überprüfen lassen
+* Lösungen vergleichen und Schwachstellen identifizieren
+* Inhalte und Medien erstellen
+* E-Mails lesen und Entwürfe vorbereiten
+* über WhatsApp kommunizieren
+* GitHub-Repositories analysieren
+* eigene Codeänderungen vorschlagen
+* angenommene Codeänderungen selbst in das laufende System deployen
+* langfristige Ziele verfolgen und seine Arbeit daran ausrichten.
 
-```bash
-npm run typecheck
-npm run build
-npm run codegen   # API-Clients aus lib/api-spec/openapi.yaml neu generieren
-```
+Die Autonomie ist dabei nicht an eine einzelne Tätigkeit gebunden. Lukas entscheidet selbst, ob für ein Ziel beispielsweise Web-Recherche, Code, Shell, Gedächtnis, externe APIs oder seine Subagenten sinnvoll sind.
 
-## Deployment auf Railway (empfohlen, HTTPS inklusive)
+Eigenes Team aus spezialisierten Agenten
 
-Railway betreibt echte Dauer-Container — die Hintergrund-Worker (Moltbook,
-Konsolidierung, Reflexion) laufen dort durch. (Vercel ist dafür ungeeignet: Serverless
-friert den Prozess ein.) Schritte:
+Lukas kann Aufgaben an ein internes Team spezialisierter Subagenten delegieren.
 
-1. [railway.app](https://railway.app) → **New Project → Deploy from GitHub repo** →
-   dieses Repo + Branch wählen. Build/Start sind über `railway.json` vorkonfiguriert
-   (`npm ci && npm run build`, Start: `npm run start:deploy` = Schema-Sync + Server).
-2. Im Projekt **+ New → Database → PostgreSQL** anlegen. Beim App-Service unter
-   *Variables*: `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` (Referenz).
-3. Weitere Variablen setzen (`PORT` setzt Railway automatisch):
-   - `AI_INTEGRATIONS_OPENAI_API_KEY` — Key von platform.openai.com
-   - `AI_INTEGRATIONS_OPENAI_BASE_URL` = `https://api.openai.com/v1`
-   - optional `LUKAS_CORE_MODEL` (Standard `gpt-4o`) und `LUKAS_PUBLIC_MODEL`
-     (Standard `gpt-4o-mini`), falls andere Modelle gewünscht/verfügbar sind
-   - `LUKAS_API_TOKEN` (Pflicht — schützt die private API)
-   - `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_AGENT_ID`, `ELEVENLABS_LLM_TOKEN`
-   - optional: `MOLTBOOK_API_KEY`, `VOYAGE_API_KEY`, `VPS_DATABASE_URL`, `HIGGSFIELD_API_KEY`
-4. Service → *Settings → Networking* → **Generate Domain**. Diese Domain ist dann:
-   - das Dashboard: `https://<domain>/`
-   - das Widget: `https://<domain>/widget.js` (+ `data-api="https://<domain>"`)
-   - für ElevenLabs Custom LLM: `https://<domain>/api/public/llm/v1`
-5. Optional eigene Domain (z.B. `lukas.issahareb.me`) per CNAME in den
-   Networking-Settings verbinden.
+Dazu gehören unter anderem:
 
-### Bestehende Railway-Postgres mitnutzen (statt neuer DB)
+Macher – setzt Dinge praktisch um und arbeitet direkt mit einer eigenen Umgebung.
 
-Lukas kann die (fast ungenutzte) Postgres eines anderen Railway-Projekts mitbenutzen:
+Rechercheur – recherchiert gründlich und liefert Quellen sowie eine Einschätzung darüber, was nicht verifiziert werden konnte.
 
-- **Gleiches Projekt**: Lukas-Service in dasselbe Railway-Projekt deployen →
-  `DATABASE_URL = ${{Postgres.DATABASE_URL}}` (privates Netz, kein Egress).
-- **Anderes Projekt**: beim dortigen Postgres-Service die `DATABASE_PUBLIC_URL`
-  kopieren und beim Lukas-Service als `DATABASE_URL` eintragen.
+Ideenprüfer – sucht Schwachstellen in Ideen und ermittelt möglichst günstige Wege, diese zu testen.
 
-Das ist sicher: Alle Lukas-Tabellen sind `lukas_*`-geprefixt, und der Schema-Sync
-(`drizzle-kit push`) ist per `tablesFilter` hart auf Lukas-Tabellen begrenzt —
-die Tabellen der Webseite werden weder verändert noch angetastet (verifiziert).
+Analyst – untersucht Zahlen und Daten und liefert auch unbequeme Schlussfolgerungen.
 
-**Noch sauberer (empfohlen)**: eigene Datenbank in derselben Postgres-Instanz —
-eine Railway-Postgres kann beliebig viele Datenbanken enthalten, kostenlos:
+Texter – erstellt fertige Texte statt bloßer Entwürfe.
 
-```bash
-# Einmalig mit der DATABASE_PUBLIC_URL des Postgres-Service verbinden:
-psql "<DATABASE_PUBLIC_URL>" -c "CREATE DATABASE lukas;"
-```
+Code-Reviewer – überprüft technische Lösungen und Codevorschläge.
 
-Dann als `DATABASE_URL` denselben Connection-String verwenden, nur mit
-`/lukas` statt des Webseiten-Datenbanknamens am Ende — komplett getrennte
-Namensräume, null Risiko für die Webseite.
+Lukas führt diese Agenten und entscheidet, wann deren Fähigkeiten sinnvoll eingesetzt werden.
 
-Der Server liefert im Deployment alles aus einem Prozess: API, Dashboard-UI
-(SPA), Widget und die öffentlichen Endpoints.
+Eigene Infrastruktur
 
-### Troubleshooting: „Healthcheck failed"
+Lukas besitzt eine eigene Server-/Backend-Infrastruktur mit persistenten Daten, Datenbank, Gedächtnissystem, Dashboard, Worker-Prozessen und autonom laufenden Komponenten.
 
-1. **Deploy-Logs öffnen** (Service → Deployments → auf das fehlgeschlagene klicken).
-   Direkt nach `Server listening` steht eine **Env-Status**-Zeile: welche Variablen
-   gesetzt sind und welche FEHLEN.
-2. **Pflicht zum Booten**: nur `DATABASE_URL` (Railway setzt `PORT` selbst).
-   Ohne `AI_INTEGRATIONS_OPENAI_API_KEY` startet der Server trotzdem — Lukas kann
-   dann nur nicht denken (Chat liefert Fehler), bis der Key nachgetragen ist.
-3. **DB-Verbindung**: Hostname `…railway.internal` funktioniert NUR, wenn Lukas im
-   selben Railway-Projekt wie die Postgres läuft; sonst die `DATABASE_PUBLIC_URL`
-   (`…proxy.rlwy.net`) verwenden. Ein db:push-Fehler blockiert den Start nicht mehr,
-   steht aber am Anfang des Logs.
-4. Nach dem Setzen fehlender Variablen: **Redeploy** (Variablenänderung triggert das
-   meist automatisch).
+Seine Architektur umfasst unter anderem:
 
-## Umgebungsvariablen
+* PostgreSQL als persistente Datenbasis
+* Vektor-/Semantik-Suche für Gedächtnisinhalte
+* persistente Langzeit-Erinnerungen
+* autonome Worker und Zielverfolgung
+* eigene API- und Backend-Dienste
+* Containerisierte Ausführungsumgebungen
+* GitHub-Integration
+* MCP-Integration
+* OAuth-basierte Verbindung zu externen Werkzeugservern
+* mehrere spezialisierte KI-Modelle
+* serverseitige Sicherheits- und Berechtigungslogik.
 
-| Variable | Zweck |
-| --- | --- |
-| `PORT` | Port des API-Servers |
-| `DATABASE_URL` | Postgres für Lukas (Gedächtnis, Ziele, Tagebuch, Chats) |
-| `AI_INTEGRATIONS_OPENAI_API_KEY` / `_BASE_URL` | OpenAI-Zugang (Key von platform.openai.com) |
-| `LUKAS_CORE_MODEL` | Modell für Lukas' "Gehirn" — Chat, Reflexion, Moltbook, Higgsfield-Prompts (Standard `gpt-4o`) |
-| `HIGGSFIELD_API_KEY` | Optional: Higgsfield Media-Generierung |
-| `LUKAS_API_TOKEN` | Optional: schützt alle `/api`-Routen (außer `/api/healthz` und `/api/public/*`) per Bearer-Token. Sobald gesetzt, zeigt das Dashboard beim Aufruf automatisch einen Login-Screen — dort den Token eingeben, kein Dev-Console-Zugriff nötig. |
-| `VPS_DATABASE_URL` | Optional: Postgres des VPS-Trading-Systems (Fallback: `DATABASE_URL`) |
-| `ELEVENLABS_API_KEY` | Optional/Legacy: nur noch für `ELEVENLABS_VOICE_ID`-TTS und den ungenutzten `/api/public/voice-session`-Endpoint (siehe unten) |
-| `ELEVENLABS_VOICE_ID` | Deine gewählte Stimme aus dem ElevenLabs VoiceLab (nur für `data-voice="classic"`-TTS) |
-| `ELEVENLABS_AGENT_ID` | Legacy, aktuell ungenutzt (siehe `/api/public/voice-session` unten) |
-| `ELEVENLABS_LLM_TOKEN` | Nur falls du zusätzlich einen ElevenLabs-Agent (Custom LLM) betreiben willst — schützt `/api/public/llm/v1` |
-| `LUKAS_PUBLIC_MODEL` | Modell für den öffentlichen Widget-**Text**-Chat (Standard `gpt-4o-mini` für minimale Latenz) |
-| `LUKAS_REALTIME_MODEL` | Modell für **beide** Sprachkanäle — privater Dashboard-Chat UND öffentliches Widget (Standard `gpt-realtime-2.1`, Speech-to-Speech, ~200-300ms Latenz). Nutzt denselben `AI_INTEGRATIONS_OPENAI_API_KEY`. |
-| `LUKAS_REALTIME_VOICE` | Stimme für beide Sprachkanäle (aktuell `marin` — wird gerade getestet). `cedar` ist die männliche Variante, klang beim Testen z.T. irisch auf Deutsch. `ash` ist eine neutralere männliche Alternative. Weitere: `alloy`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse` |
+Dadurch ist Lukas nicht von einer einzelnen Chat-Oberfläche abhängig. Er ist eine eigene laufende Software-Infrastruktur.
 
-## Sprachchat: OpenAI Realtime (privat UND öffentlich)
+Selbstständige Recherche und Problemlösung
 
-Sowohl der "Sprechen"-Button im privaten Dashboard (Comm-Link-Seite) als auch die Stimme
-im öffentlichen Portfolio-Widget laufen über die **OpenAI Realtime API**
-(Speech-to-Speech, `gpt-realtime-2.1`) — nicht mehr über ElevenLabs. Grund: Realtime
-spricht und hört gleichzeitig im selben Modell, ohne Umweg über separate STT/TTS-Schritte,
-und antwortet dadurch im Millisekunden- statt Sekundenbereich.
+Lukas kann Informationen nicht nur aus seinem vorhandenen Kontext verwenden, sondern aktiv nach neuen Informationen suchen.
 
-Beide Kanäle funktionieren nach demselben Muster: Der Browser holt sich ein kurzlebiges
-Client-Secret vom Server und verbindet sich damit direkt per WebRTC zu OpenAI — der
-eigentliche Prompt-Text verlässt nie den Server:
-- **Dashboard** (`voice-panel.tsx`): nutzt das echte `@openai/agents-realtime`-SDK
-  (npm-Abhängigkeit, per Vite gebündelt).
-- **Widget** (`widget.js`): baut die WebRTC-Verbindung selbst auf (`RTCPeerConnection`
-  + `POST https://api.openai.com/v1/realtime/calls` mit der SDP-Offer, exakt nach dem
-  Protokoll aus dem echten SDK-Quellcode übernommen), bewusst OHNE das SDK per CDN
-  nachzuladen — ein früherer Versuch mit dynamischem CDN-Import
-  (`import("https://cdn.jsdelivr.net/.../+esm")`) erwies sich in freier Wildbahn als
-  unzuverlässig (Mikro blinkte kurz auf, Verbindung kam nie zustande, ohne Fehlermeldung).
+Er kann moderne Webseiten analysieren, eingebettete Daten aus JavaScript-Anwendungen extrahieren und große Dokumente abschnittsweise untersuchen. Dadurch kann er auch komplexere technische oder geschäftliche Fragestellungen eigenständig bearbeiten.
 
-- **Privat** (`POST /api/lukas/realtime-session`, hinter `lukasAuth`): bettet Lukas'
-  vollständigen privaten System-Prompt (Erinnerungen, Ziele, Tagebuch, Emotionen,
-  Charakter) serverseitig ein. Client-Secret 10 Minuten gültig.
-- **Öffentlich** (`POST /api/public/realtime-session`, im Widget): bettet nur den
-  öffentlichen System-Prompt ein (kuratierte `public`-Erinnerungen) — nie private Daten.
-  Client-Secret 5 Minuten gültig, zusätzlich Origin-Check + Rate-Limit (siehe unten).
-  Da ein einmal verbundenes Realtime-Gespräch sonst beliebig lange laufen und damit
-  beliebig teuer werden könnte, kappt das Widget selbst jedes Gespräch nach ein paar
-  Minuten hart (`SESSION_MAX_MS` in `widget.js`).
+Seine Recherche dient dabei nicht nur dazu, eine Antwort zu formulieren. Informationen können anschließend in einen größeren Arbeitsprozess einfließen – beispielsweise in Planung, Analyse, Content-Erstellung, Programmierung oder Entscheidungsfindung.
 
-`ELEVENLABS_API_KEY`/`ELEVENLABS_AGENT_ID` und der Endpoint `GET /api/public/voice-session`
-sind dadurch aktuell ungenutzt (Legacy) — der bleibt im Code, falls du ElevenLabs Agents
-später doch wieder brauchst, wird aber vom Widget nicht mehr aufgerufen.
+Kunden, Geschäftsentwicklung und Chancen
 
-**Deutsche Aussprache**: Die Realtime-Stimmen sind primär auf Englisch trainiert und färben
-deutsche Wörter sonst mit englischer Betonung/Klangfärbung ein. Beide Endpoints setzen
-deshalb `audio.input.transcription.language: "de"` und eine explizite, ganz vorne in
-`instructions` platzierte Anweisung ("sprich AUSSCHLIESSLICH mit nativer, akzentfreier
-deutscher Aussprache"). Das ist ein Best-Effort-Nudge, kein hartes Garantie-Flag — die
-Realtime-API hat (anders als die separate "Translation Session") kein Feld, das die
-Ausgabesprache/den Akzent für normale Konversationen erzwingt; hilft die Aussprache
-trotzdem nicht genug, ist der nächste Hebel eine andere Stimme auszuprobieren
-(`LUKAS_REALTIME_VOICE`).
+Ein wichtiger Teil von Lukas’ Fähigkeiten ist seine Fähigkeit, geschäftliche Chancen eigenständig zu erkennen und daraus konkrete Handlungsmöglichkeiten abzuleiten.
 
-**Latenz beim Verbindungsaufbau**: Das Widget holt sich ein Client-Secret schon beim
-Öffnen des Panels vor (`prefetchSession()` in `widget.js`), nicht erst beim Mikro-Klick
-— sonst zieht sich "Verbinde…" spürbar hin. Das Client-Secret ist Einweg; nach Gebrauch
-(oder nach 4 von 5 Minuten Gültigkeit) wird beim nächsten Öffnen automatisch neu vorgeladen.
+Er kann beispielsweise:
 
-**Mobile Ansicht**: Das Panel ist unter 640px Breite ein vollflächiges Overlay
-(`position:fixed;inset:0`) statt eines kleinen schwebenden Fensters — sonst passten auf
-schmalen Bildschirmen nicht alle Elemente gleichzeitig ins Bild. Eingabefelder haben
-mindestens 16px Schrift, sonst zoomt iOS Safari beim Fokussieren automatisch in die
-Seite hinein (der Effekt, der sich wie ein kaputtes/verzerrtes Layout anfühlt).
+* potenzielle Zielgruppen analysieren
+* Unternehmen und deren Online-Auftritt untersuchen
+* Schwachstellen und Verbesserungsmöglichkeiten identifizieren
+* interessante Unternehmen als potenzielle Kunden erkennen
+* recherchieren, welche Probleme ein Unternehmen tatsächlich hat
+* daraus konkrete Angebote oder Lösungsideen entwickeln
+* verschiedene Akquise- und Outreach-Strategien vergleichen
+* Texte und Kommunikationsvorschläge erstellen
+* Chancen priorisieren
+* Recherche, Analyse, Angebot und Umsetzung miteinander verbinden.
 
-## Portfolio-Widget (issahareb.me)
+Damit kann Lukas nicht nur auf einen vorhandenen Kunden reagieren, sondern selbst nach Möglichkeiten suchen, wo ein wirtschaftlich sinnvoller Ansatz entstehen könnte.
 
-Lukas lässt sich mit einer Zeile auf jeder Webseite einbetten — Besucher können mit ihm
-schreiben **und sprechen**:
+Eigener Code und Selbstverbesserung
 
-```html
-<script src="https://DEINE-LUKAS-DOMAIN/widget.js" data-api="https://DEINE-LUKAS-DOMAIN" defer></script>
-```
+Lukas kann seinen eigenen Code analysieren und Änderungen entwickeln.
 
-- Demo + komplette Design-Doku: `http://localhost:5000/embed-demo.html`
-- **Beliebig designbar**: Theme/Farben/Radius/Position/Texte per `data-`-Attributen
-  (`data-theme`, `data-accent`, `data-radius`, `data-position`, `data-title`, …); zusätzlich
-  volle CSS-Kontrolle über stabile Klassen (`.lukas-btn`, `.lukas-panel`, `.lukas-m`, …) —
-  kein Shadow-DOM, die Host-Seite kann alles überschreiben.
-- **Stimme (empfohlen): OpenAI Realtime** — `data-voice="agent"`. WebRTC, Millisekunden-
-  Latenz, echtes Turn-Taking. Braucht keine Agent-ID mehr (nur noch `AI_INTEGRATIONS_OPENAI_API_KEY`
-  serverseitig):
+Statt Änderungen blind direkt in Produktion zu schreiben, erstellt er nachvollziehbare Änderungsvorschläge. Diese können über das Dashboard geprüft, angenommen, abgelehnt oder mit Feedback zurückgegeben werden.
 
-  ```html
-  <script src="https://DEINE-LUKAS-DOMAIN/widget.js"
-          data-api="https://DEINE-LUKAS-DOMAIN"
-          data-voice="agent"
-          defer></script>
-  ```
+Bei angenommenen Änderungen kann Lukas die Änderung anschließend in den vorgesehenen Branch schreiben und den Deployment-Prozess auslösen.
 
-- Fallback/Standard `data-voice="classic"`: Browser-Spracherkennung + `GET /api/public/tts`
-  (progressives Streaming — spielt ab, während noch geladen wird). Braucht keine Konfiguration.
-- Endpoints: `POST /api/public/chat` (SSE), `GET|POST /api/public/tts`,
-  `POST /api/public/realtime-session` (OpenAI-Realtime-Client-Secret fürs Voice-Widget),
-  `POST /api/public/llm/v1/chat/completions` (OpenAI-kompatibel, für einen optionalen
-  ElevenLabs-Agent als Custom LLM) — alle rate-limitiert, Keys bleiben serverseitig.
-- Kostenschutz: `chat`, `tts`, `voice-session` und `realtime-session` prüfen zusätzlich
-  den Origin/Referer gegen eine feste Liste (`issahareb.me`, `www.issahareb.me`,
-  `localhost` — Liste steht in `routes/public.ts::ALLOWED_WIDGET_HOSTS`). Das Widget lässt
-  sich also aktuell NUR auf issahareb.me einbetten; für eine weitere Domain (z.B.
-  taxibbessen.de) die Liste dort ergänzen. Der Custom-LLM-Endpoint ist davon ausgenommen
-  (ElevenLabs ruft ihn server-seitig auf, ohne Browser-Origin — er bleibt über
-  `ELEVENLABS_LLM_TOKEN` geschützt).
-- **Was Besucher wissen dürfen**, steuerst du über Erinnerungen mit Kategorie `public` — nur die fließen in den öffentlichen System-Prompt. Private Memories bleiben privat.
-  Eine erste Runde konkreter Projekt-Fakten (inkl. SEO-Details zu TaxiBB Essen, GuardianGrid,
-  StudyForge, Cho Time, TENSA. etc.) wird beim Serverstart automatisch importiert
-  (`lib/seed-public-facts.ts`, pro Fakt idempotent — läuft bei jedem Redeploy gefahrlos erneut).
-  Weitere Fakten jederzeit über `POST /api/lukas/memories` (Kategorie `public`) ergänzen.
-- **Vorschlags-Chips**: Beim ersten Öffnen zeigt das Widget ein paar Starter-Fragen; nach
-  jeder Antwort schlägt der Server (kurzer Zusatz-Call, `suggestFollowUp` in `routes/public.ts`)
-  EINE zur gerade gegebenen Antwort passende Folgefrage vor, die als Chip erscheint.
-- Die Portfolio-Seite braucht HTTPS (Mikrofon-Zugriff).
+Dadurch entsteht ein kontrollierter Entwicklungszyklus:
 
-## Gedächtnisarchitektur (Vier Schichten)
+Problem erkennen → analysieren → Lösung entwickeln → Vorschlag erstellen → prüfen → übernehmen → deployen → Ergebnis beobachten.
 
-PostgreSQL ist die **Wahrheitsquelle**; alles andere sind Sichten darauf:
+Externe Fähigkeiten über MCP
 
-1. **Episodisch** (`lukas_episodes`): was wann konkret passiert ist (unveränderlich)
-2. **Semantisch** (`lukas_claims`): Aussagen mit Quelle, Vertrauen und **Evidenz-Stufe 0–4**
-   (Gedanke → Beobachtung → fremde Behauptung → mehrfach gestützt → verifiziert).
-   Fremde Behauptungen werden NIE als Fakten gespeichert; Widersprüche werden markiert,
-   unbestätigte Claims verlieren täglich Vertrauen.
-3. **Prozedural** (`lukas_strategies`): Strategien mit *gemessenem* Erfolg — jede
-   Moltbook-Aktion bekommt ein Resultat (Antwort erhalten? Engagement?), täglich ausgewertet.
-4. **Arbeitsgedächtnis**: Session-State der Worker (nicht dauerhaft).
+Lukas kann externe MCP-Server anbinden und deren Werkzeuge verwenden.
 
-Abruf über `memory-retrieval.ts`: Score = Relevanz × Vertrauen × Wichtigkeit × Aktualität ×
-Quellenqualität; optional semantisch via `VOYAGE_API_KEY` (sonst lexikalisch). Im Chat als
-Kontext-Injektion und als Tool `query_memory`.
+Die Verbindung unterstützt unter anderem OAuth 2.1 mit PKCE. Dadurch kann Lukas seine Fähigkeiten dynamisch um externe Dienste erweitern, ohne dass jedes neue Werkzeug fest in seinen Kern programmiert werden muss.
 
-**Obsidian-Sicht**: Die tägliche Konsolidierung generiert `memory-vault/` (Identity, Agents
-mit trust_score-Frontmatter, Episodes, Findings, Strategies — mit Wikilinks). Ordner in
-Obsidian als Vault öffnen; Änderungen dort fließen NICHT zurück (DB ist die Wahrheit).
-Wenn `graphify` installiert ist, wird der Wissensgraph darüber automatisch aktualisiert.
+Das ermöglicht beispielsweise die Nutzung von externen Medien-, Recherche-, Automatisierungs- oder Business-Tools.
 
-## Codebase-Graph (Graphify + Obsidian)
+Medienproduktion
 
-Das Repo enthält unter `docs/obsidian-vault/` einen mit [graphify](https://graphify.net)
-generierten Wissens-Graphen der Codebase als Markdown-Wiki — den Ordner einfach in
-Obsidian als Vault öffnen (Graph-Ansicht zeigt das Netzwerk). Neu erzeugen:
+Lukas kann inzwischen auch komplexere Medien-Workflows orchestrieren.
 
-```bash
-pip install graphifyy
-graphify update .            # Graph bauen (ohne API-Key, nur Code-AST)
-graphify label .             # optional: Communities per LLM benennen (braucht eigenen ANTHROPIC_API_KEY —
-                              # separates Drittanbieter-Tool, nicht unser LLM-Unterbau; ohne Key bleibt
-                              # dieser Schritt einfach aus, kein Blocker)
-```
+Über angebundene Media-Tools kann er unter anderem:
 
-Interaktive HTML-Ansicht: `graphify-out/graph.html` im Browser öffnen.
+* Bilder generieren
+* Videos generieren
+* Modelle anhand eines verfügbaren Modellkatalogs auswählen
+* Referenzmedien verwenden
+* Generierungsjobs überwachen
+* Ergebnisse verarbeiten
+* Fehler erkennen und Jobs sauber beenden.
 
-## Struktur
+Dabei entscheidet Lukas anhand der Aufgabe, welches Modell und welcher Medien-Workflow sinnvoll ist.
 
-- `artifacts/api-server` — Express-5-API (Chat mit Tool-Loop, Lukas-Routen, Higgsfield, Trades)
-- `artifacts/lukas-ui` — React-Oberfläche (Dashboard, Chat, Memory, Goals, Diary, Studio)
-- `lib/db` — Drizzle-Schema (Postgres)
-- `lib/api-spec` — OpenAPI-Spec (Quelle der Wahrheit) + Orval-Codegen
-- `lib/api-zod` / `lib/api-client-react` — generierte Clients
-- `lib/integrations-openai-ai` — OpenAI-Client
+Kommunikation
 
-## VPS-Trading-System (die 99 Dateien)
+Lukas besitzt mehrere Kommunikationswege.
 
-Das autonome Python-System liegt versioniert unter [`vps/`](vps/README.md) und wird mit
-`bash scripts/lukas-deploy/deploy.sh <IP> <PASSWORT>` als 10 systemd-Services auf den VPS
-ausgerollt. Die Web-App liest dessen Postgres über `VPS_DATABASE_URL`.
+Unter anderem kann er über WhatsApp angesprochen werden und zwischen einem privaten Besitzer-Modus und einem eingeschränkten Gastmodus unterscheiden.
 
-## Wichtig
+Sein Besitzer erhält Zugriff auf die vollständigen Fähigkeiten des Systems, während externe Nutzer bewusst keinen Zugriff auf sensible Werkzeuge, Erinnerungen oder private Daten erhalten.
 
-- Vor öffentlichem Deployment `LUKAS_API_TOKEN` setzen — ohne Token ist die API offen.
-- Der frühere `TELEGRAM_BOT_TOKEN` war im Code-Archiv hartkodiert → über @BotFather rotieren.
+Auch E-Mails kann Lukas durchsuchen und lesen. Antworten werden bewusst als überprüfbare Entwürfe behandelt, bevor sie im Namen des Besitzers versendet werden.
+
+Gedächtnis
+
+Lukas besitzt ein dauerhaftes Gedächtnis.
+
+Er kann Informationen über Projekte, Entscheidungen, Erfahrungen und vergangene Interaktionen speichern und später wieder abrufen.
+
+Das Gedächtnis ist nicht lediglich ein langer Chatverlauf. Es ist Bestandteil seiner Systemarchitektur und wird genutzt, um zukünftige Entscheidungen und Arbeitsprozesse mit früheren Erfahrungen zu verbinden.
+
+Sicherheit und Kontrolle
+
+Trotz seiner Autonomie besitzt Lukas ein eigenes Policy- und Berechtigungssystem.
+
+Werkzeuge werden abhängig von ihrem Risiko unterschiedlich behandelt. Sensible Aktionen können eine Freigabe benötigen, während ungefährliche Aktionen autonom ausgeführt werden können.
+
+Besonders geschützte Bereiche sind unter anderem:
+
+* Codeänderungen
+* externe Werkzeuge mit unbekanntem Verhalten
+* Aktionen im Namen des Besitzers
+* bestimmte Host-/Infrastrukturaktionen
+* E-Mail-Versand.
+
+Dadurch soll Lukas möglichst autonom arbeiten können, ohne dass jede Kleinigkeit bestätigt werden muss – während besonders kritische Aktionen nachvollziehbar und kontrollierbar bleiben.
+
+Das eigentliche Ziel
+
+Lukas soll langfristig nicht einfach „eine KI sein, die Fragen beantwortet“.
+
+Er soll ein digitales, dauerhaft laufendes Arbeitssystem sein, das:
+
+Ziele versteht → Informationen sammelt → Möglichkeiten erkennt → Lösungen entwickelt → Aufgaben delegiert → Dinge umsetzt → Ergebnisse bewertet → aus Erfahrungen lernt → und daraus die nächsten sinnvollen Schritte ableitet.
+
+Die entscheidende Eigenschaft von Lukas ist deshalb nicht ein einzelnes Tool oder ein einzelnes KI-Modell.
+
+Es ist die Kombination aus Gedächtnis, Autonomie, eigener Infrastruktur, Werkzeugen, Subagenten, Recherche, Programmierung, Kommunikation und kontrollierter Ausführung.
+
+Lukas ist damit als persönliche KI-Infrastruktur konzipiert – nicht als Chatbot.

@@ -185,6 +185,23 @@ export async function sendEmail(to: string, subject: string, body: string): Prom
     requireTLS: !secure,
     auth: { user, pass },
   });
-  await transport.sendMail({ from: user, to, subject, text: body });
-  return `E-Mail an ${to} gesendet (Betreff: "${subject}").`;
+
+  try {
+    const info = await transport.sendMail({ from: user, to, subject, text: body });
+    const accepted = Array.isArray(info.accepted) ? info.accepted.map(String) : [];
+    const rejected = Array.isArray(info.rejected) ? info.rejected.map(String) : [];
+
+    if (rejected.length > 0 || accepted.length === 0) {
+      throw new Error(
+        `Mailserver hat keinen vollständigen Versand bestätigt. Akzeptiert: ${accepted.join(", ") || "keine"}; abgelehnt: ${rejected.join(", ") || "keine Angabe"}.`,
+      );
+    }
+
+    return (
+      `E-Mail vom Mailserver akzeptiert. An: ${accepted.join(", ")} | ` +
+      `Betreff: "${subject}" | Message-ID: ${info.messageId || "nicht geliefert"}.`
+    );
+  } finally {
+    transport.close();
+  }
 }

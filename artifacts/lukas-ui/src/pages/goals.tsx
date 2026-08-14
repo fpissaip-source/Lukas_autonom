@@ -92,13 +92,13 @@ export default function Goals() {
                   className="min-h-[100px] text-sm"
                 />
                 <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">PRIORITÄT</label>
+                  <label className="text-xs text-muted-foreground">Priorität</label>
                   <Select value={priority} onValueChange={setPriority}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="high">HIGH</SelectItem>
-                      <SelectItem value="medium">MEDIUM</SelectItem>
-                      <SelectItem value="low">LOW</SelectItem>
+                      <SelectItem value="high">Hoch</SelectItem>
+                      <SelectItem value="medium">Mittel</SelectItem>
+                      <SelectItem value="low">Niedrig</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -158,10 +158,10 @@ export default function Goals() {
                 {g.status === "active" && (
                   <>
                     <Button size="sm" variant="outline" onClick={() => handleStatusChange(g.id, "completed")} className="gap-1 text-xs text-green-400 border-green-400/20 hover:bg-green-400/10">
-                      <CheckCircle2 className="w-3 h-3" /> COMPLETE
+                      <CheckCircle2 className="w-3 h-3" /> Erledigt
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => handleStatusChange(g.id, "failed")} className="gap-1 text-xs text-red-400 border-red-400/20 hover:bg-red-400/10">
-                      <AlertCircle className="w-3 h-3" /> FAIL
+                      <AlertCircle className="w-3 h-3" /> Gescheitert
                     </Button>
                   </>
                 )}

@@ -82,7 +82,7 @@ export default function Memory() {
         actions={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button className="gap-2"><Plus className="w-4 h-4" /> NEUE_ERINNERUNG</Button>
+              <Button className="gap-2"><Plus className="w-4 h-4" /> Neue Erinnerung</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
@@ -106,12 +106,12 @@ export default function Memory() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs text-muted-foreground">WICHTIGKEIT (1-10)</label>
+                    <label className="text-xs text-muted-foreground">Wichtigkeit (1–10)</label>
                     <Input type="number" min="1" max="10" value={newImportance} onChange={(e) => setNewImportance(e.target.value)} />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">TAGS (kommagetrennt)</label>
+                  <label className="text-xs text-muted-foreground">Schlagworte (kommagetrennt)</label>
                   <Input placeholder="ki, projekt, wichtig" value={newTags} onChange={(e) => setNewTags(e.target.value)} className="text-sm" />
                 </div>
                 <Button onClick={handleCreate} className="w-full" disabled={!newContent.trim() || createMemory.isPending}>
@@ -135,7 +135,7 @@ export default function Memory() {
           <Select value={category} onValueChange={setCategory}>
             <SelectTrigger className="w-full sm:w-40 text-sm"><SelectValue placeholder="Kategorie" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">ALLE</SelectItem>
+              <SelectItem value="all">Alle</SelectItem>
               {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -144,7 +144,7 @@ export default function Memory() {
 
       <ScrollArea className="flex-1 p-5 sm:p-6">
         {isLoading && (
-          <div className="text-center text-muted-foreground py-12">LOADING MEMORY_BANK...</div>
+          <div className="text-center text-muted-foreground py-12">Erinnerungen werden geladen…</div>
         )}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-5xl">
           {memories.map((m) => (

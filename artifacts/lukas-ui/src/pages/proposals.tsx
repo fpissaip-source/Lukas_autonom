@@ -105,7 +105,7 @@ function OpenProposal({
 
       <div className="space-y-3">
         <div>
-          <h3 className="text-xs text-muted-foreground mb-1">WAS PASSIERT</h3>
+          <h3 className="text-xs text-muted-foreground mb-1">Was passiert</h3>
           <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
             {proposal.summary}
           </p>

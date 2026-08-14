@@ -19,7 +19,16 @@ import type { ToolStep } from "@workspace/db";
 import type { Response } from "express";
 
 const router = Router();
-const MAX_TOOL_ITERATIONS = 8;
+
+/*
+ * Wie viele Werkzeugrunden ein Zug haben darf.
+ *
+ * 8 war zu knapp: eine Recherche mit einem Abruf, einer Suche und ein paar
+ * Befehlen war damit aufgebraucht, bevor Lukas ueberhaupt zum Antworten kam.
+ * Die Runden kosten Zeit, aber die Verbindung haelt jetzt (Heartbeat), und am
+ * Ende steht in jedem Fall eine Antwort (Abschlussrunde ohne Werkzeuge).
+ */
+const MAX_TOOL_ITERATIONS = Number(process.env.LUKAS_MAX_TOOL_ROUNDS ?? 12);
 
 /*
  * Ein Arbeitsschritt, wie ihn Issa sehen soll.
@@ -279,6 +288,15 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
      * Werkzeug pruefen. Ein bereits laufendes Werkzeug laeuft zu Ende — danach
      * ist Schluss.
      */
+    /*
+     * Hat er beim Verlassen der Schleife noch Werkzeuge aufgerufen?
+     *
+     * Genau das war der Fall bei "Leere Antwort nach Werkzeugen: fetch_url,
+     * web_search, execute_command × 6": acht Runden lang hat er gearbeitet,
+     * die Obergrenze war erreicht — und weil in einer Werkzeugrunde kein Text
+     * entsteht, blieb der Entwurf leer. Der Chat bekam nichts.
+     */
+    let nochAmArbeiten = true;
     let abgebrochen = false;
     res.on("close", () => {
       if (!res.writableEnded) abgebrochen = true;
@@ -302,7 +320,10 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       });
 
       if (result.content) internalDraftPieces.push(result.content);
-      if (result.toolCalls.length === 0) break;
+      if (result.toolCalls.length === 0) {
+        nochAmArbeiten = false;
+        break;
+      }
 
       convo.push({
         role: "assistant",
@@ -388,8 +409,47 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       return;
     }
 
-    const fullResponse = draft
-      ? await renderLukasVoice({ systemPrompt, conversation: convo, draft })
+    /*
+     * Wenn er beim Erreichen der Obergrenze noch mitten in der Arbeit war,
+     * fehlt die Antwort — nicht weil etwas kaputt ist, sondern weil in einer
+     * Werkzeugrunde kein Text entsteht.
+     *
+     * Deshalb hier eine letzte Runde OHNE Werkzeuge. Ohne Werkzeuge bleibt ihm
+     * nichts als zu formulieren, was er herausgefunden hat. Genau das war der
+     * Fall bei "fetch_url, web_search, execute_command × 6": acht Runden
+     * Arbeit, und der Chat bekam nichts.
+     */
+    let abschluss = draft;
+    if (nochAmArbeiten) {
+      logger.info({ conversationId: convId, usedTools }, "Werkzeuggrenze erreicht — Abschluss ohne Werkzeuge");
+      try {
+        const letzte = await callLukasModel({
+          route: routeLukasModel({
+            userText: String(content),
+            hasAttachments: pendingAttachments.length > 0,
+            attachmentKinds,
+            usedTools,
+            iteration: MAX_TOOL_ITERATIONS,
+          }),
+          messages: [
+            ...convo,
+            {
+              role: "system",
+              content:
+                "Du hast dein Werkzeug-Budget für diesen Zug aufgebraucht. Antworte JETZT in Worten: " +
+                "was hast du herausgefunden, was ist offen, was schlägst du als nächstes vor. " +
+                "Keine weiteren Werkzeuge — die stehen dir in diesem Zug nicht mehr zur Verfügung.",
+            },
+          ],
+        });
+        if (letzte.content) abschluss = `${draft}\n\n${letzte.content}`.trim();
+      } catch (err) {
+        logger.warn({ err, conversationId: convId }, "Abschlussrunde fehlgeschlagen");
+      }
+    }
+
+    const fullResponse = abschluss
+      ? await renderLukasVoice({ systemPrompt, conversation: convo, draft: abschluss })
       : "";
 
     /*

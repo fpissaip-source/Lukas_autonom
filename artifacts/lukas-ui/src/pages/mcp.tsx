@@ -271,7 +271,7 @@ export default function Mcp() {
       <ScrollArea className="flex-1 p-5 sm:p-6">
         <div className="max-w-3xl space-y-6">
           <div className="bg-card border border-border rounded-lg p-4 space-y-3">
-            <h2 className="text-sm text-muted-foreground">SERVER HINZUFÜGEN</h2>
+            <h2 className="text-sm text-muted-foreground">Server hinzufügen</h2>
             <div className="flex flex-col sm:flex-row gap-2">
               <input
                 value={name}

@@ -154,6 +154,23 @@ async function buildAttachmentParts(
 // ist er providerunabhaengig. Spezialmodell-Ausgaben werden NICHT direkt an die
 // UI gestreamt; sichtbar ist nur die einheitliche Lukas-Ausgabeschicht.
 router.post("/anthropic/conversations/:id/messages", async (req, res) => {
+  /*
+   * Lebenszeichen auf der Leitung.
+   *
+   * Das war der Grund, warum Lukas sporadisch gar nicht geantwortet hat. Auf
+   * dieser Route wird die Antwort NICHT tokenweise gestreamt — sie geht am Ende
+   * in einem Stueck raus. Zwischen dem letzten Werkzeug und der fertigen Antwort
+   * fliesst also minutenlang kein einziges Byte. Jeder Proxy davor (Cloudflare
+   * kappt bei rund 100 Sekunden Stille) haelt die Verbindung fuer tot und
+   * schliesst sie. Im Chat kam dann nichts an, und weil erst am Ende in die
+   * Datenbank geschrieben wird, war die Antwort auch nach dem Neuladen weg.
+   *
+   * Kurze Antworten kamen durch, lange nicht — genau das "sporadisch".
+   *
+   * Ein SSE-Kommentar alle 10 Sekunden haelt die Leitung offen. Der Browser
+   * ignoriert Zeilen, die mit ":" beginnen.
+   */
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
   try {
     const convId = parseInt(req.params.id);
     const { content } = req.body;
@@ -194,7 +211,14 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
+    // Nginx und Verwandte puffern text/event-stream sonst und geben erst am
+    // Ende alles auf einmal frei — dann nuetzt auch der Heartbeat nichts.
+    res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
+
+    heartbeat = setInterval(() => {
+      if (!res.writableEnded) res.write(": ping\n\n");
+    }, 10000);
 
     const internalDraftPieces: string[] = [];
     const usedTools: string[] = [];
@@ -306,10 +330,10 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         await db.insert(messages).values({
           conversationId: convId,
           role: "assistant",
-          content: `${draft}\n\n[Von Issa gestoppt.]`,
+          content: `${draft}\n\n[Hier abgebrochen — die Verbindung zum Chat war weg.]`,
         });
       }
-      logger.info({ conversationId: convId, usedTools }, "Chat vom Client gestoppt");
+      logger.info({ conversationId: convId, usedTools }, "Chat abgebrochen");
       return;
     }
 
@@ -317,15 +341,32 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       ? await renderLukasVoice({ systemPrompt, conversation: convo, draft })
       : "";
 
-    if (fullResponse) {
-      res.write(`data: ${JSON.stringify({ content: fullResponse })}\n\n`);
-      await db.insert(messages).values({
-        conversationId: convId,
-        role: "assistant",
-        content: fullResponse,
-      });
-      rememberAssistantMessage(fullResponse, "dashboard");
+    /*
+     * Eine leere Antwort ist kein Ergebnis.
+     *
+     * Vorher wurde in dem Fall nichts geschrieben und nichts gespeichert: im
+     * Chat blieb es einfach still, und nach dem Neuladen stand dort die Frage
+     * ohne Antwort — ohne jeden Hinweis, dass ueberhaupt etwas passiert ist.
+     * Lieber ehrlich sagen, dass nichts herauskam.
+     */
+    const antwort =
+      fullResponse ||
+      "Ich habe für diese Nachricht keine Antwort zustande gebracht. Das ist ein Fehler auf " +
+        "meiner Seite, nicht deiner — schick sie mir nochmal, und schau bei Diagnose nach, " +
+        "was dort steht.";
+
+    if (!fullResponse) {
+      logger.warn({ conversationId: convId, usedTools }, "Chat ohne Antwort beendet");
+      recordDebugEvent("chat", `Leere Antwort nach Werkzeugen: ${usedTools.join(", ") || "keine"}`);
     }
+
+    res.write(`data: ${JSON.stringify({ content: antwort })}\n\n`);
+    await db.insert(messages).values({
+      conversationId: convId,
+      role: "assistant",
+      content: antwort,
+    });
+    if (fullResponse) rememberAssistantMessage(fullResponse, "dashboard");
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
@@ -333,12 +374,22 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
   } catch (err: unknown) {
     logger.error({ err }, "Chat error");
     recordDebugEvent("chat", err);
+    /*
+     * Der Grund gehoert in den Chat, nicht nur ins Log.
+     *
+     * "Stream failed" war fuer die Oberflaeche wertlos: sie kennt nur content,
+     * tool und done und hat das Feld stillschweigend weggeworfen. Ein Fehler sah
+     * damit genauso aus wie Schweigen.
+     */
+    const grund = err instanceof Error ? err.message : String(err);
     if (!res.headersSent) {
-      res.status(500).json({ error: "Failed to send message" });
+      res.status(500).json({ error: "Failed to send message", detail: grund });
     } else {
-      res.write(`data: ${JSON.stringify({ error: "Stream failed" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ error: grund })}\n\n`);
       res.end();
     }
+  } finally {
+    if (heartbeat) clearInterval(heartbeat);
   }
 });
 

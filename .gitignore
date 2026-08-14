@@ -59,3 +59,4 @@ memory-vault/
 __pycache__/
 .consent-check-*/
 .higgsfield-check-*/
+.sse-check-*/

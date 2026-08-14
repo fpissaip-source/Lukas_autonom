@@ -14,6 +14,7 @@ import {
   Paperclip, X, FileText, Film, ImageIcon, File as FileIcon, ArrowDown, Square,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { takeCompleteLines, parseSseData } from "@/lib/sse";
 import { VoicePanel } from "@/components/voice-panel";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -86,6 +87,7 @@ export default function Chat() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [optimisticMsg, setOptimisticMsg] = useState<string | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
   const [sentAttachments, setSentAttachments] = useState<Attachment[]>([]);
   const [atBottom, setAtBottom] = useState(true);
 
@@ -207,6 +209,7 @@ export default function Chat() {
     setOptimisticMsg(msg);
     setStreaming(true);
     setStreamContent("");
+    setStreamError(null);
     setAtBottom(true);
 
     try {
@@ -225,24 +228,35 @@ export default function Chat() {
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No stream");
       const decoder = new TextDecoder();
+
+      // Warum gepuffert wird, steht in lib/sse.ts — es war der Grund für die
+      // sporadisch ausbleibenden Antworten.
+      let puffer = "";
       let done = false;
       while (!done && !controller.signal.aborted) {
         const { value, done: streamDone } = await reader.read();
-        done = streamDone;
-        if (value) {
-          for (const line of decoder.decode(value, { stream: !done }).split("\n")) {
-            if (!line.startsWith("data: ")) continue;
-            try {
-              const parsed = JSON.parse(line.slice(6));
-              if (parsed.content) setStreamContent((prev) => prev + parsed.content);
-              if (parsed.tool) setStreamContent((prev) => `${prev}\n[⚙ ${parsed.tool}]\n`);
-              if (parsed.done) done = true;
-            } catch {}
-          }
+        if (streamDone) done = true;
+        if (value) puffer += decoder.decode(value, { stream: true });
+
+        const { zeilen, rest } = takeCompleteLines(puffer);
+        puffer = rest;
+
+        for (const zeile of zeilen) {
+          const parsed = parseSseData(zeile);
+          if (!parsed) continue;
+          if (parsed.content) setStreamContent((prev) => prev + String(parsed.content));
+          if (parsed.tool) setStreamContent((prev) => `${prev}\n[⚙ ${String(parsed.tool)}]\n`);
+          // Ein Fehler gehört sichtbar in den Chat, nicht in die Konsole.
+          if (parsed.error) setStreamError(String(parsed.error));
+          if (parsed.done) done = true;
         }
       }
     } catch (err) {
-      if (!(err instanceof DOMException && err.name === "AbortError")) console.error("Stream error:", err);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        // Vom Stopp-Knopf — kein Fehler.
+      } else {
+        setStreamError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
       setStreaming(false);
@@ -369,6 +383,19 @@ export default function Chat() {
                               <span className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce [animation-delay:300ms]" />
                             </div>
                           )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Ein Fehler bleibt stehen, bis die naechste Nachricht raus geht. */}
+                    {streamError && !streaming && (
+                      <div className="flex gap-3 min-w-0">
+                        <Avatar who="lukas" />
+                        <div className="flex-1 min-w-0 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
+                          <div className="text-sm font-medium text-destructive mb-1">
+                            Die Antwort ist nicht angekommen
+                          </div>
+                          <div className="text-xs text-muted-foreground break-words">{streamError}</div>
                         </div>
                       </div>
                     )}

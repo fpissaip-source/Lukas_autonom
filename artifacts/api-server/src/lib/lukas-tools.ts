@@ -7,6 +7,8 @@ import { recordEmotion } from "./emotion-engine";
 import { queryRows } from "./vps-db";
 import { searchEmails, readEmail, sendEmail } from "./email";
 import { executeCommand, resetSandbox, executeOnHost } from "./code-sandbox";
+import { renderPage } from "./browser";
+import { ordneMcpWerkzeuge } from "./mcp-auswahl";
 import { githubRequest, resolveGithubOwner, ownRepoRef } from "./github";
 import { createProposal } from "./proposals";
 import { MCP_TOOL_PREFIX, activeServers, callMcpTool } from "./mcp";
@@ -145,6 +147,30 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             type: "integer",
             description:
               "Ab welchem Zeichen weitergelesen werden soll. Standard 0. Für den nächsten Abschnitt den Wert nehmen, den die vorige Antwort genannt hat.",
+          },
+        },
+        required: ["url"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browse_page",
+      description:
+        "Öffne eine Seite in einem ECHTEN Browser statt sie nur abzurufen. Nimm das immer dann, wenn fetch_url wenig oder nur Rohdaten liefert, und immer bei Galerien, Feeds, Suchergebnissen und allem, was sich erst im Browser aufbaut (Higgsfield, Instagram, TikTok, YouTube …). Der Browser wartet bis die Seite fertig ist, scrollt bis nichts mehr nachkommt und drückt vorhandene \"Mehr laden\"-Schaltflächen — du bekommst also die ganze Liste, nicht nur die ersten Kacheln. Zurück kommen Text, Links und die Adressen aller Bilder und Videos. Lange Seiten kommen in Abschnitten; am Ende steht, wie du weiterliest. Der allererste Aufruf nach einem Neustart dauert einige Minuten, danach geht es schnell.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "Die vollständige URL (https://...)" },
+          offset: {
+            type: "integer",
+            description: "Ab welchem Zeichen weitergelesen werden soll. Standard 0.",
+          },
+          scrolls: {
+            type: "integer",
+            description:
+              "Wie oft höchstens nachgeladen werden soll. Standard 12. Für eine sehr lange Liste höher, für eine einzelne Seite 2–3.",
           },
         },
         required: ["url"],
@@ -456,6 +482,18 @@ function extractEmbeddedJson(html: string): string {
   return [...blobs].join("\n\n");
 }
 
+/*
+ * Sieht das nach einer leeren Huelle aus?
+ *
+ * Wenn nach dem Abruf weder lesbarer Text noch eingebettete Daten uebrig
+ * bleiben, hat Lukas nichts in der Hand — und genau dann hat er in der Praxis
+ * gesagt, er sehe die Inhalte nicht. Statt das zu melden, soll er es mit dem
+ * echten Browser noch einmal versuchen.
+ */
+function wirktLeer(sichtbar: string, eingebettet: string): boolean {
+  return sichtbar.trim().length < 500 && eingebettet.trim().length < 500;
+}
+
 async function fetchUrl(url: string, offset = 0): Promise<string> {
   const parsed = new URL(url);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
@@ -483,6 +521,26 @@ async function fetchUrl(url: string, offset = 0): Promise<string> {
   if (contentType.includes("html")) {
     const visible = stripHtml(body);
     const embedded = extractEmbeddedJson(body);
+
+    /*
+     * Nichts zu holen? Dann den echten Browser nehmen, ohne Rueckfrage.
+     *
+     * Lukas soll nicht wissen muessen, welche Seite eine App ist und welche
+     * nicht — er will den Inhalt. Schlaegt auch der Browser fehl, geht es
+     * unten normal weiter, damit wenigstens das Rohe ankommt.
+     */
+    if (wirktLeer(visible, embedded)) {
+      try {
+        logger.info({ url }, "Abruf war leer — versuche es mit dem echten Browser");
+        return (
+          "[Der einfache Abruf lieferte nichts Lesbares — diese Seite baut ihren Inhalt " +
+          "erst im Browser auf. Ich habe sie deshalb wirklich geöffnet.]\n\n" +
+          (await browsePage(url, offset))
+        );
+      } catch (err) {
+        logger.warn({ err, url }, "Browser-Rückfall fehlgeschlagen");
+      }
+    }
 
     // Kaum sichtbarer Text, aber eingebettete Daten -> reine App-Huelle.
     if (visible.length < 500 && embedded.length > 0) {
@@ -515,6 +573,62 @@ async function fetchUrl(url: string, offset = 0): Promise<string> {
       : "";
 
   return hinweis + kopf + slice + fuss;
+}
+
+/*
+ * Ein Ergebnis in Abschnitten ausgeben.
+ *
+ * Dieselbe Mechanik wie bei fetch_url: Lukas bekommt einen Ausschnitt und
+ * erfaehrt am Ende, wo er weiterliest. Das ist das Blaettern, ohne das eine
+ * lange Galerie nach drei Kacheln aufhoert.
+ */
+function inAbschnitten(voll: string, offset: number, weiterMit: string): string {
+  const start = Math.max(0, offset);
+  const teil = voll.slice(start, start + FETCH_PAGE_SIZE);
+  if (!teil) return `Ab Position ${start} kommt nichts mehr — insgesamt ${voll.length} Zeichen.`;
+  const ende = start + teil.length;
+  const fuss =
+    ende < voll.length
+      ? `\n\n[... weiter mit ${weiterMit.replace("{offset}", String(ende))} — es fehlen noch ${voll.length - ende} Zeichen]`
+      : "";
+  return `[Zeichen ${start}–${ende} von ${voll.length}]\n${teil}${fuss}`;
+}
+
+async function browsePage(url: string, offset = 0, scrolls = 12): Promise<string> {
+  const r = await renderPage(url, scrolls);
+  if (!r.ok) {
+    throw new Error(
+      `Die Seite liess sich nicht öffnen: ${r.fehler ?? "unbekannter Grund"}\n` +
+        `Versuch es notfalls mit fetch_url — das holt wenigstens das rohe HTML.`,
+    );
+  }
+
+  const teile: string[] = [
+    `TITEL: ${r.titel || "(keiner)"}`,
+    `ADRESSE: ${r.url ?? url}${r.status ? ` (HTTP ${r.status})` : ""}`,
+  ];
+  if (r.mehrGeklickt) teile.push(`NACHGELADEN: "Mehr"-Schaltfläche ${r.mehrGeklickt}× gedrückt`);
+  teile.push("", "TEXT:", r.text?.trim() || "(kein sichtbarer Text)");
+
+  /*
+   * Medien und Links gehoeren dazu, nicht als Beiwerk.
+   *
+   * Bei einer Galerie IST das der Inhalt: der sichtbare Text besteht dort aus
+   * drei Ueberschriften, die eigentliche Information sind die Adressen der
+   * Bilder und Videos. Ohne sie haette Lukas wieder gemeldet, er sehe nichts.
+   */
+  if (r.medien?.length) {
+    teile.push("", `BILDER UND VIDEOS (${r.medien.length}):`, r.medien.join("\n"));
+  }
+  if (r.links?.length) {
+    teile.push("", `LINKS (${r.links.length}):`, r.links.join("\n"));
+  }
+
+  return inAbschnitten(
+    teile.join("\n"),
+    offset,
+    `browse_page(url, offset={offset})`,
+  );
 }
 
 async function webSearch(query: string): Promise<string> {
@@ -811,6 +925,12 @@ export async function executeLukasTool(
         String(input.url),
         typeof input.offset === "number" ? input.offset : 0,
       );
+    case "browse_page":
+      return await browsePage(
+        String(input.url),
+        typeof input.offset === "number" ? input.offset : 0,
+        typeof input.scrolls === "number" ? input.scrolls : 12,
+      );
     case "web_search":
       return await webSearch(String(input.query));
     case "query_memory": {
@@ -966,7 +1086,12 @@ function sanitizeToolSchema(schema: unknown): Record<string, unknown> {
  * nachvollziehbar. Wer gezielt bestimmte Werkzeuge will, traegt sie im
  * Dashboard unter "MCP" ein; dann gilt genau diese Auswahl.
  */
-const MCP_TOOLS_PER_SERVER = Number(process.env.LUKAS_MCP_MAX_TOOLS ?? 12);
+const MCP_TOOLS_PER_SERVER = Number(process.env.LUKAS_MCP_MAX_TOOLS ?? 18);
+
+/*
+ * WELCHE Werkzeuge der Deckel durchlaesst, steht in mcp-auswahl.ts — dort ist
+ * die Entscheidung fuer sich pruefbar, ohne den halben Server mitzuziehen.
+ */
 
 export async function allLukasTools(): Promise<OpenAI.Chat.Completions.ChatCompletionTool[]> {
   try {
@@ -979,10 +1104,10 @@ export async function allLukasTools(): Promise<OpenAI.Chat.Completions.ChatCompl
     for (const server of servers) {
       if (!server.enabled) continue;
 
-      // Ausgewaehlte Werkzeuge haben Vorrang; sonst die ersten N.
+      // Ausgewaehlte Werkzeuge haben Vorrang; sonst die N nach Zweck wichtigsten.
       const picked = server.selectedTools?.length
         ? server.tools.filter((t) => server.selectedTools.includes(t.name))
-        : server.tools.slice(0, MCP_TOOLS_PER_SERVER);
+        : ordneMcpWerkzeuge(server.tools).slice(0, MCP_TOOLS_PER_SERVER);
 
       if (!server.selectedTools?.length && server.tools.length > MCP_TOOLS_PER_SERVER) {
         logger.warn(

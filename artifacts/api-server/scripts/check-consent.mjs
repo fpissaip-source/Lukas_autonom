@@ -12,7 +12,7 @@
  * und ueber Workspace-Pakete importiert.
  */
 import { build } from "esbuild";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -56,15 +56,27 @@ const CASES = [
 const dir = await mkdtemp(path.join(here, "..", ".consent-check-"));
 const outfile = path.join(dir, "policy.mjs");
 
+/*
+ * Gemeinsamer Einstieg fuer beide Module: die Einstufung steht in policy.ts,
+ * das Merken der Mail-Links in email.ts. Geprueft wird ihr Zusammenspiel —
+ * getrennt sagt keines von beiden etwas ueber die Sperre aus.
+ */
+const entry = path.join(dir, "entry.ts");
+await writeFile(
+  entry,
+  'export * from "' + path.resolve(here, "..", "src", "lib", "policy.ts").replaceAll("\\", "/") + '";\n' +
+    'export { rememberEmailLinks } from "' + path.resolve(here, "..", "src", "lib", "email.ts").replaceAll("\\", "/") + '";\n',
+);
+
 try {
   await build({
-    entryPoints: [path.resolve(here, "..", "src", "lib", "policy.ts")],
+    entryPoints: [entry],
     outfile,
     bundle: true,
     platform: "node",
     format: "esm",
     logLevel: "error",
-    external: ["pg", "pino", "ssh2", "ffmpeg-static", "drizzle-orm"],
+    external: ["pg", "pino", "ssh2", "ffmpeg-static", "drizzle-orm", "imapflow", "mailparser", "nodemailer"],
     banner: {
       js: "import { createRequire as __cr } from 'node:module'; globalThis.require = __cr(import.meta.url);",
     },
@@ -73,13 +85,52 @@ try {
   // policy.ts zieht den DB-Client mit hoch; ein Dummy-Wert reicht, verbunden
   // wird beim blossen Import nicht.
   process.env.DATABASE_URL ??= "postgresql://user:pass@127.0.0.1:5432/none";
-  const { isAffirmation } = await import(pathToFileURL(outfile).href);
+  const mod = await import(pathToFileURL(outfile).href);
+  const { isAffirmation, riskFor, escalate, rememberEmailLinks } = mod;
 
   const failures = [];
   for (const [message, expected] of CASES) {
     const actual = isAffirmation(message);
     if (actual !== expected) failures.push({ message, expected, actual });
   }
+
+  /*
+   * Der Browser darf kein Weg an der Mail-Link-Sperre vorbei sein.
+   *
+   * fetch_url stuft einen Link aus einer fremden Mail auf freigabepflichtig
+   * hoch — genau damit "Mail gelesen, Link geoeffnet" nicht in einem Zug
+   * durchlaeuft. browse_page kam neu dazu und tut dasselbe, nur gruendlicher:
+   * es fuehrt die Skripte der Seite sogar aus. Haette die Pruefung nur
+   * fetch_url gekannt, waere die Sperre ab sofort mit dem staerkeren Werkzeug
+   * zu umgehen gewesen.
+   */
+  const pruefe = (was, ist, soll) => {
+    if (ist !== soll) failures.push({ message: was, expected: soll, actual: ist });
+  };
+
+  const frei = "https://example.com/normal";
+  const ausMail = "https://boese.example/klick-mich";
+
+  pruefe("browse_page ist normal frei", escalate(riskFor("browse_page"), "browse_page", { url: frei }), "R0");
+  pruefe("fetch_url ist normal frei", escalate(riskFor("fetch_url"), "fetch_url", { url: frei }), "R0");
+
+  rememberEmailLinks(`Hier klicken: ${ausMail}`);
+
+  pruefe(
+    "fetch_url auf Mail-Link braucht Freigabe",
+    escalate(riskFor("fetch_url"), "fetch_url", { url: ausMail }),
+    "R2",
+  );
+  pruefe(
+    "browse_page auf Mail-Link braucht Freigabe",
+    escalate(riskFor("browse_page"), "browse_page", { url: ausMail }),
+    "R2",
+  );
+  pruefe(
+    "eine andere Seite bleibt frei",
+    escalate(riskFor("browse_page"), "browse_page", { url: frei }),
+    "R0",
+  );
 
   if (failures.length > 0) {
     console.error("FEHLER in der Zustimmungserkennung:\n");
@@ -90,7 +141,7 @@ try {
     process.exit(1);
   }
 
-  console.log(`OK — Zustimmungserkennung: ${CASES.length} Fälle korrekt.`);
+  console.log(`OK — Zustimmung + Mail-Link-Sperre: ${CASES.length + 5} Fälle korrekt.`);
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

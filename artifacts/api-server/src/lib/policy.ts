@@ -32,6 +32,9 @@ export const TOOL_RISK: Record<string, RiskTier> = {
   // R0 — lesend
   query_memory: "R0",
   fetch_url: "R0",
+  // Eine Seite anzuschauen bleibt lesend, auch wenn ein Browser dazwischen
+  // steht. Er laeuft in einem eigenen Container ohne Zugriff auf den Host.
+  browse_page: "R0",
   web_search: "R0",
   get_trading_stats: "R0",
   get_moltbook_activity: "R0",
@@ -226,9 +229,22 @@ export function isAffirmation(message: string): boolean {
  * Normales Surfen bleibt davon unberührt; die Einstufung steigt nur für URLs,
  * die tatsächlich in einer gelesenen Mail standen.
  */
-function escalate(tier: RiskTier, tool: string, input: Record<string, unknown>): RiskTier {
-  if (tool === "fetch_url" && typeof input.url === "string" && isLinkFromEmail(input.url)) {
-    logger.info({ url: input.url }, "Link stammt aus einer E-Mail — Freigabe nötig");
+export function escalate(
+  tier: RiskTier,
+  tool: string,
+  input: Record<string, unknown>,
+): RiskTier {
+  /*
+   * BEIDE Abruf-Werkzeuge, nicht nur fetch_url.
+   *
+   * browse_page ist neu und tut dasselbe, nur gruendlicher: es fuehrt die
+   * Skripte der fremden Seite sogar aus. Nur fetch_url zu pruefen hiesse, die
+   * Sperre mit dem staerkeren Werkzeug zu umgehen — die Mail-Link-Freigabe
+   * waere damit wertlos gewesen.
+   */
+  const abruf = tool === "fetch_url" || tool === "browse_page";
+  if (abruf && typeof input.url === "string" && isLinkFromEmail(input.url)) {
+    logger.info({ tool, url: input.url }, "Link stammt aus einer E-Mail — Freigabe nötig");
     return "R2";
   }
   return tier;
@@ -287,8 +303,9 @@ function preview(tool: string, input: Record<string, unknown>): string {
     ].join("\n");
   }
 
-  if (tool === "fetch_url") {
-    return `Seite abrufen: ${String(input.url ?? "?")}\n\nDieser Link stand in einer E-Mail, die du bekommen hast. Was dort steht, landet danach in Lukas' Kontext.`;
+  if (tool === "fetch_url" || tool === "browse_page") {
+    const wie = tool === "browse_page" ? "im Browser öffnen" : "abrufen";
+    return `Seite ${wie}: ${String(input.url ?? "?")}\n\nDieser Link stand in einer E-Mail, die du bekommen hast. Was dort steht, landet danach in Lukas' Kontext.`;
   }
 
   const text = JSON.stringify(input, null, 2);

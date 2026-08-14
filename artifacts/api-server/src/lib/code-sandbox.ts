@@ -103,9 +103,17 @@ function requireSshConfig(): { host: string; user: string; key: string; port: nu
 }
 
 /** Führt einen Befehl per SSH auf dem Droplet aus (Host-Ebene, nicht im Container). */
-function sshExec(
+/**
+ * Einen Befehl auf dem Droplet ausfuehren.
+ *
+ * `stdin` schiebt Text hinein, statt ihn in die Befehlszeile zu quetschen. Das
+ * braucht der Browser: sein Skript ist mehrere Kilobyte gross und steckt voller
+ * Anfuehrungszeichen — als Argument waere das ein Zitier-Minenfeld.
+ */
+export function sshExec(
   command: string,
   timeoutMs: number,
+  stdin?: string,
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   const cfg = requireSshConfig();
   return new Promise((resolve, reject) => {
@@ -129,6 +137,10 @@ function sshExec(
           if (err) return finish(() => { clearTimeout(timer); reject(err); });
           let stdout = "";
           let stderr = "";
+          if (stdin !== undefined) {
+            stream.write(stdin);
+            stream.end();
+          }
           stream
             .on("close", (code: number) => {
               clearTimeout(timer);
@@ -149,7 +161,7 @@ function containerName(conversationId: number): string {
 }
 
 /** In einfache Anführungszeichen für die Shell verpacken. */
-function shQuote(s: string): string {
+export function shQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 

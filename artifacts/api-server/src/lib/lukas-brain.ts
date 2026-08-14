@@ -3,7 +3,7 @@ import { allLukasTools, executeLukasTool } from "./lukas-tools";
 import { buildSystemPrompt } from "./system-prompt";
 import { recordEmotion } from "./emotion-engine";
 import { logger } from "./logger";
-import { routeLukasModel } from "./ai/model-router";
+import { routeLukasModel, directRoute } from "./ai/model-router";
 import { callLukasModel } from "./ai/model-client";
 import { renderLukasVoice } from "./ai/voice-renderer";
 import { Arbeitsschleife } from "./arbeitsschleife";
@@ -36,6 +36,12 @@ export async function runLukasTurn(opts: {
    * im Aufruf.
    */
   tools?: OpenAI.Chat.Completions.ChatCompletionTool[];
+  /*
+   * Festes Modellprofil statt der Routing-Heuristik. Ein Code-Auftrag gehoert
+   * auf das Code-Modell — die Heuristik kennt nur den Nutzertext und wuesste
+   * nicht, dass hier ein Entwickler am Werk sein soll.
+   */
+  profil?: "code" | "reasoning" | "general" | "fast";
 }): Promise<string> {
   const systemPrompt =
     opts.systemPromptOverride ?? (await buildSystemPrompt(opts.userText.slice(0, 1000)));
@@ -56,12 +62,14 @@ export async function runLukasTurn(opts: {
   const schleife = new Arbeitsschleife();
   while (schleife.darfWeiter()) {
     const i = schleife.naechsteRunde();
-    const route = routeLukasModel({
-      userText: opts.userText,
-      hasAttachments,
-      usedTools,
-      iteration: i,
-    });
+    const route = opts.profil
+      ? { ...directRoute(opts.profil), profile: opts.profil }
+      : routeLukasModel({
+          userText: opts.userText,
+          hasAttachments,
+          usedTools,
+          iteration: i,
+        });
     // Budget bewusst offen lassen — siehe callOpenAI: bei Reasoning-Modellen
     // teilen sich Denken und Antwort dasselbe max_output_tokens.
     const result = await callLukasModel({
@@ -132,7 +140,48 @@ export async function runLukasTurn(opts: {
     logger.warn({ runden: schleife.rundenZahl }, "Notbremse gegriffen — echte Endlosschleife?");
   }
 
-  const draft = textPieces.join("\n\n").trim();
+  /*
+   * Leer heisst nicht "nichts zu sagen" — es heisst, dass er bis zuletzt
+   * gearbeitet hat.
+   *
+   * Genau das stand im Dashboard: "Macher hat nichts zurückgegeben." Der
+   * Mitarbeiter hatte seine Runden mit Werkzeugaufrufen verbracht, und in einer
+   * Werkzeugrunde entsteht kein Text. Im Chat kam deshalb nichts an, obwohl er
+   * die ganze Zeit etwas getan hat.
+   *
+   * Also eine letzte Runde OHNE Werkzeuge. Ohne Werkzeuge bleibt ihm nichts,
+   * als zu formulieren, was er herausgefunden hat.
+   */
+  let draft = textPieces.join("\n\n").trim();
+
+  if (!draft) {
+    logger.info({ usedTools }, "Durchlauf ohne Text — Abschlussrunde ohne Werkzeuge");
+    try {
+      const letzte = await callLukasModel({
+        route: routeLukasModel({
+          userText: opts.userText,
+          hasAttachments,
+          usedTools,
+          iteration: schleife.rundenZahl,
+        }),
+        messages: [
+          ...convo,
+          {
+            role: "system",
+            content:
+              "Für diesen Zug stehen dir keine Werkzeuge mehr zur Verfügung. Antworte JETZT in " +
+              "Worten: was hast du getan, was ist dabei herausgekommen, was hat nicht " +
+              "funktioniert und woran lag es. Ein ehrliches „das ging nicht, weil X“ ist " +
+              "brauchbar — gar nichts zu sagen ist es nicht.",
+          },
+        ],
+      });
+      draft = (letzte.content || "").trim();
+    } catch (err) {
+      logger.warn({ err }, "Abschlussrunde fehlgeschlagen");
+    }
+  }
+
   if (!draft) return "";
   return renderLukasVoice({ systemPrompt, conversation: convo, draft });
 }

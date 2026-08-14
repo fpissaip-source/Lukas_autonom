@@ -25,10 +25,34 @@ const CONTAINER = "lukas-browser";
 const IMAGE = process.env.LUKAS_BROWSER_IMAGE ?? "node:22-bookworm-slim";
 const NETWORK = "lukas-sandbox";
 
-/** Ist der Container da und einsatzbereit? */
-async function laeuft(): Promise<boolean> {
-  const r = await sshExec(`docker ps --filter name=^/${CONTAINER}$ --format '{{.Names}}'`, 20000);
-  return r.stdout.trim() === CONTAINER;
+/*
+ * In welchem Zustand ist der Container?
+ *
+ * Vorher wurde nur `docker ps` gefragt — das listet ausschliesslich LAUFENDE
+ * Container. Ein gestoppter oder gerade angelegter Container war damit
+ * "nicht da", also wurde ein neuer erzeugt, und Docker antwortete mit
+ * "The container name /lukas-browser is already in use". Genau dieser Fehler
+ * stand im Dashboard.
+ */
+async function zustand(): Promise<"laeuft" | "gestoppt" | "fehlt"> {
+  const r = await sshExec(
+    `docker ps -a --filter name=^/${CONTAINER}$ --format '{{.State}}'`,
+    20000,
+  );
+  const s = r.stdout.trim().split("\n")[0]?.trim() ?? "";
+  if (!s) return "fehlt";
+  return s === "running" ? "laeuft" : "gestoppt";
+}
+
+/** Läuft der Browser darin auch wirklich? Ein Container allein genügt nicht. */
+async function browserBereit(): Promise<boolean> {
+  const r = await sshExec(
+    `docker exec ${CONTAINER} sh -lc ${shQuote(
+      "cd /browser && node -e \"require('playwright').chromium.executablePath()\" >/dev/null 2>&1 && echo ja",
+    )}`,
+    60000,
+  );
+  return r.stdout.includes("ja");
 }
 
 /*
@@ -42,7 +66,17 @@ async function laeuft(): Promise<boolean> {
  */
 async function starteContainer(): Promise<void> {
   await sshExec(`docker network create ${NETWORK} 2>/dev/null || true`, 30000);
-  await sshExec(`docker rm -f ${CONTAINER} 2>/dev/null || true`, 30000);
+
+  // Erst versuchen, einen vorhandenen wieder zu starten. Wegwerfen und neu
+  // bauen hiesse, die Browser-Installation noch einmal zu bezahlen.
+  if ((await zustand()) === "gestoppt") {
+    const an = await sshExec(`docker start ${CONTAINER}`, 60000);
+    if (an.code === 0 && (await browserBereit())) return;
+  }
+
+  // Erst jetzt wegwerfen — und mit `|| true`, damit ein Rest den Neuaufbau
+  // nicht blockiert.
+  await sshExec(`docker rm -f ${CONTAINER} 2>/dev/null || true`, 60000);
 
   const start = await sshExec(
     [
@@ -66,23 +100,69 @@ async function starteContainer(): Promise<void> {
   }
 
   logger.info("Browser wird im Container eingerichtet — das dauert beim ersten Mal einige Minuten");
+
+  /*
+   * chromium UND chromium-headless-shell.
+   *
+   * Ab Playwright 1.49 ist die Headless-Variante ein eigenes Paket. `install
+   * chromium` allein holt sie NICHT, und im Headless-Betrieb startet Playwright
+   * genau sie. Das Ergebnis stand im Dashboard: "Executable doesn't exist at
+   * …/chromium_headless_shell-1148/…". Die Installation meldete Erfolg, der
+   * Browser fehlte trotzdem.
+   */
   const setup = await sshExec(
     `docker exec ${CONTAINER} sh -lc ${shQuote(
       "mkdir -p /browser && cd /browser && npm init -y >/dev/null 2>&1 && " +
-        "npm i playwright@1.49.1 >/dev/null 2>&1 && npx playwright install --with-deps chromium",
+        "npm i playwright@1.49.1 >/dev/null 2>&1 && " +
+        "npx playwright install --with-deps chromium chromium-headless-shell",
     )}`,
-    600000,
+    900000,
   );
   if (setup.code !== 0) {
     await sshExec(`docker rm -f ${CONTAINER} 2>/dev/null || true`, 30000);
     throw new Error(`Browser-Installation fehlgeschlagen: ${setup.stderr.slice(0, 500)}`);
   }
+
+  /*
+   * Nachsehen, ob wirklich ein Browser da ist.
+   *
+   * Die Installation hat schon einmal Erfolg gemeldet, ohne dass danach ein
+   * Browser existierte. Eine Erfolgsmeldung ist keine Pruefung — der Startversuch
+   * ist eine.
+   */
+  const probe = await sshExec(
+    `docker exec ${CONTAINER} sh -lc ${shQuote(
+      "cd /browser && node -e \"require('playwright').chromium.launch().then(b=>b.close()).then(()=>console.log('bereit'))\"",
+    )}`,
+    180000,
+  );
+  if (!probe.stdout.includes("bereit")) {
+    throw new Error(
+      `Der Browser lässt sich nach der Installation nicht starten:\n` +
+        `${(probe.stderr || probe.stdout).slice(0, 600)}`,
+    );
+  }
+  logger.info("Browser-Container ist bereit");
 }
 
-/** Container da? Sonst einrichten. Danach ist er bis auf Weiteres warm. */
+/*
+ * Nur EINE Einrichtung gleichzeitig.
+ *
+ * Zwei parallele Aufrufe haben beide "kein Container" gesehen und beide einen
+ * angelegt — der zweite lief in "name is already in use". Solange eine
+ * Einrichtung laeuft, warten alle anderen auf dasselbe Versprechen.
+ */
+let laufendeEinrichtung: Promise<void> | null = null;
+
 export async function ensureBrowser(): Promise<void> {
-  if (await laeuft()) return;
-  await starteContainer();
+  if ((await zustand()) === "laeuft" && (await browserBereit())) return;
+
+  if (!laufendeEinrichtung) {
+    laufendeEinrichtung = starteContainer().finally(() => {
+      laufendeEinrichtung = null;
+    });
+  }
+  await laufendeEinrichtung;
 }
 
 export type BrowseErgebnis = {

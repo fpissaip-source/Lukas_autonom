@@ -188,3 +188,14 @@ export function routeLukasVoiceModel(): ModelRoute {
 export function directModel(profile: ModelProfile = "general"): string {
   return configured(profile, "direkter Aufruf ohne Router").model;
 }
+
+/**
+ * Die volle Route zu einem Profil — ohne die Heuristik zu befragen.
+ *
+ * Fuer Rollen, deren Aufgabe schon feststeht: der Entwickler gehoert auf das
+ * Code-Modell, der Fehleranalyst auf das Reasoning-Modell. Die Heuristik sieht
+ * nur den Nutzertext und koennte das gar nicht wissen.
+ */
+export function directRoute(profile: ModelProfile): ModelRoute {
+  return configured(profile, `feste Rolle: ${profile}`);
+}

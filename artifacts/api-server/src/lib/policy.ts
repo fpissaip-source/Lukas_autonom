@@ -71,6 +71,11 @@ export const TOOL_RISK: Record<string, RiskTier> = {
   // Einen Mitarbeiter einstellen ist internes Schreiben und umkehrbar — und
   // seine Werkzeuge kann er ohnehin nur aus dem waehlen, was Lukas selbst hat.
   create_subagent: "R1",
+  // Die Reparaturkette denkt nur nach: drei Gutachten, kein Schreibzugriff.
+  // Geaendert wird erst, wenn Lukas daraus einen Vorschlag macht und Issa
+  // im Dashboard zustimmt.
+  fix_error: "R1",
+  mcp_find_tool: "R0",
 
   // Ein Code-Vorschlag schreibt nur in unsere eigene Datenbank — geschrieben
   // wird erst, wenn Issa im Dashboard auf "Annehmen" klickt. Diese Entscheidung
@@ -146,6 +151,21 @@ export function riskFor(tool: string): RiskTier {
    * von ihm selbst. Deshalb die Stufe, die Issa diesem Server gegeben hat,
    * und im Zweifel R2.
    */
+  /*
+   * mcp_call ruft ein beliebiges Werkzeug eines verbundenen Servers auf. Es
+   * darf deshalb niemals lockerer sein als der strengste dieser Server —
+   * sonst waere es der bequeme Weg an einer Einstufung vorbei, die Issa
+   * bewusst gesetzt hat.
+   */
+  if (tool === "mcp_call") {
+    let hoechste: RiskTier = "R1";
+    for (const stufe of mcpRiskBySlug.values()) {
+      if (stufe === "R3") return "R3";
+      if (stufe === "R2") hoechste = "R2";
+    }
+    return hoechste;
+  }
+
   if (tool.startsWith("mcp__")) {
     const rest = tool.slice("mcp__".length);
     const sep = rest.indexOf("__");

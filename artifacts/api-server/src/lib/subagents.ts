@@ -35,6 +35,8 @@ export type SubagentId =
   | "ideenpruefer"
   | "rechercheur"
   | "scraper"
+  | "fehleranalyst"
+  | "coder"
   | "code_reviewer"
   | "macher"
   | "analyst"
@@ -45,6 +47,12 @@ type Subagent = {
   /** Werkzeuge, die dieser Mitarbeiter benutzen darf. Leer = gar keine. */
   tools: string[];
   prompt: string;
+  /*
+   * Welches Modell fuer diese Rolle. Ein Code-Auftrag gehoert auf das
+   * Code-Modell, eine Recherche nicht — bisher lief alles ueber dieselbe
+   * Routing-Heuristik, die den Auftrag eines Mitarbeiters gar nicht kennt.
+   */
+  profil?: "code" | "reasoning" | "general" | "fast";
 };
 
 const LESEN = ["web_search", "fetch_url", "browse_page", "query_memory"];
@@ -123,6 +131,77 @@ Deine Antwort:
 
 Wenn eine Seite dich aussperrt, sag das direkt. Versuch nicht, an einer
 Anmeldung oder einer Blockade vorbeizukommen.`,
+  },
+
+  fehleranalyst: {
+    // Er darf lesen, was schiefging — inklusive des eigenen Codes — und in der
+    // Sandbox nachstellen. Aber er aendert nichts: Diagnose und Reparatur zu
+    // trennen ist der ganze Sinn der Kette.
+    tools: [
+      "github_read_path",
+      "github_search_code",
+      "execute_command",
+      "fetch_url",
+      "web_search",
+      "query_memory",
+    ],
+    name: "Fehleranalyst",
+    profil: "reasoning",
+    prompt: `Du bekommst einen Fehler. Finde heraus, WORAN er liegt.
+
+Nicht raten. Lies die Fehlermeldung genau — sie sagt meistens mehr, als sie auf
+den ersten Blick hergibt. Sieh dir dann die Stelle im Code an, die sie nennt,
+und die Stelle, die sie aufruft.
+
+So gehst du vor:
+1. Was ist die wörtliche Aussage der Meldung? Nicht deine Interpretation.
+2. Welcher Code führt dazu? Lies ihn wirklich, statt vom Namen auf das
+   Verhalten zu schließen.
+3. Ist das die Ursache oder nur die Stelle, an der es auffällt? Ein "Container
+   name already in use" ist selten ein Docker-Problem, sondern meistens eine
+   Prüfung, die den falschen Zustand abfragt.
+4. Wenn du kannst: stell es in der Sandbox nach. Ein reproduzierter Fehler ist
+   eine Diagnose, ein vermuteter ist eine Vermutung.
+
+Deine Antwort:
+- URSACHE: in einem Satz, konkret, mit Datei und Zeile wenn du sie hast.
+- BELEG: was dich darauf bringt — die Meldung, die Codestelle, dein Versuch.
+- LÖSUNGSWEG: was geändert werden muss. Beschreibend, kein fertiger Code —
+  den schreibt jemand anders, und der soll nicht deine Formulierung abtippen,
+  sondern die Ursache beheben.
+- UNSICHER: was du nicht ausschließen konntest.
+
+Findest du die Ursache nicht, sag das. Eine falsche Diagnose kostet mehr als
+keine, weil danach am falschen Ende repariert wird.`,
+  },
+
+  coder: {
+    tools: ["github_read_path", "github_search_code", "execute_command", "reset_sandbox"],
+    name: "Entwickler",
+    profil: "code",
+    prompt: `Du schreibst die Änderung, die einen Fehler behebt.
+
+Du bekommst eine Diagnose. Behebe die URSACHE, nicht das Symptom — wenn die
+Diagnose eine falsche Zustandsprüfung nennt, reparier die Prüfung, statt den
+Fehler abzufangen.
+
+So arbeitest du:
+1. Lies die betroffene Datei ganz, nicht nur den genannten Ausschnitt. Der
+   umgebende Code sagt dir, welchen Stil und welche Hilfsfunktionen es schon
+   gibt.
+2. Schreib die kleinste Änderung, die es wirklich behebt.
+3. Wenn es sich in der Sandbox prüfen lässt, prüf es dort.
+
+Deine Antwort, genau so aufgebaut:
+- DATEI: der Pfad
+- ÄNDERUNG: der vollständige neue Inhalt der geänderten Stelle, als Code. Kein
+  Diff-Fragment, keine Auslassungspunkte — jemand muss das übernehmen können.
+- WARUM: in zwei Sätzen, warum das die Ursache trifft.
+- RISIKO: was dadurch woanders kaputtgehen könnte.
+
+Schreib Kommentare so, wie sie im umgebenden Code stehen: sie erklären den
+Grund, nicht die Syntax. Wenn die Diagnose nicht ausreicht, um die Änderung
+sicher zu schreiben, sag das statt zu raten.`,
   },
 
   code_reviewer: {
@@ -297,6 +376,66 @@ export async function subagentUebersicht(): Promise<string> {
   return zeilen.join("\n");
 }
 
+/*
+ * Die Reparaturkette.
+ *
+ * Issas Bild: Lukas bemerkt einen Fehler, gibt ihn an jemanden, der Fehler
+ * untersucht; dessen Diagnose geht an einen Entwickler mit Code-Modell; dessen
+ * Aenderung an einen Pruefer; und erst dann zurueck an Lukas, der entscheidet
+ * und vorschlaegt.
+ *
+ * Warum die Reihenfolge zaehlt und nicht nur Zierde ist: wer eine Diagnose
+ * stellt UND gleich repariert, repariert seine eigene Vermutung. Die Trennung
+ * zwingt dazu, die Ursache erst zu benennen — und der Pruefer sieht die
+ * Aenderung, ohne in die Diagnose verliebt zu sein.
+ *
+ * Lukas bekommt am Ende ALLE drei Gutachten, nicht nur das letzte. Er soll
+ * sehen, wo die Kette sich widerspricht; genau dort liegt meistens das
+ * eigentliche Problem.
+ */
+export async function fixError(fehler: string, kontext?: string): Promise<string> {
+  if (!fehler.trim()) throw new Error("Ohne Fehlertext kann niemand etwas untersuchen.");
+
+  const basis =
+    `FEHLER:\n${fehler.trim()}\n\n` +
+    (kontext?.trim() ? `KONTEXT (von Lukas):\n${kontext.trim()}\n\n` : "") +
+    `Der Code liegt im Repository fpissaip-source/Lukas_autonom.`;
+
+  logger.info("Reparaturkette gestartet");
+
+  const diagnose = await runSubagent(
+    "fehleranalyst",
+    `${basis}\n\nFinde die Ursache. Der Entwickler nach dir schreibt die Änderung — ` +
+      `beschreib ihm den Lösungsweg, aber schreib ihm nicht den Code.`,
+  );
+
+  const aenderung = await runSubagent(
+    "coder",
+    `${basis}\n\nDIAGNOSE DES FEHLERANALYSTEN:\n${diagnose}\n\n` +
+      `Schreib die Änderung, die diese Ursache behebt. Hältst du die Diagnose für falsch, ` +
+      `sag das statt sie umzusetzen.`,
+  );
+
+  const pruefung = await runSubagent(
+    "code_reviewer",
+    `${basis}\n\nDIAGNOSE:\n${diagnose}\n\nVORGESCHLAGENE ÄNDERUNG:\n${aenderung}\n\n` +
+      `Sieh dir die Änderung an, BEVOR sie Issa vorgeschlagen wird. Behebt sie die Ursache ` +
+      `oder nur das Symptom? Bricht sie etwas anderes?`,
+  );
+
+  return (
+    `Die Reparaturkette ist durchgelaufen. Drei Gutachten, drei Meinungen — du entscheidest.\n\n` +
+    `═══ 1. FEHLERANALYST ═══\n${diagnose}\n\n` +
+    `═══ 2. ENTWICKLER ═══\n${aenderung}\n\n` +
+    `═══ 3. CODE-PRÜFER ═══\n${pruefung}\n\n` +
+    `═══ JETZT DU ═══\n` +
+    `Lies die drei gegeneinander. Widersprechen sie sich, liegt dort meistens das ` +
+    `eigentliche Problem — dann schick die Kette mit dem Widerspruch als Kontext noch ` +
+    `einmal los, statt zu raten. Hältst du die Änderung für richtig, mach daraus einen ` +
+    `propose_code_change für Issa. Hältst du sie für falsch, sag das mit Begründung.`
+  );
+}
+
 export function subagentList(): string {
   return (Object.keys(SUBAGENTS) as SubagentId[])
     .map((id) => `${id} (${SUBAGENTS[id].name})`)
@@ -346,6 +485,7 @@ export async function runSubagent(id: string, auftrag: string): Promise<string> 
     userText: auftrag,
     systemPromptOverride: agent.prompt,
     tools,
+    profil: agent.profil,
   });
 
   const text = (antwort || "").trim();

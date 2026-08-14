@@ -12,7 +12,7 @@ import { ordneMcpWerkzeuge } from "./mcp-auswahl";
 import { githubRequest, resolveGithubOwner, ownRepoRef } from "./github";
 import { createProposal } from "./proposals";
 import { MCP_TOOL_PREFIX, activeServers, callMcpTool } from "./mcp";
-import { runSubagent, subagentUebersicht, createSubagent } from "./subagents";
+import { runSubagent, subagentUebersicht, createSubagent, fixError } from "./subagents";
 import { logger } from "./logger";
 import { checkPolicy, setMcpRiskTiers } from "./policy";
 
@@ -304,6 +304,70 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
         },
         required: ["agent", "auftrag"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "fix_error",
+      description:
+        "Schick einen Fehler durch deine Reparaturkette: Fehleranalyst (findet die Ursache) → Entwickler mit Code-Modell (schreibt die Änderung) → Code-Prüfer (sieht sie durch) → zurück zu dir. Du bekommst alle drei Gutachten und entscheidest. Nimm das SOFORT, wenn ein Werkzeug zweimal denselben Fehler wirft, wenn du auf einen Fehler in deinem eigenen Code stößt oder wenn Issa dir sagt, dass etwas nicht funktioniert. Warte nicht darauf, dass jemand dich darum bittet — Fehler zu bemerken und zu beheben ist deine Aufgabe, nicht seine.",
+      parameters: {
+        type: "object",
+        properties: {
+          fehler: {
+            type: "string",
+            description:
+              "Die Fehlermeldung im Wortlaut, vollständig. Nicht zusammengefasst — der genaue Text ist die halbe Diagnose.",
+          },
+          kontext: {
+            type: "string",
+            description:
+              "Was du gerade getan hast, als es auftrat, und was du selbst schon vermutest. Alles, was du weißt und sie nicht.",
+          },
+        },
+        required: ["fehler"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "mcp_find_tool",
+      description:
+        "Durchsuche ALLE Werkzeuge deiner angebundenen MCP-Server — auch die, die nicht in deinem Werkzeugkasten liegen. Higgsfield allein hat über 80. Such hier nach einem Stichwort (z.B. \"upscale\", \"tiktok\", \"voice\", \"website\"), such dir das passende aus und ruf es dann mit mcp_call auf. Ohne Suchbegriff bekommst du die vollständige Liste. Es gibt also nichts, was dir verschlossen wäre — du musst nur nachsehen.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Stichwort für Name oder Beschreibung. Leer lassen für alles.",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "mcp_call",
+      description:
+        "Ruf ein beliebiges Werkzeug eines angebundenen MCP-Servers auf, auch eines, das nicht in deinem Werkzeugkasten liegt. Den genauen Namen und sein Eingabeschema bekommst du von mcp_find_tool — halte dich an dieses Schema, sonst weist der Server den Aufruf ab.",
+      parameters: {
+        type: "object",
+        properties: {
+          tool: { type: "string", description: "Name des Werkzeugs, exakt wie in mcp_find_tool" },
+          args: {
+            type: "object",
+            description: "Die Argumente, passend zum Schema aus mcp_find_tool",
+          },
+          server: {
+            type: "string",
+            description: "Kürzel des Servers. Weglassen, wenn nur einer das Werkzeug hat.",
+          },
+        },
+        required: ["tool"],
       },
     },
   },
@@ -995,6 +1059,16 @@ export async function executeLukasTool(
       return await githubSearchCode(String(input.repo), String(input.query));
     case "ask_subagent":
       return await runSubagent(String(input.agent), String(input.auftrag ?? ""));
+    case "fix_error":
+      return await fixError(String(input.fehler ?? ""), typeof input.kontext === "string" ? input.kontext : undefined);
+    case "mcp_find_tool":
+      return await mcpFindTool(typeof input.query === "string" ? input.query : "");
+    case "mcp_call":
+      return await mcpCallByName(
+        String(input.tool ?? ""),
+        (input.args ?? {}) as Record<string, unknown>,
+        typeof input.server === "string" ? input.server : undefined,
+      );
     case "list_subagents":
       return await subagentUebersicht();
     case "create_subagent":
@@ -1094,6 +1168,89 @@ async function runMcpTool(name: string, input: Record<string, unknown>): Promise
     );
   }
   return await callMcpTool(server.id, tool, input);
+}
+
+/*
+ * Der vollstaendige Katalog — und damit die Antwort auf einen berechtigten
+ * Einwand.
+ *
+ * Der Deckel begrenzt, wie viele Werkzeugbeschreibungen bei JEDEM Modellaufruf
+ * mitgeschickt werden. Das ist eine Frage der Tokenmenge, nicht der Erlaubnis:
+ * 81 Beschreibungen sind rund 20.000 Token, bevor auch nur ein Wort Gespraech
+ * dazukommt. Nur hiess "nicht mitgeschickt" bisher auch "nicht erreichbar" —
+ * und DAS war die eigentliche Einschraenkung.
+ *
+ * Mit diesen beiden Werkzeugen ist sie weg: Lukas durchsucht den ganzen Katalog
+ * und ruft danach jedes beliebige Werkzeug auf. Der Deckel bestimmt nur noch,
+ * was ohne Nachschlagen griffbereit liegt.
+ */
+export async function mcpFindTool(query: string): Promise<string> {
+  const servers = (await activeServers()).filter((s) => s.enabled);
+  if (servers.length === 0) return "Es ist gerade kein MCP-Server verbunden.";
+
+  const suche = query.trim().toLowerCase();
+  const treffer: string[] = [];
+  let gesamt = 0;
+
+  for (const server of servers) {
+    for (const tool of server.tools) {
+      gesamt++;
+      const text = `${tool.name} ${tool.description ?? ""}`.toLowerCase();
+      if (suche && !text.includes(suche)) continue;
+      treffer.push(
+        `\n■ ${tool.name}  [Server: ${server.slug}]\n` +
+          `  ${(tool.description ?? "(keine Beschreibung)").slice(0, 400)}\n` +
+          `  Schema: ${JSON.stringify(tool.inputSchema ?? {}).slice(0, 900)}`,
+      );
+    }
+  }
+
+  if (treffer.length === 0) {
+    return `Nichts zu "${query}" gefunden. Insgesamt gibt es ${gesamt} Werkzeuge — ruf mcp_find_tool ohne Suchbegriff auf, um alle zu sehen.`;
+  }
+
+  // Bei sehr vielen Treffern die Schemata weglassen, sonst sprengt die Antwort
+  // genau das Fenster, das der Deckel schuetzen soll.
+  const kurz = treffer.length > 25;
+  const liste = kurz
+    ? treffer.map((t) => t.split("\n").slice(0, 3).join("\n")).join("")
+    : treffer.join("");
+
+  return (
+    `${treffer.length} von ${gesamt} Werkzeugen${suche ? ` zu "${query}"` : ""}:\n${liste}\n\n` +
+    (kurz
+      ? `Für das Eingabeschema such gezielter (z.B. mcp_find_tool("${suche || "upscale"}")).\n`
+      : "") +
+    `Aufrufen mit mcp_call(tool="…", args={…}).`
+  );
+}
+
+export async function mcpCallByName(
+  toolName: string,
+  args: Record<string, unknown>,
+  slug?: string,
+): Promise<string> {
+  const name = toolName.trim().replace(/^mcp__/, "");
+  if (!name) throw new Error("Ohne Werkzeugnamen geht nichts — nutze zuerst mcp_find_tool.");
+
+  const servers = (await activeServers()).filter((s) => s.enabled);
+  const passende = servers.filter(
+    (s) => (!slug || s.slug === slug) && s.tools.some((t) => t.name === name),
+  );
+
+  if (passende.length === 0) {
+    throw new Error(
+      `Kein verbundener Server bietet "${name}" an. Such mit mcp_find_tool nach dem richtigen Namen.`,
+    );
+  }
+  if (passende.length > 1 && !slug) {
+    throw new Error(
+      `"${name}" gibt es bei mehreren Servern (${passende.map((s) => s.slug).join(", ")}). ` +
+        `Gib mit server= an, welchen du meinst.`,
+    );
+  }
+
+  return await callMcpTool(passende[0].id, name, args);
 }
 
 /*

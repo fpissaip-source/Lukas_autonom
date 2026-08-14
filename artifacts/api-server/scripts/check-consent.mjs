@@ -132,6 +132,32 @@ try {
     "R0",
   );
 
+  /*
+   * mcp_call darf kein Weg an den Server-Einstufungen vorbei sein.
+   *
+   * Es ruft ein beliebiges Werkzeug eines verbundenen Servers auf. Stuende es
+   * fest auf R1, waere ein Server, den Issa bewusst auf R2 oder R3 gesetzt hat,
+   * damit umgangen — mit genau dem Werkzeug, das Zugriff auf alles gibt.
+   */
+  const { setMcpRiskTiers } = mod;
+
+  setMcpRiskTiers([{ slug: "higgsfield", riskTier: "R1" }]);
+  pruefe("mcp_call bei harmlosen Servern frei", riskFor("mcp_call"), "R1");
+
+  setMcpRiskTiers([
+    { slug: "higgsfield", riskTier: "R1" },
+    { slug: "bank", riskTier: "R2" },
+  ]);
+  pruefe("mcp_call folgt dem strengsten Server (R2)", riskFor("mcp_call"), "R2");
+
+  setMcpRiskTiers([
+    { slug: "higgsfield", riskTier: "R1" },
+    { slug: "wallet", riskTier: "R3" },
+  ]);
+  pruefe("mcp_call folgt dem strengsten Server (R3)", riskFor("mcp_call"), "R3");
+
+  setMcpRiskTiers([]);
+
   if (failures.length > 0) {
     console.error("FEHLER in der Zustimmungserkennung:\n");
     for (const f of failures) {
@@ -141,7 +167,7 @@ try {
     process.exit(1);
   }
 
-  console.log(`OK — Zustimmung + Mail-Link-Sperre: ${CASES.length + 5} Fälle korrekt.`);
+  console.log(`OK — Zustimmung + Mail-Link-Sperre: ${CASES.length + 8} Fälle korrekt.`);
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

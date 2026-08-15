@@ -75,6 +75,12 @@ export const TOOL_RISK: Record<string, RiskTier> = {
   // Geaendert wird erst, wenn Lukas daraus einen Vorschlag macht und Issa
   // im Dashboard zustimmt.
   fix_error: "R1",
+  /*
+   * Sich bei Issa melden ist eine Nachricht an den eigenen Owner, keine
+   * Wirkung nach aussen. Stuende das auf R2, muesste Issa freigeben, dass
+   * Lukas ihn fragen darf — also genau das, was er nicht mehr tun soll.
+   */
+  melde_dich_bei_issa: "R1",
   mcp_find_tool: "R0",
 
   // Ein Code-Vorschlag schreibt nur in unsere eigene Datenbank — geschrieben

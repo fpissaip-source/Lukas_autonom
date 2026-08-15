@@ -456,9 +456,28 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       }
     }
 
-    const fullResponse = abschluss
-      ? await renderLukasVoice({ systemPrompt, conversation: convo, draft: abschluss })
-      : "";
+    /*
+     * Die Politur darf die Antwort nicht kosten.
+     *
+     * renderLukasVoice formuliert den Entwurf zu Lukas' Stimme. Scheitert das,
+     * geht der Entwurf unveraendert raus — er enthaelt bereits alles, nur
+     * ungeschliffen. Dass ein Formulierungsschritt eine fertige Antwort
+     * verschlucken kann, war der Konstruktionsfehler dahinter.
+     */
+    let fullResponse = "";
+    if (abschluss) {
+      try {
+        fullResponse = await renderLukasVoice({
+          systemPrompt,
+          conversation: convo,
+          draft: abschluss,
+        });
+      } catch (err) {
+        logger.warn({ err, conversationId: convId }, "Ausgabeschicht fehlgeschlagen");
+        recordDebugEvent("chat", err);
+      }
+      if (!fullResponse.trim()) fullResponse = abschluss;
+    }
 
     /*
      * Eine leere Antwort ist kein Ergebnis.

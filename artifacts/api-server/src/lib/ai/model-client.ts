@@ -222,11 +222,24 @@ function toResponsesContent(content: unknown): any {
   return out.length ? out : "";
 }
 
-function toResponsesInput(messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[]): any[] {
+function toResponsesInput(
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  /*
+   * Ohne Werkzeuge im Aufruf duerfen auch keine Werkzeug-Elemente in den
+   * Verlauf. Die Responses-API weist function_call/function_call_output
+   * zurueck, wenn im selben Aufruf keine Werkzeuge definiert sind — und ein
+   * abgewiesener Aufruf heisst hier: keine Antwort.
+   *
+   * Zweite Sicherung neben dem Filter im voice-renderer: dass ein Aufrufer
+   * dieselbe Falle noch einmal baut, soll nicht wieder eine Antwort kosten.
+   */
+  mitWerkzeugen = true,
+): any[] {
   const out: any[] = [];
 
   for (const message of messages as any[]) {
     if (message.role === "tool") {
+      if (!mitWerkzeugen) continue;
       out.push({
         type: "function_call_output",
         call_id: String(message.tool_call_id ?? ""),
@@ -238,7 +251,7 @@ function toResponsesInput(messages: OpenAI.Chat.Completions.ChatCompletionMessag
     if (message.role === "assistant") {
       const text = asText(message.content);
       if (text) out.push({ role: "assistant", content: text });
-      for (const tc of message.tool_calls ?? []) {
+      for (const tc of mitWerkzeugen ? (message.tool_calls ?? []) : []) {
         if (tc?.type !== "function") continue;
         out.push({
           type: "function_call",
@@ -277,10 +290,11 @@ async function callOpenAI(input: CallInput): Promise<LukasModelResult> {
      * Variable nachstellbar.
      */
     max_output_tokens: input.maxTokens ?? Number(process.env.LUKAS_MAX_OUTPUT_TOKENS ?? 16384),
-    input: toResponsesInput(input.messages),
   };
   const tools = toResponsesTools(input.tools);
   if (tools.length) request.tools = tools;
+  // Der Verlauf richtet sich danach, ob dieser Aufruf ueberhaupt Werkzeuge hat.
+  request.input = toResponsesInput(input.messages, tools.length > 0);
 
   const response: any = await openai.responses.create(request);
   const toolCalls: LukasToolCall[] = [];

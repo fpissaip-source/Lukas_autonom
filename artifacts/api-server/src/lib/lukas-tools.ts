@@ -13,6 +13,7 @@ import { githubRequest, resolveGithubOwner, ownRepoRef } from "./github";
 import { createProposal } from "./proposals";
 import { MCP_TOOL_PREFIX, activeServers, callMcpTool } from "./mcp";
 import { runSubagent, subagentUebersicht, createSubagent, fixError } from "./subagents";
+import { meldeDichBeiIssa } from "./melden";
 import { logger } from "./logger";
 import { checkPolicy, setMcpRiskTiers } from "./policy";
 
@@ -304,6 +305,33 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
         },
         required: ["agent", "auftrag"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "melde_dich_bei_issa",
+      description:
+        "Melde dich bei Issa, wenn du bei deiner eigenen Arbeit etwas von ihm brauchst — eine Entscheidung, einen Zugang, ein Passwort, eine Antwort, die nur er geben kann, oder wenn du auf etwas gestoßen bist, das er sofort wissen sollte. Deine Meldung landet als Nachricht im Chat UND auf seinem Handy. Nutze das NUR im autonomen Lauf; wenn ihr gerade miteinander schreibt, frag ihn einfach direkt. Melde dich lieber einmal zu viel als still zu stehen — aber nicht zweimal wegen derselben Sache.",
+      parameters: {
+        type: "object",
+        properties: {
+          betreff: {
+            type: "string",
+            description: "Worum es geht, in wenigen Worten. Danach wird auch erkannt, ob du dasselbe schon gemeldet hast.",
+          },
+          text: {
+            type: "string",
+            description:
+              "Was du brauchst und WARUM — woran du gerade arbeitest, was ohne seine Antwort nicht weitergeht, und was du vorschlägst. Schreib es so, dass er ohne Rückfrage antworten kann.",
+          },
+          dringend: {
+            type: "boolean",
+            description: "Nur wenn es wirklich nicht bis morgen warten kann.",
+          },
+        },
+        required: ["betreff", "text"],
       },
     },
   },
@@ -1059,6 +1087,12 @@ export async function executeLukasTool(
       return await githubSearchCode(String(input.repo), String(input.query));
     case "ask_subagent":
       return await runSubagent(String(input.agent), String(input.auftrag ?? ""));
+    case "melde_dich_bei_issa":
+      return await meldeDichBeiIssa({
+        betreff: String(input.betreff ?? ""),
+        text: String(input.text ?? ""),
+        dringend: input.dringend === true,
+      });
     case "fix_error":
       return await fixError(String(input.fehler ?? ""), typeof input.kontext === "string" ? input.kontext : undefined);
     case "mcp_find_tool":

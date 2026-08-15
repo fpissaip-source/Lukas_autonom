@@ -3,6 +3,7 @@ import { allLukasTools, executeLukasTool } from "./lukas-tools";
 import { buildSystemPrompt } from "./system-prompt";
 import { recordEmotion } from "./emotion-engine";
 import { logger } from "./logger";
+import { recordDebugEvent } from "./debug-log";
 import { routeLukasModel, directRoute } from "./ai/model-router";
 import { callLukasModel } from "./ai/model-client";
 import { renderLukasVoice } from "./ai/voice-renderer";
@@ -116,6 +117,8 @@ export async function runLukasTurn(opts: {
         convo.push({ role: "tool", tool_call_id: tc.id, content: toolResult });
       } catch (err) {
         logger.warn({ err, tool: tc.name }, "Lukas tool failed (brain)");
+        // Damit der Fehler in der Diagnose auftaucht und nicht nur im Log.
+        recordDebugEvent(`tool:${tc.name}`, err);
         convo.push({
           role: "tool",
           tool_call_id: tc.id,

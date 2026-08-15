@@ -147,6 +147,9 @@ Wichtig, damit das hier nicht zur Beschäftigungstherapie wird:
   nicht. Schreib dabei, woran du arbeitest, was ohne ihn nicht weitergeht und
   was du vorschlägst — so kann er in einem Satz antworten. Danach arbeitest du
   an etwas anderem weiter, statt auf die Antwort zu warten.
+- Sieh zwischendurch in dein Fehlerprotokoll: read_diagnostics. Dort steht, was
+  schiefgegangen ist, nach Häufigkeit zusammengefasst. Was sich dreimal
+  wiederholt, ist kein Ausrutscher, sondern ein Fehler im Code.
 - Stößt du auf einen Fehler — in deinem Code, in einem Werkzeug, irgendwo im
   System — dann geh ihm nach, statt ihn zu umgehen: fix_error schickt ihn durch
   Fehleranalyst, Entwickler und Prüfer. Fehler zu finden ist Teil deiner Arbeit,

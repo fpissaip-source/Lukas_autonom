@@ -14,6 +14,7 @@ import { createProposal } from "./proposals";
 import { MCP_TOOL_PREFIX, activeServers, callMcpTool } from "./mcp";
 import { runSubagent, subagentUebersicht, createSubagent, fixError } from "./subagents";
 import { meldeDichBeiIssa } from "./melden";
+import { fehlerGruppen } from "./debug-log";
 import { logger } from "./logger";
 import { checkPolicy, setMcpRiskTiers } from "./policy";
 
@@ -305,6 +306,23 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
         },
         required: ["agent", "auftrag"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_diagnostics",
+      description:
+        "Sieh in dein eigenes Fehlerprotokoll. Du bekommst die Fehler der letzten Stunden nach Häufigkeit zusammengefasst — gleichartige Meldungen werden zu einer Gruppe, damit du siehst, was sich HÄUFT und nicht nur, was zuletzt war. Nimm das, wenn dir etwas seltsam vorkommt, wenn Issa sagt dass etwas nicht geht, und von Zeit zu Zeit von dir aus. Was sich wiederholt, ist ein Fehler im Code und gehört durch fix_error.",
+      parameters: {
+        type: "object",
+        properties: {
+          stunden: {
+            type: "integer",
+            description: "Wie weit zurück. Standard 24.",
+          },
+        },
       },
     },
   },
@@ -766,6 +784,42 @@ async function browsePage(url: string, offset = 0, scrolls = 12): Promise<string
   );
 }
 
+/*
+ * Sein eigenes Fehlerprotokoll, lesbar aufbereitet.
+ *
+ * Es lag die ganze Zeit in der Datenbank und wurde von genau einer Stelle
+ * gelesen: dem Dashboard. Lukas hatte kein Werkzeug dafuer — er war blind fuer
+ * seine eigenen Fehler und konnte sie deshalb weder melden noch beheben.
+ *
+ * Zusammengefasst statt Zeile fuer Zeile: einzelne Eintraege sagen wenig,
+ * "dieser Fehler kam 14x" sagt alles.
+ */
+async function leseDiagnose(stunden: number): Promise<string> {
+  const gruppen = await fehlerGruppen(Math.max(1, Math.min(stunden, 168)));
+  if (gruppen.length === 0) {
+    return `In den letzten ${stunden} Stunden ist kein Fehler protokolliert worden.`;
+  }
+
+  const zeilen = gruppen.slice(0, 20).map((g, i) => {
+    const wiederkehrend = g.anzahl >= 3 ? "  ← das wiederholt sich, das ist Code" : "";
+    return (
+      `${i + 1}. [${g.scope}] ${g.anzahl}×${wiederkehrend}\n` +
+      `   zuletzt ${g.zuletzt}\n` +
+      `   ${g.beispiel.slice(0, 500)}`
+    );
+  });
+
+  const haeufig = gruppen.filter((g) => g.anzahl >= 3).length;
+  return (
+    `Fehler der letzten ${stunden} Stunden, nach Häufigkeit (${gruppen.length} Gruppen):\n\n` +
+    zeilen.join("\n\n") +
+    (haeufig > 0
+      ? `\n\n${haeufig} davon wiederholen sich. Ein einzelner Fehler kann ein Ausrutscher sein — ` +
+        `was sich wiederholt, ist ein Fehler im Code. Schick den obersten durch fix_error.`
+      : `\n\nNichts davon wiederholt sich — das sieht nach Einzelfällen aus.`)
+  );
+}
+
 async function webSearch(query: string): Promise<string> {
   const res = await fetch(
     `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
@@ -1087,6 +1141,8 @@ export async function executeLukasTool(
       return await githubSearchCode(String(input.repo), String(input.query));
     case "ask_subagent":
       return await runSubagent(String(input.agent), String(input.auftrag ?? ""));
+    case "read_diagnostics":
+      return await leseDiagnose(typeof input.stunden === "number" ? input.stunden : 24);
     case "melde_dich_bei_issa":
       return await meldeDichBeiIssa({
         betreff: String(input.betreff ?? ""),

@@ -363,6 +363,15 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         } catch (err) {
           logger.warn({ err, tool: toolCall.name }, "Lukas tool failed");
           const grund = `Fehler: ${err instanceof Error ? err.message : String(err)}`;
+          /*
+           * Auch ins Fehlerprotokoll, nicht nur ins Log.
+           *
+           * Genau das hat gefehlt: gescheiterte Werkzeuge standen in Railways
+           * Log, das niemand liest, und NICHT in der Diagnose, die Lukas
+           * ansehen kann. Deshalb konnte er weder merken noch melden, dass
+           * browse_page zwanzigmal am selben Container gescheitert ist.
+           */
+          recordDebugEvent(`tool:${toolCall.name}`, err);
           convo.push({
             role: "tool",
             tool_call_id: toolCall.id,

@@ -13,6 +13,7 @@ import { getLukasStatus, DEFAULT_STATUS } from "../lib/lukas-status";
 import { getCharacter } from "../lib/emotion-engine";
 import { runReflection } from "../lib/reflection";
 import { getDebugLog, recordDebugEvent } from "../lib/debug-log";
+import { listeMeldungen, beantworteMeldung } from "../lib/melden";
 import { buildSystemPrompt } from "../lib/system-prompt";
 import { openai } from "@workspace/integrations-openai-ai";
 import { logger } from "../lib/logger";
@@ -361,6 +362,46 @@ router.get("/lukas/debug-log", async (req, res) => {
     res.json(await getDebugLog());
   } catch (err) {
     res.status(500).json({ error: "Failed to get debug log" });
+  }
+});
+
+/*
+ * Meldungen: was Lukas von Issa braucht.
+ *
+ * Bewusst eine eigene Liste und kein Chat-Verlauf — eine Meldung hat einen
+ * Zustand. Sie ist offen, bis Issa geantwortet hat, und genau das soll man
+ * sehen koennen, ohne zu suchen.
+ */
+router.get("/lukas/meldungen", async (_req, res) => {
+  try {
+    const rows = await listeMeldungen();
+    res.json(
+      rows.map((m) => ({
+        ...m,
+        createdAt: m.createdAt.toISOString(),
+        erledigtAt: m.erledigtAt?.toISOString() ?? null,
+      })),
+    );
+  } catch (err) {
+    logger.error({ err }, "Meldungen konnten nicht gelesen werden");
+    res.status(500).json({ error: "Failed to get meldungen" });
+  }
+});
+
+router.post("/lukas/meldungen/:id/antwort", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id)) return void res.status(400).json({ error: "id ungültig" });
+    const row = await beantworteMeldung(id, String(req.body?.antwort ?? ""));
+    res.json({
+      ...row,
+      createdAt: row.createdAt.toISOString(),
+      erledigtAt: row.erledigtAt?.toISOString() ?? null,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, "Meldung konnte nicht beantwortet werden");
+    res.status(500).json({ error: message });
   }
 });
 

@@ -1,15 +1,18 @@
 /*
- * Prueft die Wiederholsperre, wenn Lukas sich bei Issa meldet.
+ * Prueft, was passiert, wenn Lukas bei seiner eigenen Arbeit etwas von Issa
+ * braucht.
  *
- * Warum ausgerechnet die: der autonome Lauf startet alle 30 Minuten neu. Ohne
- * Sperre landet dieselbe offene Frage bei jedem Durchlauf erneut auf Issas
- * Handy — nach einem Tag waeren das 48 identische Nachrichten, und danach
- * liest er keine mehr. Eine Meldefunktion, die zu Spam wird, ist schlimmer als
- * keine.
+ * Eine Meldung hat einen ZUSTAND — sie ist offen, bis Issa geantwortet hat.
+ * Daran haengen drei Dinge, die alle leicht kaputtzumachen sind:
  *
- * Die Gegenrichtung ist genauso wichtig: eine ANDERE Sache muss sofort
- * durchkommen. Eine Sperre, die alles blockiert, waere dasselbe wie keine
- * Meldung.
+ *  1. Keine Wiederholung. Der autonome Lauf startet alle 30 Minuten neu; ohne
+ *     Sperre landet dieselbe offene Frage bei jedem Durchlauf erneut im Tab.
+ *     Nach einem Tag waeren das 48 identische Eintraege, und danach liest sie
+ *     niemand mehr.
+ *  2. Die Gegenrichtung: eine ANDERE Sache muss sofort durchkommen. Eine
+ *     Sperre, die alles blockiert, waere dasselbe wie keine Meldung.
+ *  3. Die Antwort muss bei Lukas ankommen. Sonst ist der Tab eine Sackgasse:
+ *     er fragt, Issa antwortet, und er erfaehrt es nie.
  */
 import { build } from "esbuild";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -19,31 +22,73 @@ const dir = mkdtempSync(join(process.cwd(), ".melde-check-"));
 const out = join(dir, "melden.mjs");
 
 /*
- * Attrappen fuer Datenbank und WhatsApp: geprueft wird die Entscheidung, WANN
- * gemeldet wird — nicht, ob Postgres laeuft. Die Attrappen zaehlen mit, damit
- * die Pruefung sieht, was tatsaechlich rausgegangen waere.
+ * Eine Attrappe mit einer echten kleinen Tabelle im Speicher. Gegen eine
+ * Attrappe, die nur "ok" sagt, koennte man die Zustandslogik gar nicht pruefen
+ * — und genau die ist hier der Inhalt.
  */
 const attrappe = join(dir, "attrappe.mjs");
 writeFileSync(
   attrappe,
-  `// Zaehler auf globalThis: esbuild bundelt diese Attrappe MIT hinein, ein
-// separater Import waere deshalb eine zweite Modulinstanz mit eigenen Zahlen.
-globalThis.__zaehler ??= { chat: 0, whatsapp: 0 };
-const zaehler = globalThis.__zaehler;
-export const conversations = { title: "t", createdAt: "c", id: "id" };
-export const messages = {};
+  `globalThis.__tabelle ??= [];
+globalThis.__id ??= 0;
+
+export const meldungen = { betreff: "betreff", status: "status", id: "id", gelesen: "gelesen", erledigtAt: "erledigtAt", createdAt: "createdAt" };
+
+// Bedingungen werden als Funktion ueber eine Zeile abgebildet.
+export const eq = (feld, wert) => (z) => z[feld] === wert;
+export const and = (...fns) => (z) => fns.every((f) => f(z));
+export const desc = () => ({});
+
+const treffer = (bed) => globalThis.__tabelle.filter((z) => (bed ? bed(z) : true));
+
 export const db = {
-  select: () => ({ from: () => ({ where: () => ({ orderBy: () => ({ limit: async () => [{ id: 1 }] }) }) }) }),
   insert: () => ({
-    values: async () => { zaehler.chat++; },
-    returning: async () => [{ id: 1 }],
+    values: (v) => ({
+      returning: async () => {
+        const zeile = {
+          id: ++globalThis.__id,
+          antwort: null,
+          gelesen: false,
+          status: "offen",
+          erledigtAt: null,
+          createdAt: new Date(),
+          ...v,
+        };
+        globalThis.__tabelle.push(zeile);
+        return [zeile];
+      },
+    }),
+  }),
+  select: () => ({
+    from: () => {
+      const bau = (bed) => ({
+        where: (b) => bau(b),
+        orderBy: () => bau(bed),
+        limit: async () => treffer(bed),
+        then: (r) => Promise.resolve(treffer(bed)).then(r),
+      });
+      return bau(null);
+    },
+  }),
+  update: () => ({
+    set: (werte) => ({
+      where: (bed) => ({
+        returning: async () => {
+          const zeilen = treffer(bed);
+          for (const z of zeilen) Object.assign(z, werte);
+          return zeilen;
+        },
+        then: (r) => {
+          const zeilen = treffer(bed);
+          for (const z of zeilen) Object.assign(z, werte);
+          return Promise.resolve(zeilen).then(r);
+        },
+      }),
+    }),
   }),
 };
-export const desc = () => ({});
-export const eq = () => ({});
+
 export const logger = { info() {}, warn() {}, error() {} };
-export function whatsappConfigured() { return true; }
-export async function sendWhatsAppMessage() { zaehler.whatsapp++; }
 `,
 );
 
@@ -58,16 +103,16 @@ await build({
     {
       name: "attrappen",
       setup(b) {
-        b.onResolve({ filter: /(^|\/)(logger|whatsapp)$/ }, () => ({ path: attrappe }));
+        b.onResolve({ filter: /(^|\/)logger$/ }, () => ({ path: attrappe }));
       },
     },
   ],
   logLevel: "silent",
 });
 
-process.env.WHATSAPP_OWNER_NUMBERS = "+4915259559707";
-const { meldeDichBeiIssa } = await import(`file://${out}`);
-const zaehler = globalThis.__zaehler;
+const { meldeDichBeiIssa, beantworteMeldung, neueAntworten, offeneAnzahl } = await import(
+  `file://${out}`
+);
 rmSync(dir, { recursive: true, force: true });
 
 let fehler = 0;
@@ -78,35 +123,53 @@ const pruefe = (was, bedingung) => {
   }
 };
 
-// 1. Die erste Meldung geht raus — Chat UND Handy.
+// 1. Die erste Meldung landet im Tab und ist offen.
 const erste = await meldeDichBeiIssa({
   betreff: "Higgsfield-Zugang fehlt",
   text: "Ich komme an die Projektseite nicht ran, dort ist eine Anmeldung nötig.",
 });
-pruefe("erste Meldung landet im Chat", zaehler.chat === 1);
-pruefe("erste Meldung geht auch aufs Handy", zaehler.whatsapp === 1);
-pruefe("und die Antwort sagt ihm, dass sie angekommen ist", erste.includes("Handy"));
+pruefe("die Meldung wird angelegt", globalThis.__tabelle.length === 1);
+pruefe("und ist offen", globalThis.__tabelle[0].status === "offen");
+pruefe("die Zahl der offenen stimmt", (await offeneAnzahl()) === 1);
+pruefe("er erfährt, wo sie liegt", erste.includes("Meldungen"));
 pruefe("und dass er weiterarbeiten soll", erste.includes("weiter"));
 
-// 2. Dieselbe Sache noch einmal: NICHTS geht raus.
+// 2. Dieselbe Sache noch einmal, solange sie offen ist: nichts Neues.
 const zweite = await meldeDichBeiIssa({
   betreff: "Higgsfield-Zugang fehlt",
   text: "Immer noch das gleiche Problem.",
 });
-pruefe("Wiederholung landet nicht im Chat", zaehler.chat === 1);
-pruefe("Wiederholung landet nicht auf dem Handy", zaehler.whatsapp === 1);
-pruefe("und er erfährt, warum nicht", zweite.includes("schon gemeldet"));
-pruefe("und wird zum Weiterarbeiten geschickt", zweite.includes("anderem"));
+pruefe("keine zweite Meldung zur selben Sache", globalThis.__tabelle.length === 1);
+pruefe("und er erfährt, warum nicht", zweite.includes("schon offen"));
 
 // 3. Eine ANDERE Sache muss sofort durchkommen.
 await meldeDichBeiIssa({
-  betreff: "Soll ich die alten Moltbook-Einträge löschen?",
+  betreff: "Sollen die alten Moltbook-Einträge weg?",
   text: "Sie machen die Übersicht unlesbar.",
 });
-pruefe("eine andere Sache kommt sofort durch (Chat)", zaehler.chat === 2);
-pruefe("eine andere Sache kommt sofort durch (Handy)", zaehler.whatsapp === 2);
+pruefe("eine andere Sache kommt durch", globalThis.__tabelle.length === 2);
+pruefe("dann sind zwei offen", (await offeneAnzahl()) === 2);
 
-// 4. Ohne Inhalt gibt es keine Meldung.
+// 4. Issa antwortet — die Meldung ist erledigt.
+await beantworteMeldung(1, "Nimm meinen Higgsfield-Account, Zugang liegt im Passwortmanager.");
+pruefe("die Meldung ist erledigt", globalThis.__tabelle[0].status === "erledigt");
+pruefe("nur noch eine offen", (await offeneAnzahl()) === 1);
+
+// 5. Und die Antwort kommt bei Lukas an — genau EINMAL.
+const antwort = await neueAntworten();
+pruefe("die Antwort erreicht ihn", antwort.includes("Passwortmanager"));
+pruefe("mit dem Betreff dazu", antwort.includes("Higgsfield-Zugang fehlt"));
+pruefe("und seiner ursprünglichen Frage", antwort.includes("Anmeldung nötig"));
+
+const nochmal = await neueAntworten();
+pruefe("beim zweiten Mal nicht erneut", nochmal === "");
+
+// 6. Ist die Sache erledigt, darf er sie wieder melden — sie könnte ja
+//    weiterhin klemmen.
+await meldeDichBeiIssa({ betreff: "Higgsfield-Zugang fehlt", text: "Der Zugang geht nicht." });
+pruefe("nach der Antwort ist eine neue Meldung möglich", globalThis.__tabelle.length === 3);
+
+// 7. Ohne Inhalt gibt es keine Meldung.
 for (const leer of [
   { betreff: "", text: "irgendwas" },
   { betreff: "irgendwas", text: "" },
@@ -120,7 +183,7 @@ for (const leer of [
   }
   pruefe(`leere Meldung wird abgelehnt (${JSON.stringify(leer)})`, geworfen);
 }
-pruefe("und hat nichts verschickt", zaehler.chat === 2 && zaehler.whatsapp === 2);
+pruefe("und nichts wurde angelegt", globalThis.__tabelle.length === 3);
 
 if (fehler > 0) process.exit(1);
-console.log("OK — Meldungen an Issa: 13 Fälle korrekt (kein Spam, nichts verschluckt).");
+console.log("OK — Meldungen: kein Doppel, andere Sachen kommen durch, Antworten erreichen Lukas.");

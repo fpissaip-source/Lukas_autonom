@@ -1,69 +1,44 @@
 import { db } from "@workspace/db";
-import { conversations, messages } from "@workspace/db";
-import { desc, eq } from "drizzle-orm";
+import { meldungen, type Meldung } from "@workspace/db";
+import { and, desc, eq } from "drizzle-orm";
 import { logger } from "./logger";
-import { whatsappConfigured, sendWhatsAppMessage } from "./whatsapp";
 
 /*
- * Lukas meldet sich bei Issa.
+ * Was Lukas von Issa braucht.
  *
- * Bisher lief die Kommunikation nur in eine Richtung: Issa schreibt, Lukas
- * antwortet. Im autonomen Lauf ist das die falsche Richtung — dort arbeitet
- * Lukas allein, und wenn er etwas braucht (eine Entscheidung, einen Zugang,
- * eine Antwort auf eine Frage, die nur Issa beantworten kann), stand er still,
- * bis Issa zufaellig ins Dashboard sah.
+ * Im autonomen Lauf arbeitet er allein. Braucht er dabei etwas, das nur Issa
+ * geben kann — eine Entscheidung, einen Zugang, eine Antwort —, stand er
+ * bisher still, bis Issa zufaellig nachsah.
  *
- * Zwei Wege, und zwar beide:
+ * Der erste Versuch schrieb das in den Chat und schickte es aufs Handy. Beides
+ * war falsch. Im Chat geht eine Meldung zwischen den Nachrichten unter, und man
+ * sieht nicht, was noch offen ist; WhatsApp ist eine Unterbrechung, die Issa so
+ * nicht wollte.
  *
- *  1. In den Chat. Genau dorthin, wo Issa ohnehin antwortet — die Meldung ist
- *     dann eine ganz normale Nachricht im Verlauf, auf die er einfach
- *     zurueckschreiben kann. Das ist der wichtigere der beiden Wege, denn er
- *     funktioniert immer und geht nicht verloren.
- *  2. Per WhatsApp, damit Issa es MERKT. Eine Nachricht im Dashboard, das
- *     niemand offen hat, erreicht ihn nicht.
- *
- * Der Chat-Weg ist Pflicht, der WhatsApp-Weg ist Zugabe: schlaegt WhatsApp
- * fehl oder ist es nicht eingerichtet, ist die Meldung trotzdem abgelegt.
+ * Deshalb ein eigener Ort mit einem Zustand: eine Meldung ist OFFEN, bis Issa
+ * geantwortet hat. Im Dashboard steht die Zahl der offenen daneben — damit
+ * sieht man auf einen Blick, ob Lukas gerade auf etwas wartet.
  */
-
-const TITEL = "Lukas meldet sich";
 
 /*
  * Nicht zweimal dasselbe.
  *
- * Der autonome Lauf startet alle 30 Minuten neu. Ohne Sperre wuerde dieselbe
- * offene Frage bei jedem Durchlauf erneut auf Issas Handy landen — nach einem
- * Tag waeren das 48 identische Nachrichten, und danach liest er keine mehr.
+ * Der autonome Lauf startet alle 30 Minuten neu. Ohne Sperre landet dieselbe
+ * offene Frage bei jedem Durchlauf erneut im Tab — nach einem Tag waeren das
+ * 48 identische Eintraege, und danach liest sie niemand mehr.
  *
- * Im Speicher und mit Ablauf: nach einem Neustart darf er sich einmal
- * wiederholen. Das ist die harmlose Richtung.
+ * Die Sperre haengt hier NICHT am Speicher, sondern an der offenen Meldung
+ * selbst: solange eine mit demselben Betreff offen ist, kommt keine zweite
+ * dazu. Das ueberlebt auch einen Neustart, und es ist die ehrlichere Regel —
+ * es geht ja darum, dass die Frage noch unbeantwortet ist.
  */
-const zuletztGemeldet = new Map<string, number>();
-const WIEDERHOLSPERRE_MS = Number(process.env.LUKAS_MELDE_SPERRE_MIN ?? 360) * 60 * 1000;
-
-function ownerNummern(): string[] {
-  const raw = (
-    process.env.WHATSAPP_OWNER_NUMBERS ??
-    process.env.WHATSAPP_ALLOWED_NUMBERS ??
-    ""
-  ).trim();
-  return raw
-    .split(",")
-    .map((n) => n.replace(/[^0-9]/g, ""))
-    .filter(Boolean);
-}
-
-async function meldeKonversation(): Promise<number> {
+async function bereitsOffen(betreff: string): Promise<Meldung | undefined> {
   const [vorhanden] = await db
     .select()
-    .from(conversations)
-    .where(eq(conversations.title, TITEL))
-    .orderBy(desc(conversations.createdAt))
+    .from(meldungen)
+    .where(and(eq(meldungen.betreff, betreff), eq(meldungen.status, "offen")))
     .limit(1);
-  if (vorhanden) return vorhanden.id;
-
-  const [neu] = await db.insert(conversations).values({ title: TITEL }).returning();
-  return neu.id;
+  return vorhanden;
 }
 
 export async function meldeDichBeiIssa(opts: {
@@ -77,54 +52,87 @@ export async function meldeDichBeiIssa(opts: {
     throw new Error("Ohne Betreff und Text weiss Issa nicht, worum es geht.");
   }
 
-  const jetzt = Date.now();
-  const letzte = zuletztGemeldet.get(betreff);
-  if (letzte !== undefined && jetzt - letzte < WIEDERHOLSPERRE_MS) {
-    const min = Math.round((WIEDERHOLSPERRE_MS - (jetzt - letzte)) / 60000);
+  const offen = await bereitsOffen(betreff);
+  if (offen) {
     return (
-      `Das hast du Issa vor Kurzem schon gemeldet ("${betreff}"). Er hat es also — ` +
-      `warte auf seine Antwort und arbeite in der Zwischenzeit an etwas anderem weiter. ` +
-      `In ${min} Minuten könntest du erneut nachfassen, falls es dann noch offen ist.`
+      `Das liegt bei Issa schon offen ("${betreff}", seit ` +
+      `${offen.createdAt.toLocaleString("de-DE")}). Er hat es also — warte auf seine Antwort ` +
+      `und arbeite in der Zwischenzeit an etwas anderem weiter. Noch einmal zu fragen bringt ` +
+      `nichts und geht ihm auf die Nerven.`
     );
   }
-  zuletztGemeldet.set(betreff, jetzt);
 
-  const nachricht =
-    `${opts.dringend ? "⚠️ " : ""}**${betreff}**\n\n${text}\n\n` +
-    `— Das kam aus meiner eigenen Arbeit, nicht aus einem Gespräch. Antworte mir ` +
-    `einfach hier, dann mache ich weiter.`;
+  const [row] = await db
+    .insert(meldungen)
+    .values({ betreff, text, dringend: opts.dringend === true })
+    .returning();
 
-  const convId = await meldeKonversation();
-  await db.insert(messages).values({
-    conversationId: convId,
-    role: "assistant",
-    content: nachricht,
-  });
-
-  let perWhatsApp = false;
-  const nummern = ownerNummern();
-  if (whatsappConfigured() && nummern.length > 0) {
-    for (const nummer of nummern) {
-      try {
-        await sendWhatsAppMessage(nummer, nachricht);
-        perWhatsApp = true;
-      } catch (err) {
-        // Der Chat-Eintrag steht bereits — WhatsApp ist die Zugabe, nicht der
-        // Kern. Ein Fehler hier darf die Meldung nicht verschlucken.
-        logger.warn({ err, nummer }, "Meldung an Issa per WhatsApp fehlgeschlagen");
-      }
-    }
-  }
-
-  logger.info({ betreff, perWhatsApp }, "Lukas hat sich bei Issa gemeldet");
+  logger.info({ id: row.id, betreff }, "Lukas hat sich bei Issa gemeldet");
 
   return (
-    `Issa hat deine Meldung "${betreff}" — sie steht im Chat unter "${TITEL}"` +
-    `${perWhatsApp ? " und ist auf seinem Handy angekommen" : ""}. ` +
-    (perWhatsApp
-      ? ""
-      : "WhatsApp ist nicht eingerichtet oder hat nicht funktioniert, er sieht sie also " +
-        "erst beim nächsten Blick ins Dashboard. ") +
-    `Bleib jetzt nicht stehen: arbeite an etwas anderem weiter, während du auf ihn wartest.`
+    `Deine Meldung "${betreff}" liegt jetzt im Dashboard unter "Meldungen" und wartet auf Issa. ` +
+    `Bleib nicht stehen: arbeite an etwas anderem weiter. Seine Antwort bekommst du beim ` +
+    `nächsten Lauf vorgelegt.`
+  );
+}
+
+export async function listeMeldungen(): Promise<Meldung[]> {
+  return db.select().from(meldungen).orderBy(desc(meldungen.createdAt)).limit(200);
+}
+
+export async function offeneAnzahl(): Promise<number> {
+  const rows = await db.select().from(meldungen).where(eq(meldungen.status, "offen"));
+  return rows.length;
+}
+
+/** Issa antwortet. Damit ist die Meldung erledigt — die Antwort geht an Lukas. */
+export async function beantworteMeldung(id: number, antwort: string): Promise<Meldung> {
+  const [row] = await db
+    .update(meldungen)
+    .set({
+      status: "erledigt",
+      antwort: antwort.trim() || null,
+      // gelesen bleibt false: Lukas hat die Antwort noch nicht gesehen.
+      gelesen: false,
+      erledigtAt: new Date(),
+    })
+    .where(eq(meldungen.id, id))
+    .returning();
+  if (!row) throw new Error(`Meldung ${id} existiert nicht.`);
+  logger.info({ id }, "Meldung beantwortet");
+  return row;
+}
+
+/*
+ * Antworten, die Lukas noch nicht kennt — und sie danach als gesehen markieren.
+ *
+ * Ohne diesen Weg waere der Tab eine Sackgasse: Lukas fragt, Issa antwortet,
+ * und die Antwort kommt nie an. Genau das ist der Unterschied zwischen einem
+ * Postfach und einem Beschwerdekasten.
+ */
+export async function neueAntworten(): Promise<string> {
+  const rows = await db
+    .select()
+    .from(meldungen)
+    .where(and(eq(meldungen.status, "erledigt"), eq(meldungen.gelesen, false)))
+    .orderBy(desc(meldungen.erledigtAt))
+    .limit(10);
+
+  if (rows.length === 0) return "";
+
+  for (const r of rows) {
+    await db.update(meldungen).set({ gelesen: true }).where(eq(meldungen.id, r.id));
+  }
+
+  return (
+    `\n\nISSA HAT AUF DEINE MELDUNGEN GEANTWORTET:\n` +
+    rows
+      .map(
+        (r) =>
+          `- "${r.betreff}"\n  Deine Frage: ${r.text.slice(0, 300)}\n` +
+          `  Seine Antwort: ${r.antwort?.trim() || "(ohne Text abgehakt)"}`,
+      )
+      .join("\n") +
+    `\nDas ist der Grund, warum du gewartet hast — nimm die Sache jetzt wieder auf.`
   );
 }

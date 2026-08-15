@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Lightbulb,
   Plug,
+  Inbox,
   Menu,
   X
 } from "lucide-react";
@@ -41,6 +42,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/memory", label: "Gedächtnis", icon: Brain },
     { href: "/goals", label: "Ziele", icon: Target },
     { href: "/diary", label: "Tagebuch", icon: BookOpen },
+    { href: "/meldungen", label: "Meldungen", icon: Inbox },
     { href: "/proposals", label: "Vorschläge", icon: Lightbulb },
     { href: "/approvals", label: "Freigaben", icon: ShieldCheck },
     { href: "/mcp", label: "MCP", icon: Plug },

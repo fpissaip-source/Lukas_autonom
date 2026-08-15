@@ -4,6 +4,7 @@ import { eq, desc, and, gt, inArray } from "drizzle-orm";
 import { runLukasTurn } from "./lukas-brain";
 import { openEpisode, closeEpisode } from "./memory-writer";
 import { logger } from "./logger";
+import { neueAntworten } from "./melden";
 
 /*
  * Lukas arbeitet an Issas Zielen.
@@ -98,6 +99,10 @@ async function briefing(): Promise<string | null> {
       : "",
   ].join("");
 
+  // Hat Issa auf eine Meldung geantwortet? Das ist der Grund, warum Lukas
+  // gewartet hat — es gehoert an den Anfang seines Laufs, nicht ans Ende.
+  const antworten = await neueAntworten();
+
   const letzte = await db
     .select()
     .from(diaryTable)
@@ -112,7 +117,7 @@ async function briefing(): Promise<string | null> {
 
 DEINE AKTIVEN ZIELE:
 
-${list}${freigaben}${rueckblick}
+${list}${antworten}${freigaben}${rueckblick}
 
 Such dir EIN Ziel aus, das gerade am meisten davon hat, dass du dich damit
 beschäftigst — das dringendste, das am längsten liegengebliebene, oder das, wo
@@ -142,7 +147,8 @@ Wichtig, damit das hier nicht zur Beschäftigungstherapie wird:
   Versuch aber nicht, die Freigabe zu umgehen.
 - Brauchst du etwas VON ISSA — eine Entscheidung, einen Zugang, ein Passwort,
   eine Antwort, die nur er geben kann — dann sag es ihm: melde_dich_bei_issa.
-  Deine Meldung landet im Chat und auf seinem Handy. Er sitzt nicht daneben und
+  Deine Meldung landet im Dashboard unter "Meldungen" und bleibt dort OFFEN,
+  bis er geantwortet hat. Er sitzt nicht daneben und
   sieht nicht, dass du feststeckst; wenn du es ihm nicht sagst, erfährt er es
   nicht. Schreib dabei, woran du arbeitest, was ohne ihn nicht weitergeht und
   was du vorschlägst — so kann er in einem Satz antworten. Danach arbeitest du

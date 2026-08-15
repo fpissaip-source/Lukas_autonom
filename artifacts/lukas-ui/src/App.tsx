@@ -15,6 +15,7 @@ import Studio from "@/pages/studio";
 import Diagnostics from "@/pages/diagnostics";
 import Approvals from "@/pages/approvals";
 import Proposals from "@/pages/proposals";
+import Meldungen from "@/pages/meldungen";
 import Mcp from "@/pages/mcp";
 
 const queryClient = new QueryClient();
@@ -30,6 +31,7 @@ function Router() {
         <Route path="/diary" component={Diary} />
         <Route path="/studio" component={Studio} />
         <Route path="/approvals" component={Approvals} />
+        <Route path="/meldungen" component={Meldungen} />
         <Route path="/proposals" component={Proposals} />
         <Route path="/mcp" component={Mcp} />
         <Route path="/diagnostics" component={Diagnostics} />

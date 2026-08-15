@@ -242,6 +242,42 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     const [conv] = await db.select().from(conversations).where(eq(conversations.id, convId));
     if (!conv) return void res.status(404).json({ error: "Conversation not found" });
 
+    /*
+     * Ab hier ist die Leitung offen — und zwar SOFORT.
+     *
+     * Vorher standen zwischen der Anfrage und dieser Stelle fuenf await:
+     * Nachricht speichern, Anhaenge zuordnen, Systemprompt bauen (das holt
+     * Erinnerungen aus der Datenbank), Verlauf laden, und bei einem Video sogar
+     * ffmpeg. Waehrend dieser ganzen Zeit ging kein einziges Byte raus — keine
+     * Kopfzeilen, kein Lebenszeichen. Der Browser sass da und wartete, und wenn
+     * das Netz in dem Moment wackelte, war die Verbindung weg, bevor sie
+     * ueberhaupt richtig stand.
+     *
+     * Deshalb: Kopfzeilen raus und Heartbeat starten, BEVOR die Vorarbeit
+     * beginnt.
+     */
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    // Nginx und Verwandte puffern text/event-stream sonst und geben erst am
+    // Ende alles auf einmal frei — dann nuetzt auch der Heartbeat nichts.
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    /*
+     * Node bringt einen eigenen Wecker mit: server.requestTimeout steht
+     * standardmaessig auf 5 Minuten und kappt die Verbindung danach — egal wie
+     * fleissig gerade gearbeitet wird. Fuer einen Agenten, der recherchiert und
+     * baut, ist das keine Ausnahme, sondern der Normalfall. Fuer DIESE Route
+     * also aus.
+     */
+    req.setTimeout(0);
+    res.setTimeout(0);
+
+    heartbeat = setInterval(() => {
+      if (!res.writableEnded) res.write(": ping\n\n");
+    }, 10000);
+
     const [userMessage] = await db
       .insert(messages)
       .values({ conversationId: convId, role: "user", content })
@@ -270,18 +306,6 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       const parts = await buildAttachmentParts(pendingAttachments, String(content));
       convo[convo.length - 1] = { role: "user", content: parts };
     }
-
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    // Nginx und Verwandte puffern text/event-stream sonst und geben erst am
-    // Ende alles auf einmal frei — dann nuetzt auch der Heartbeat nichts.
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders();
-
-    heartbeat = setInterval(() => {
-      if (!res.writableEnded) res.write(": ping\n\n");
-    }, 10000);
 
     const internalDraftPieces: string[] = [];
     const usedTools: string[] = [];

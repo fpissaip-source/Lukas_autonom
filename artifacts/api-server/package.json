@@ -7,7 +7,7 @@
     "dev": "export NODE_ENV=development && npm run build && npm run start",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/check-soul-tools.mjs && node scripts/check-consent.mjs && node scripts/check-higgsfield.mjs && node scripts/check-memory-filter.mjs && node scripts/check-mcp-auswahl.mjs && node scripts/check-arbeitsschleife.mjs && node scripts/check-melden.mjs && node scripts/check-ausgabeschicht.mjs && node scripts/check-selbstheilung.mjs"
+    "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/check-soul-tools.mjs && node scripts/check-consent.mjs && node scripts/check-higgsfield.mjs && node scripts/check-memory-filter.mjs && node scripts/check-mcp-auswahl.mjs && node scripts/check-arbeitsschleife.mjs && node scripts/check-melden.mjs && node scripts/check-ausgabeschicht.mjs && node scripts/check-selbstheilung.mjs && node scripts/check-lokales-modell.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

@@ -1,6 +1,14 @@
 import { logger } from "../logger";
 
-export type LukasProvider = "openai" | "anthropic" | "google";
+/*
+ * "local" ist kein eigener Anbieter, sondern JEDER Dienst, der die
+ * OpenAI-Schnittstelle spricht: Ollama und llama.cpp auf Issas Droplet, vLLM,
+ * LM Studio, oder ein Anbieter, der offene Modelle hostet.
+ *
+ * Damit haengt Lukas nicht mehr an einem einzigen Konto. Wohin die Aufrufe
+ * gehen, sagt LUKAS_LOCAL_BASE_URL — der Code hier muss davon nichts wissen.
+ */
+export type LukasProvider = "openai" | "anthropic" | "google" | "local";
 export type ModelProfile = "fast" | "general" | "reasoning" | "code" | "vision" | "long_context";
 
 export type ModelRoute = {
@@ -31,7 +39,13 @@ function parseModelSpec(spec: string, profile: ModelProfile, reason: string): Mo
   if (colon > 0) {
     const provider = value.slice(0, colon).trim().toLowerCase();
     const model = value.slice(colon + 1).trim();
-    if ((provider === "openai" || provider === "anthropic" || provider === "google") && model) {
+    if (
+      (provider === "openai" ||
+        provider === "anthropic" ||
+        provider === "google" ||
+        provider === "local") &&
+      model
+    ) {
       return { provider, model, profile, reason };
     }
   }
@@ -85,9 +99,20 @@ function configured(profile: ModelProfile, reason: string): ModelRoute {
   return parseModelSpec(specs[profile], profile, reason);
 }
 
+export function localBaseUrl(): string | undefined {
+  return process.env.LUKAS_LOCAL_BASE_URL?.trim() || undefined;
+}
+
 function providerAvailable(provider: LukasProvider): boolean {
   if (provider === "openai") return true;
   if (provider === "anthropic") return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+  /*
+   * Kein Schluessel, sondern eine Adresse: ein lokaler Server hat meistens gar
+   * keine Anmeldung. Fehlt die Adresse, faellt der Aufruf ueber fallback()
+   * automatisch auf OpenAI zurueck — ein abgeschalteter Ollama legt Lukas also
+   * nicht lahm, er wird nur wieder teurer.
+   */
+  if (provider === "local") return Boolean(localBaseUrl());
   return Boolean(
     process.env.GEMINI_API_KEY?.trim() ||
       process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ||

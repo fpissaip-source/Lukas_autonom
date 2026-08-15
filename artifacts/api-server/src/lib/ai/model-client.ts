@@ -3,6 +3,7 @@ import { openai } from "@workspace/integrations-openai-ai";
 import { logger } from "../logger";
 import { fitLukasContext } from "./context-window";
 import type { ModelRoute } from "./model-router";
+import { localBaseUrl } from "./model-router";
 
 export type LukasToolCall = {
   id: string;
@@ -388,6 +389,81 @@ async function callAnthropic(input: CallInput): Promise<LukasModelResult> {
   };
 }
 
+/*
+ * Ein lokales oder selbst gehostetes Modell.
+ *
+ * Bewusst die OpenAI-Schnittstelle: Ollama, llama.cpp, vLLM, LM Studio und
+ * praktisch jeder Anbieter offener Modelle sprechen sie. Damit ist das hier
+ * KEINE Anbindung an ein bestimmtes Modell, sondern an alle, die so erreichbar
+ * sind — Wechsel kostet eine Umgebungsvariable, keinen Code.
+ *
+ * Absichtlich nicht ueber die Responses-API: die kennt nur OpenAI. Lokale
+ * Server koennen /v1/chat/completions, und Werkzeugaufrufe gehen dort genauso.
+ *
+ * Zwei Dinge, die im Betrieb zaehlen:
+ *  - Ein grosszuegiges Zeitlimit. Ein Modell auf einer CPU rechnet minutenlang;
+ *    mit dem Standardlimit waere jeder zweite Aufruf ein Zeitfehler.
+ *  - Ein Schluessel ist optional. Die meisten lokalen Server haben keinen, und
+ *    einen leeren Authorization-Header mitzuschicken bringt manche zum Stolpern.
+ */
+async function callLocal(input: CallInput): Promise<LukasModelResult> {
+  const base = localBaseUrl();
+  if (!base) throw new Error("LUKAS_LOCAL_BASE_URL ist nicht gesetzt");
+
+  const url = `${base.replace(/\/+$/, "")}/chat/completions`;
+  const key = process.env.LUKAS_LOCAL_API_KEY?.trim();
+
+  const body: any = {
+    model: input.route.model,
+    messages: input.messages,
+    max_tokens: input.maxTokens ?? 4096,
+    stream: false,
+  };
+  if (input.tools?.length) body.tools = input.tools;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(key ? { Authorization: `Bearer ${key}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(Number(process.env.LUKAS_LOCAL_TIMEOUT_MS ?? 300000)),
+  });
+
+  const raw = await response.text();
+  if (!response.ok) {
+    throw new Error(`Lokales Modell ${response.status}: ${raw.slice(0, 500)}`);
+  }
+
+  let data: any;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error(`Lokales Modell hat kein JSON geliefert: ${raw.slice(0, 300)}`);
+  }
+
+  const choice = data.choices?.[0];
+  const toolCalls: LukasToolCall[] = [];
+  for (const tc of choice?.message?.tool_calls ?? []) {
+    // Manche Server lassen "type" weg — der Name entscheidet, nicht das Feld.
+    const name = String(tc?.function?.name ?? "");
+    if (!name) continue;
+    toolCalls.push({
+      id: String(tc.id ?? `tool_${Date.now()}_${toolCalls.length}`),
+      name,
+      arguments: String(tc.function?.arguments ?? "{}"),
+    });
+  }
+
+  return {
+    content: String(choice?.message?.content ?? ""),
+    toolCalls,
+    finishReason: String(choice?.finish_reason ?? "stop"),
+    route: input.route,
+  };
+}
+
 async function callGoogle(input: CallInput): Promise<LukasModelResult> {
   const body: any = {
     model: input.route.model,
@@ -437,6 +513,7 @@ export async function callLukasModel(input: CallInput): Promise<LukasModelResult
   try {
     if (prepared.route.provider === "anthropic") return await callAnthropic(prepared);
     if (prepared.route.provider === "google") return await callGoogle(prepared);
+    if (prepared.route.provider === "local") return await callLocal(prepared);
     return await callOpenAI(prepared);
   } catch (err) {
     logger.warn(

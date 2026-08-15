@@ -169,6 +169,8 @@ export default function Chat() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [optimisticMsg, setOptimisticMsg] = useState<string | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
+  /** Verbindung weg, Antwort noch unterwegs — wir laden nach statt zu klagen. */
+  const [wartetAufNachzuegler, setWartetAufNachzuegler] = useState(false);
   /** Werkzeug, das gerade laeuft — fuer die Denkanzeige. */
   const [liveTool, setLiveTool] = useState<string | null>(null);
   /** Fertige Schritte dieses Zuges, damit man beim Zuschauen schon klicken kann. */
@@ -228,6 +230,36 @@ export default function Chat() {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  /*
+   * Nach einem Verbindungsverlust auf die Antwort warten.
+   *
+   * Lukas arbeitet serverseitig weiter und legt sie ab. Alle 5 Sekunden
+   * nachfragen, bis sie da ist — hoechstens zwei Minuten, damit es nicht
+   * ewig weiterlaeuft, wenn wirklich etwas kaputt ist.
+   */
+  useEffect(() => {
+    if (!wartetAufNachzuegler || !activeId) return;
+    const bis = Date.now() + 120000;
+    const t = setInterval(() => {
+      if (Date.now() > bis) {
+        setWartetAufNachzuegler(false);
+        setStreamError(
+          "Die Verbindung war weg und es kam auch nach zwei Minuten keine Antwort. " +
+            "Lad die Seite neu — falls er fertig geworden ist, steht sie dann da.",
+        );
+        return;
+      }
+      qc.invalidateQueries({ queryKey: getGetAnthropicConversationQueryKey(activeId) });
+    }, 5000);
+    return () => clearInterval(t);
+  }, [wartetAufNachzuegler, activeId, qc]);
+
+  // Kommt eine neue Antwort an, ist das Warten vorbei.
+  useEffect(() => {
+    const letzte = activeConv?.messages?.[activeConv.messages.length - 1];
+    if (wartetAufNachzuegler && letzte?.role === "assistant") setWartetAufNachzuegler(false);
+  }, [activeConv?.messages, wartetAufNachzuegler]);
+
   const handleNew = async () => {
     const res = await createConvo.mutateAsync({ data: { title: `Chat ${new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}` } });
     setActiveId(res.id);
@@ -274,6 +306,19 @@ export default function Chat() {
   };
 
   const handleCancel = useCallback(() => {
+    /*
+     * Erst dem Server sagen, DANN die Verbindung kappen.
+     *
+     * Ein geschlossener Socket allein ist kein Stopp — er sieht genauso aus
+     * wie ein Funkloch. Nur dieser Aufruf beendet die Arbeit wirklich.
+     */
+    if (activeId) {
+      const token = localStorage.getItem("lukas_token");
+      fetch(`${BASE}/api/anthropic/conversations/${activeId}/stop`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      }).catch(() => {});
+    }
     abortRef.current?.abort();
     abortRef.current = null;
     setStreaming(false);
@@ -297,6 +342,7 @@ export default function Chat() {
     setStreaming(true);
     setStreamContent("");
     setStreamError(null);
+    setWartetAufNachzuegler(false);
     setLiveTool(null);
     setLiveSteps([]);
     setAtBottom(true);
@@ -350,7 +396,15 @@ export default function Chat() {
       if (err instanceof DOMException && err.name === "AbortError") {
         // Vom Stopp-Knopf — kein Fehler.
       } else {
-        setStreamError(err instanceof Error ? err.message : String(err));
+        /*
+         * Die Leitung ist weg — Funkloch, Bildschirm zu, Deploy. Der Server
+         * arbeitet weiter und speichert die Antwort. Also NICHT als Fehler
+         * anzeigen und die Arbeit für verloren erklären, sondern warten und
+         * nachladen. Vorher stand hier "Load failed" und minutenlange Arbeit
+         * sah aus wie verschwunden.
+         */
+        setStreamError(null);
+        setWartetAufNachzuegler(true);
       }
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
@@ -484,6 +538,21 @@ export default function Chat() {
                         )}
                         {liveSteps.length > 0 && <ToolSteps steps={liveSteps} />}
                       </Bubble>
+                    )}
+
+                    {wartetAufNachzuegler && (
+                      <div className="flex min-w-0 animate-in fade-in slide-in-from-left-3 duration-300">
+                        <div className="min-w-0 max-w-[85%] rounded-2xl rounded-bl-sm border border-amber-400/30 bg-amber-400/10 px-4 py-3">
+                          <div className="text-sm font-medium text-amber-300 mb-1 flex items-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Verbindung war weg
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Lukas arbeitet weiter — seine Antwort wird gespeichert und erscheint
+                            hier, sobald sie fertig ist.
+                          </div>
+                        </div>
+                      </div>
                     )}
 
                     {/* Ein Fehler bleibt stehen, bis die naechste Nachricht raus geht. */}

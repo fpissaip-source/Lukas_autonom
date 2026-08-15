@@ -21,6 +21,27 @@ import { Arbeitsschleife } from "../lib/arbeitsschleife";
 
 const router = Router();
 
+/*
+ * Wer hat wirklich gestoppt?
+ *
+ * Ein geschlossener Socket sagt das NICHT. Der Stopp-Knopf schliesst ihn, ein
+ * Mobilfunkloch aber auch, genauso ein zugegangener Bildschirm oder ein
+ * Railway-Deploy mitten im Zug. Solange beides gleich behandelt wurde, hat
+ * jedes Funkloch minutenlange Arbeit weggeworfen.
+ *
+ * Deshalb ein ausdrueckliches Signal: der Knopf ruft eine eigene Route auf.
+ * Nur was hier drinsteht, ist ein Stopp.
+ */
+const stoppWuensche = new Set<number>();
+
+router.post("/anthropic/conversations/:id/stop", (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return void res.status(400).json({ error: "id ungültig" });
+  stoppWuensche.add(id);
+  logger.info({ conversationId: id }, "Stopp von Issa");
+  res.json({ ok: true });
+});
+
 
 /*
  * Ein Arbeitsschritt, wie ihn Issa sehen soll.
@@ -47,7 +68,7 @@ function zeigeSchritt(
   result: string,
   ok: boolean,
   ms: number,
-  res: Response,
+  sende: (nutzlast: unknown) => void,
 ): ToolStep {
   const schritt: ToolStep = {
     tool,
@@ -57,7 +78,7 @@ function zeigeSchritt(
     ms,
   };
   // Sofort raus, damit man beim Zuschauen schon sieht, was er gerade getan hat.
-  res.write(`data: ${JSON.stringify({ step: schritt })}\n\n`);
+  sende({ step: schritt });
   return schritt;
 }
 
@@ -268,39 +289,39 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     const attachmentKinds = pendingAttachments.map((a) => attachmentKind(a.mimeType, a.filename));
 
     /*
-     * Der Stopp-Knopf im Chat muss auch hier ankommen.
+     * Abbruch und Verbindungsverlust sind NICHT dasselbe.
      *
-     * Im Dashboard bricht er die Verbindung ab (AbortController). Das allein
-     * stoppt aber nur die Anzeige: der Zug hier lief weiter, rief Werkzeuge auf,
-     * kostete Geld und schrieb am Ende trotzdem eine Antwort in die Datenbank,
-     * die beim naechsten Laden auftauchte. Ein Stopp, der nichts stoppt, ist
-     * schlimmer als keiner.
-     *
-     * Deshalb: Verbindungsabbruch merken, vor jedem Modellaufruf und vor jedem
-     * Werkzeug pruefen. Ein bereits laufendes Werkzeug laeuft zu Ende — danach
-     * ist Schluss.
+     *   gestoppt        Issa hat den Knopf gedrueckt (eigene Route oben).
+     *                   -> Arbeit beenden.
+     *   verbindungWeg   Die Leitung ist tot — Funkloch, Bildschirm zu, Deploy.
+     *                   -> NICHT aufhoeren. Zu Ende arbeiten und die Antwort
+     *                      speichern; Issa sieht sie beim naechsten Laden.
+     *                      Nur das Schreiben in die tote Leitung entfaellt.
      */
-    /*
-     * Hat er beim Verlassen der Schleife noch Werkzeuge aufgerufen?
-     *
-     * Genau das war der Fall bei "Leere Antwort nach Werkzeugen: fetch_url,
-     * web_search, execute_command × 6": acht Runden lang hat er gearbeitet,
-     * die Obergrenze war erreicht — und weil in einer Werkzeugrunde kein Text
-     * entsteht, blieb der Entwurf leer. Der Chat bekam nichts.
-     */
-    let nochAmArbeiten = true;
-    let abgebrochen = false;
+    let verbindungWeg = false;
     res.on("close", () => {
-      if (!res.writableEnded) abgebrochen = true;
+      if (!res.writableEnded) {
+        verbindungWeg = true;
+        logger.info({ conversationId: convId }, "Verbindung weg — Lukas arbeitet weiter");
+      }
     });
+
+    stoppWuensche.delete(convId); // Reste eines frueheren Zuges
+    const gestoppt = () => stoppWuensche.has(convId);
+    const sende = (nutzlast: unknown) => {
+      if (!verbindungWeg && !res.writableEnded) {
+        res.write(`data: ${JSON.stringify(nutzlast)}\n\n`);
+      }
+    };
 
     /*
      * Keine feste Rundenzahl. Braucht er 15 Seiten oder 20 Befehle, macht er
      * 15 Seiten und 20 Befehle. Gegen Im-Kreis-Laufen hilft ihm ein Hinweis,
      * keine Bremse — siehe lib/arbeitsschleife.ts.
      */
+    let nochAmArbeiten = true;
     const schleife = new Arbeitsschleife();
-    while (schleife.darfWeiter() && !abgebrochen) {
+    while (schleife.darfWeiter() && !gestoppt()) {
       const iteration = schleife.naechsteRunde();
       const route = routeLukasModel({
         userText: String(content),
@@ -339,9 +360,9 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       const hinweise = schleife.hinweise(result.toolCalls);
 
       for (const toolCall of result.toolCalls) {
-        if (abgebrochen) break;
+        if (gestoppt()) break;
         usedTools.push(toolCall.name);
-        res.write(`data: ${JSON.stringify({ tool: toolCall.name })}\n\n`);
+        sende({ tool: toolCall.name });
 
         let input: Record<string, unknown> = {};
         try {
@@ -358,7 +379,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
           });
           convo.push({ role: "tool", tool_call_id: toolCall.id, content: toolResult });
           schritte.push(
-            zeigeSchritt(toolCall.name, input, toolResult, true, Date.now() - begonnen, res),
+            zeigeSchritt(toolCall.name, input, toolResult, true, Date.now() - begonnen, sende),
           );
         } catch (err) {
           logger.warn({ err, tool: toolCall.name }, "Lukas tool failed");
@@ -378,7 +399,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
             content: grund,
           });
           schritte.push(
-            zeigeSchritt(toolCall.name, input, grund, false, Date.now() - begonnen, res),
+            zeigeSchritt(toolCall.name, input, grund, false, Date.now() - begonnen, sende),
           );
           if (toolCall.name !== "feel") {
             recordEmotion({
@@ -405,21 +426,22 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     const draft = internalDraftPieces.join("").trim();
 
     /*
-     * Abgebrochen: kein weiterer Modellaufruf mehr (renderLukasVoice waere
-     * genau das). Was bis dahin entstanden ist, wird trotzdem gespeichert und
-     * als gestoppt markiert — sonst faengt der naechste Turn ohne jede Spur an
-     * und Lukas weiss nicht, dass Issa ihn unterbrochen hat.
+     * Gestoppt: kein weiterer Modellaufruf (renderLukasVoice waere genau das).
+     * Was bis dahin entstanden ist, wird trotzdem gespeichert — sonst faengt
+     * der naechste Turn ohne jede Spur an.
      */
-    if (abgebrochen) {
+    if (gestoppt()) {
+      stoppWuensche.delete(convId);
       if (draft) {
         await db.insert(messages).values({
           conversationId: convId,
           role: "assistant",
-          content: `${draft}\n\n[Hier abgebrochen — die Verbindung zum Chat war weg.]`,
+          content: `${draft}\n\n[Von dir gestoppt.]`,
           steps: schritte.length ? schritte : null,
         });
       }
-      logger.info({ conversationId: convId, usedTools }, "Chat abgebrochen");
+      logger.info({ conversationId: convId, usedTools }, "Chat von Issa gestoppt");
+      if (!res.writableEnded) res.end();
       return;
     }
 
@@ -507,7 +529,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       recordDebugEvent("chat", `Leere Antwort nach Werkzeugen: ${usedTools.join(", ") || "keine"}`);
     }
 
-    res.write(`data: ${JSON.stringify({ content: antwort })}\n\n`);
+    sende({ content: antwort });
     await db.insert(messages).values({
       conversationId: convId,
       role: "assistant",
@@ -518,8 +540,8 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     });
     if (fullResponse) rememberAssistantMessage(fullResponse, "dashboard");
 
-    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-    res.end();
+    sende({ done: true });
+    if (!res.writableEnded) res.end();
     maybeReflect();
   } catch (err: unknown) {
     logger.error({ err }, "Chat error");
@@ -535,8 +557,10 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({ error: "Failed to send message", detail: grund });
     } else {
-      res.write(`data: ${JSON.stringify({ error: grund })}\n\n`);
-      res.end();
+      if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ error: grund })}\n\n`);
+        res.end();
+      }
     }
   } finally {
     if (heartbeat) clearInterval(heartbeat);

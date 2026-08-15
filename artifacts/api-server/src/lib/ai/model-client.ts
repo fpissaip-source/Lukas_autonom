@@ -276,6 +276,41 @@ function toResponsesInput(
   return out;
 }
 
+/*
+ * Tokenverbrauch pro Modell, seit dem Start des Servers.
+ *
+ * Im Speicher und bewusst schlicht: es geht darum, ueberhaupt eine Zahl zu
+ * haben. Wer wissen will, wohin die Credits gehen, sieht hier, WELCHES Modell
+ * wie viel verbraucht — und das ist die Frage, die zaehlt, denn zwischen
+ * luna und sol liegt ein Vielfaches.
+ */
+const verbrauch = new Map<string, { aufrufe: number; rein: number; raus: number }>();
+
+function merkeVerbrauch(model: string, usage: any): void {
+  if (!usage) return;
+  const eintrag = verbrauch.get(model) ?? { aufrufe: 0, rein: 0, raus: 0 };
+  eintrag.aufrufe++;
+  eintrag.rein += Number(usage.input_tokens ?? usage.prompt_tokens ?? 0);
+  eintrag.raus += Number(usage.output_tokens ?? usage.completion_tokens ?? 0);
+  verbrauch.set(model, eintrag);
+
+  logger.info(
+    { model, rein: eintrag.rein, raus: eintrag.raus, aufrufe: eintrag.aufrufe },
+    "Modellverbrauch",
+  );
+}
+
+export function verbrauchsUebersicht(): Array<{
+  model: string;
+  aufrufe: number;
+  rein: number;
+  raus: number;
+}> {
+  return [...verbrauch.entries()]
+    .map(([model, v]) => ({ model, ...v }))
+    .sort((a, b) => b.rein + b.raus - (a.rein + a.raus));
+}
+
 async function callOpenAI(input: CallInput): Promise<LukasModelResult> {
   /*
    * Lukas ist ein Tool-Agent. Die 5.6-Reasoning-Modelle unterstuetzen Function
@@ -307,6 +342,17 @@ async function callOpenAI(input: CallInput): Promise<LukasModelResult> {
       arguments: String(item.arguments ?? "{}"),
     });
   }
+
+  /*
+   * Was der Aufruf gekostet hat — und zwar sichtbar.
+   *
+   * Der Verbrauch wurde bisher NIRGENDS erfasst. Weder Issa noch Lukas konnten
+   * sehen, wohin die Credits gehen; man merkte es erst an der Rechnung. Genau
+   * dieselbe Blindheit wie beim Fehlerprotokoll.
+   *
+   * Die Zahlen kommen ohnehin in jeder Antwort mit, sie wurden nur weggeworfen.
+   */
+  merkeVerbrauch(input.route.model, response.usage);
 
   const content = String(response.output_text ?? "");
 
@@ -369,6 +415,7 @@ async function callAnthropic(input: CallInput): Promise<LukasModelResult> {
   const raw = await response.text();
   if (!response.ok) throw new Error(`Anthropic ${response.status}: ${raw.slice(0, 1000)}`);
   const data = JSON.parse(raw) as any;
+  merkeVerbrauch(input.route.model, data.usage);
   const text: string[] = [];
   const toolCalls: LukasToolCall[] = [];
   for (const block of data.content ?? []) {
@@ -443,6 +490,7 @@ async function callLocal(input: CallInput): Promise<LukasModelResult> {
     throw new Error(`Lokales Modell hat kein JSON geliefert: ${raw.slice(0, 300)}`);
   }
 
+  merkeVerbrauch(input.route.model, data.usage);
   const choice = data.choices?.[0];
   const toolCalls: LukasToolCall[] = [];
   for (const tc of choice?.message?.tool_calls ?? []) {
@@ -486,6 +534,7 @@ async function callGoogle(input: CallInput): Promise<LukasModelResult> {
   const raw = await response.text();
   if (!response.ok) throw new Error(`Gemini ${response.status}: ${raw.slice(0, 1000)}`);
   const data = JSON.parse(raw) as any;
+  merkeVerbrauch(input.route.model, data.usage);
   const choice = data.choices?.[0];
   const toolCalls: LukasToolCall[] = [];
   for (const tc of choice?.message?.tool_calls ?? []) {

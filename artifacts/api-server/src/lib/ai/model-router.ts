@@ -131,10 +131,31 @@ function fallback(route: ModelRoute): ModelRoute {
   );
 }
 
+/*
+ * Ist das wirklich eine Code-Aufgabe?
+ *
+ * Die alte Liste enthielt "fehler", "datei", "server", "api" und "funktion" —
+ * Woerter, die in fast jeder deutschen Nachricht ueber dieses System
+ * vorkommen. "Der Fehler nervt mich" und "Schick mir bitte eine Datei" landeten
+ * damit auf dem teuersten Modell. Das war kein Randfall, sondern der
+ * Normalfall, und es hat still Geld gekostet.
+ *
+ * Deshalb zwei Stufen: eindeutige Fachbegriffe reichen fuer sich. Woerter, die
+ * auch im Alltag vorkommen, zaehlen nur zusammen mit einer Taetigkeit —
+ * "die Datei" ist Alltag, "die Datei debuggen" ist Arbeit.
+ */
+const CODE_EINDEUTIG =
+  /\b(typescript|javascript|python|react|npm|pnpm|github|repository|docker|stacktrace|nginx|caddy|systemd|ssh|sql|commit|pull request|merge|refactor|regex|json|yaml)\b/i;
+
+const CODE_ALLTAG =
+  /\b(code|api|endpoint|bug|fehler|build|deploy|server|vps|funktion|klasse|datei|branch|repo|git|node)\b/i;
+
+const CODE_TAETIGKEIT =
+  /\b(schreib|baue?|bauen|implementier|programmier|debugg?e?|fix|behebe?|beheben|analysier|prüf|pruef|teste?n?|ändere?|aendere?|refactor|deploye?|installier)\w*/i;
+
 function looksLikeCode(text: string): boolean {
-  return /\b(code|coding|typescript|javascript|python|react|node|npm|pnpm|git|github|repo|repository|docker|sql|api|endpoint|bug|fehler|stacktrace|build|deploy|server|vps|ssh|systemd|nginx|caddy|funktion|klasse|datei|commit|branch)\b/i.test(
-    text,
-  );
+  if (CODE_EINDEUTIG.test(text)) return true;
+  return CODE_ALLTAG.test(text) && CODE_TAETIGKEIT.test(text);
 }
 
 function looksComplex(text: string): boolean {
@@ -194,9 +215,25 @@ export function routeLukasModel(input: RouteInput): ModelRoute {
  * Spezialmodelle gearbeitet haben. Der Nutzer bekommt nur diese Lukas-Schicht.
  */
 export function routeLukasVoiceModel(): ModelRoute {
-  const core = nonEmpty(process.env.LUKAS_CORE_MODEL) ?? "gpt-4o";
+  /*
+   * Der teuerste Fehler im ganzen System, und er stand in einer Zeile.
+   *
+   * Diese Schicht formuliert JEDE sichtbare Antwort — sie laeuft oefter als
+   * jedes andere Modell hier, und mit dem kompletten Gespraech im Kontext. Der
+   * Rueckfall war "gpt-4o", noch aus der Zeit vor der 5.6-Familie. Da
+   * LUKAS_CORE_MODEL normalerweise leer ist, hiess das: die eigentliche Arbeit
+   * lief auf terra und luna, und ausgerechnet der haeufigste Aufruf auf dem
+   * alten, deutlich teureren Modell.
+   *
+   * Jetzt dieselbe Standardbesetzung wie ueberall sonst. Wer die Stimme
+   * bewusst woanders hinlegen will, setzt LUKAS_MODEL_VOICE.
+   */
   const spec =
-    nonEmpty(process.env.LUKAS_MODEL_VOICE, process.env.LUKAS_MODEL_GENERAL) ?? `openai:${core}`;
+    nonEmpty(
+      process.env.LUKAS_MODEL_VOICE,
+      process.env.LUKAS_MODEL_GENERAL,
+      process.env.LUKAS_CORE_MODEL ? `openai:${process.env.LUKAS_CORE_MODEL.trim()}` : undefined,
+    ) ?? DEFAULTS.general;
   return fallback(parseModelSpec(spec, "general", "stabile Lukas-Ausgabestimme"));
 }
 

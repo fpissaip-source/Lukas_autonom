@@ -15,6 +15,7 @@ import { MCP_TOOL_PREFIX, activeServers, callMcpTool } from "./mcp";
 import { runSubagent, subagentUebersicht, createSubagent, fixError } from "./subagents";
 import { meldeDichBeiIssa } from "./melden";
 import { fehlerGruppen } from "./debug-log";
+import { verbrauchsUebersicht } from "./ai/model-client";
 import { logger } from "./logger";
 import { checkPolicy, setMcpRiskTiers } from "./policy";
 
@@ -307,6 +308,15 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         },
         required: ["agent", "auftrag"],
       },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_usage",
+      description:
+        "Zeig, welches Modell wie viele Tokens verbraucht hat, seit der Server läuft. Nimm das, wenn Issa nach Kosten fragt oder wenn du wissen willst, ob du gerade unnötig auf dem teuren Modell arbeitest. Zwischen luna, terra und sol liegt ein Vielfaches — wenn sol ganz oben steht, obwohl es nur Gespräche waren, stimmt etwas mit der Modellwahl nicht, und das gehört durch fix_error.",
+      parameters: { type: "object", properties: {} },
     },
   },
   {
@@ -1141,6 +1151,24 @@ export async function executeLukasTool(
       return await githubSearchCode(String(input.repo), String(input.query));
     case "ask_subagent":
       return await runSubagent(String(input.agent), String(input.auftrag ?? ""));
+    case "read_usage": {
+      const zeilen = verbrauchsUebersicht();
+      if (zeilen.length === 0) return "Seit dem Start wurde noch kein Modellaufruf gezählt.";
+      const gesamt = zeilen.reduce((n, z) => n + z.rein + z.raus, 0);
+      return (
+        `Tokenverbrauch seit dem Start des Servers (${gesamt.toLocaleString("de-DE")} gesamt):\n\n` +
+        zeilen
+          .map(
+            (z) =>
+              `${z.model}: ${z.aufrufe} Aufrufe, ${z.rein.toLocaleString("de-DE")} rein / ` +
+              `${z.raus.toLocaleString("de-DE")} raus` +
+              `  (${Math.round(((z.rein + z.raus) / gesamt) * 100)}% des Verbrauchs)`,
+          )
+          .join("\n") +
+        `\n\nZur Einordnung: sol ist das teure Modell, terra das mittlere, luna das günstige. ` +
+        `Steht sol weit oben, obwohl es überwiegend Gespräche waren, arbeitest du zu teuer.`
+      );
+    }
     case "read_diagnostics":
       return await leseDiagnose(typeof input.stunden === "number" ? input.stunden : 24);
     case "melde_dich_bei_issa":

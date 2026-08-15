@@ -4,6 +4,7 @@ import { allLukasTools, executeLukasTool } from "./lukas-tools";
 import { buildSystemPrompt } from "./system-prompt";
 import { recordEmotion } from "./emotion-engine";
 import { logger } from "./logger";
+import { recordDebugEvent } from "./debug-log";
 import { routeLukasModel, directRoute } from "./ai/model-router";
 import { callLukasModel } from "./ai/model-client";
 import { renderLukasVoice } from "./ai/voice-renderer";
@@ -131,6 +132,15 @@ export async function runLukasTurn(opts: {
         convo.push({ role: "tool", tool_call_id: tc.id, content: toolResult });
       } catch (err) {
         logger.warn({ err, tool: tc.name }, "Lukas tool failed (brain)");
+        /*
+         * Auch ins Fehlerprotokoll, nicht nur ins Log.
+         *
+         * Diese Zeile ist beim Merge von Lukas' eigenem Vorschlag #3 einmal
+         * verlorengegangen — er hatte gegen einen aelteren Stand gearbeitet.
+         * Ohne sie sieht er gescheiterte Werkzeuge nirgends, und genau davon
+         * lebt read_diagnostics und die Selbstheilung.
+         */
+        recordDebugEvent(`tool:${tc.name}`, err);
         convo.push({
           role: "tool",
           tool_call_id: tc.id,

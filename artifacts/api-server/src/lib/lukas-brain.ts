@@ -1,9 +1,9 @@
+import { randomInt } from "node:crypto";
 import type OpenAI from "openai";
 import { allLukasTools, executeLukasTool } from "./lukas-tools";
 import { buildSystemPrompt } from "./system-prompt";
 import { recordEmotion } from "./emotion-engine";
 import { logger } from "./logger";
-import { recordDebugEvent } from "./debug-log";
 import { routeLukasModel, directRoute } from "./ai/model-router";
 import { callLukasModel } from "./ai/model-client";
 import { renderLukasVoice } from "./ai/voice-renderer";
@@ -44,6 +44,20 @@ export async function runLukasTurn(opts: {
    */
   profil?: "code" | "reasoning" | "general" | "fast";
 }): Promise<string> {
+  /*
+   * Dashboard-Chats haben eine dauerhafte positive Konversations-ID. Autonome
+   * Laeufe und Mitarbeiter dagegen haben absichtlich keinen Datenbank-Chat —
+   * bisher bedeutete das aber auch: execute_command brach immer mit "Keine
+   * Conversation-ID" ab.
+   *
+   * Eine negative Zufalls-ID gibt jedem solchen Top-Level-Durchlauf eine eigene
+   * temporaere Sandbox. Sie wird genau einmal erzeugt und bleibt ueber alle
+   * Werkzeugrunden stabil; der bestehende Idle-Cleanup raeumt den Container
+   * spaeter auf. Positive Dashboard-IDs und ihre vorhandenen Container bleiben
+   * unveraendert.
+   */
+  const conversationId = opts.conversationId ?? -randomInt(1, 2_147_483_648);
+
   const systemPrompt =
     opts.systemPromptOverride ?? (await buildSystemPrompt(opts.userText.slice(0, 1000)));
   const tools = opts.tools ?? (await allLukasTools());
@@ -112,13 +126,11 @@ export async function runLukasTurn(opts: {
       try {
         const toolResult = await executeLukasTool(tc.name, input, {
           rawUserMessage: opts.userText,
-          conversationId: opts.conversationId,
+          conversationId,
         });
         convo.push({ role: "tool", tool_call_id: tc.id, content: toolResult });
       } catch (err) {
         logger.warn({ err, tool: tc.name }, "Lukas tool failed (brain)");
-        // Damit der Fehler in der Diagnose auftaucht und nicht nur im Log.
-        recordDebugEvent(`tool:${tc.name}`, err);
         convo.push({
           role: "tool",
           tool_call_id: tc.id,

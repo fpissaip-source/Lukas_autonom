@@ -22,6 +22,22 @@ import { z } from "zod";
 export type ProposalFile = {
   path: string;
   content: string;
+  /*
+   * Blob-SHA der Datei ZUM ZEITPUNKT DES VORSCHLAGS.
+   *
+   * Warum das noetig ist: content ist immer der vollstaendige neue
+   * Dateiinhalt. Wird ein Vorschlag Stunden spaeter angenommen und hat sich die
+   * Datei inzwischen geaendert, ueberschreibt das Annehmen die neuere Fassung
+   * stillschweigend — der Vorschlag ist ja gegen den alten Stand geschrieben.
+   *
+   * Genau das ist passiert: Vorschlag #3 hat beim Annehmen eine Zeile
+   * entfernt, die zwischenzeitlich dazugekommen war. Niemand hat es bemerkt.
+   *
+   * Mit dieser SHA laesst sich beim Annehmen pruefen, ob die Datei noch die
+   * ist, die Lukas vor sich hatte. Fehlt sie (Vorschlaege von vor dieser
+   * Aenderung), ist keine Pruefung moeglich — dann wird es wenigstens gesagt.
+   */
+  baseSha?: string | null;
 };
 
 export const codeProposals = pgTable("lukas_code_proposals", {

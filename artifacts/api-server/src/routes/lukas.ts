@@ -14,6 +14,8 @@ import { getCharacter } from "../lib/emotion-engine";
 import { runReflection } from "../lib/reflection";
 import { getDebugLog, recordDebugEvent } from "../lib/debug-log";
 import { listeMeldungen, beantworteMeldung } from "../lib/melden";
+import { baueGehirn, gehirnVault } from "../lib/gehirn";
+import { packeZip } from "../lib/zip";
 import { buildSystemPrompt } from "../lib/system-prompt";
 import { openai } from "@workspace/integrations-openai-ai";
 import { logger } from "../lib/logger";
@@ -402,6 +404,46 @@ router.post("/lukas/meldungen/:id/antwort", async (req, res) => {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ err }, "Meldung konnte nicht beantwortet werden");
     res.status(500).json({ error: message });
+  }
+});
+
+/*
+ * Gehirn-Snapshot: Knoten und Kanten.
+ *
+ * Zwei Ausgaenge auf dieselbe Momentaufnahme — der Graph als JSON fuer die
+ * Ansicht im Dashboard, und derselbe Graph als Obsidian-Vault zum Mitnehmen.
+ * Auf Railway liegt der Vault sonst in einem Container, der beim naechsten
+ * Deploy weg ist; als ZIP ist er eine Datei, die Issa behalten kann.
+ */
+router.get("/lukas/gehirn", async (_req, res) => {
+  try {
+    const gehirn = await baueGehirn();
+    res.json({
+      ...gehirn,
+      // Der Fließtext einer Erinnerung kann lang sein. Fuers Bild reicht ein
+      // Anriss; wer alles will, laedt den Vault.
+      knoten: gehirn.knoten.map((k) => ({ ...k, text: k.text.slice(0, 600) })),
+    });
+  } catch (err) {
+    logger.error({ err }, "Gehirn-Graph konnte nicht gebaut werden");
+    recordDebugEvent("gehirn", err);
+    res.status(500).json({ error: "Failed to build brain graph" });
+  }
+});
+
+router.get("/lukas/gehirn/vault.zip", async (_req, res) => {
+  try {
+    const gehirn = await baueGehirn();
+    const zip = packeZip(gehirnVault(gehirn));
+    const name = `lukas-gehirn-${gehirn.stand.slice(0, 10)}.zip`;
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+    res.setHeader("Content-Length", String(zip.length));
+    res.end(zip);
+  } catch (err) {
+    logger.error({ err }, "Gehirn-Vault konnte nicht gepackt werden");
+    recordDebugEvent("gehirn", err);
+    res.status(500).json({ error: "Failed to build vault" });
   }
 });
 

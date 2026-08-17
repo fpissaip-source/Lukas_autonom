@@ -15,6 +15,7 @@ import {
   Lightbulb,
   Plug,
   Inbox,
+  Network,
   Menu,
   X
 } from "lucide-react";
@@ -40,6 +41,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/chat", label: "Chat", icon: MessageSquare },
     { href: "/studio", label: "Studio", icon: Film },
     { href: "/memory", label: "Gedächtnis", icon: Brain },
+    { href: "/gehirn", label: "Gehirn", icon: Network },
     { href: "/goals", label: "Ziele", icon: Target },
     { href: "/diary", label: "Tagebuch", icon: BookOpen },
     { href: "/meldungen", label: "Meldungen", icon: Inbox },

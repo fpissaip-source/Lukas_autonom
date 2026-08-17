@@ -16,6 +16,7 @@ import Diagnostics from "@/pages/diagnostics";
 import Approvals from "@/pages/approvals";
 import Proposals from "@/pages/proposals";
 import Meldungen from "@/pages/meldungen";
+import Gehirn from "@/pages/gehirn";
 import Mcp from "@/pages/mcp";
 
 const queryClient = new QueryClient();
@@ -27,6 +28,7 @@ function Router() {
         <Route path="/" component={Dashboard} />
         <Route path="/chat" component={Chat} />
         <Route path="/memory" component={Memory} />
+        <Route path="/gehirn" component={Gehirn} />
         <Route path="/goals" component={Goals} />
         <Route path="/diary" component={Diary} />
         <Route path="/studio" component={Studio} />

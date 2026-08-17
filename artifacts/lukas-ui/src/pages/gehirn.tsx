@@ -76,7 +76,7 @@ type Punkt = { x: number; y: number };
  * Gerechnet wird EINMAL, nicht in jedem Bild. Ein Graph, der ewig
  * weiterzappelt, sieht lebendig aus und ist zum Lesen unbrauchbar.
  */
-function lege(knoten: Knoten[], kanten: Kante[], schritte = 300): Map<string, Punkt> {
+function lege(knoten: Knoten[], kanten: Kante[], schritte = 420): Map<string, Punkt> {
   const n = knoten.length;
   const flaeche = 1_000_000;
   const k = Math.sqrt(flaeche / Math.max(n, 1));
@@ -85,6 +85,20 @@ function lege(knoten: Knoten[], kanten: Kante[], schritte = 300): Map<string, Pu
   const py = new Float64Array(n);
   const vx = new Float64Array(n);
   const vy = new Float64Array(n);
+
+  /*
+   * Masse nach Grad: ein Thema mit dreissig Erinnerungen daran muss mehr Platz
+   * beanspruchen als eine einzelne Erinnerung. Ohne das rutschen die Knoten,
+   * an denen alles haengt, in die Mitte des Knaeuels — und genau die sind die
+   * Orientierungspunkte, die man sehen will.
+   */
+  const masse = new Float64Array(n).fill(1);
+  for (const e of kanten) {
+    const a = idx.get(e.von);
+    const b = idx.get(e.nach);
+    if (a !== undefined) masse[a] += 0.6;
+    if (b !== undefined) masse[b] += 0.6;
+  }
 
   // Startlage auf einer Spirale mit goldenem Winkel: gleichmässig verteilt und
   // bei gleichen Daten immer gleich — sonst sähe der Graph bei jedem Laden
@@ -132,7 +146,7 @@ function lege(knoten: Knoten[], kanten: Kante[], schritte = 300): Map<string, Pu
               ey = (j % 7) - 3;
               d2 = ex * ex + ey * ey || 1;
             }
-            const kraft = (k * k) / d2;
+            const kraft = ((k * k) / d2) * Math.sqrt(masse[i] * masse[j]);
             vx[i] += ex * kraft;
             vy[i] += ey * kraft;
           }
@@ -154,10 +168,11 @@ function lege(knoten: Knoten[], kanten: Kante[], schritte = 300): Map<string, Pu
       vy[b] += fy;
     }
 
-    // Leichte Schwerkraft zur Mitte, damit einzelne Inseln nicht davonfliegen
+    // Leichte Schwerkraft zur Mitte, damit einzelne Inseln nicht davonfliegen.
+    // Bewusst schwach: zieht sie zu stark, wird aus dem Graphen ein Klumpen.
     for (let i = 0; i < n; i++) {
-      vx[i] -= px[i] * 0.012;
-      vy[i] -= py[i] * 0.012;
+      vx[i] -= px[i] * 0.006;
+      vy[i] -= py[i] * 0.006;
     }
 
     for (let i = 0; i < n; i++) {
@@ -251,40 +266,111 @@ export default function GehirnSeite() {
       const z = lage.get(e.nach);
       if (!a || !z) continue;
       const hell = gewaehlt ? nachbarn.has(e.von) && nachbarn.has(e.nach) : true;
-      ctx.strokeStyle = hell ? "rgba(148,163,184,0.35)" : "rgba(148,163,184,0.07)";
+      ctx.strokeStyle = hell ? "rgba(148,163,184,0.35)" : "rgba(148,163,184,0.12)";
       ctx.beginPath();
       ctx.moveTo(wx(a), wy(a));
       ctx.lineTo(wx(z), wy(z));
       ctx.stroke();
     }
 
+    const radius = (k: Knoten) => (3 + k.gewicht * 8) * Math.min(Math.max(zoom, 0.6), 1.6);
+    const gedimmt = (k: Knoten) =>
+      (gewaehlt && !nachbarn.has(k.id)) || (treffer && !treffer.has(k.id));
+
     for (const k of daten.knoten) {
       if (!sichtbar.has(k.id)) continue;
       const p = lage.get(k.id);
       if (!p) continue;
-      const r = (3 + k.gewicht * 8) * Math.min(Math.max(zoom, 0.6), 1.6);
-      const gedimmt = (gewaehlt && !nachbarn.has(k.id)) || (treffer && !treffer.has(k.id));
-      ctx.globalAlpha = gedimmt ? 0.15 : 1;
+      ctx.globalAlpha = gedimmt(k) ? 0.2 : 1;
       ctx.fillStyle = FARBEN[k.art] ?? "#94a3b8";
       ctx.beginPath();
-      ctx.arc(wx(p), wy(p), r, 0, Math.PI * 2);
+      ctx.arc(wx(p), wy(p), radius(k), 0, Math.PI * 2);
       ctx.fill();
+      if (k.art === "identitaet") {
+        // Er selbst bekommt einen Ring — in einer Wolke aus 400 Punkten findet
+        // man die Mitte sonst nicht.
+        ctx.strokeStyle = "rgba(255,255,255,0.55)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(wx(p), wy(p), radius(k) + 5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       if (gewaehlt?.id === k.id) {
         ctx.strokeStyle = "#fff";
         ctx.lineWidth = 2;
         ctx.stroke();
       }
-
-      // Beschriftung nur, wo sie lesbar bleibt — sonst ist der Graph ein
-      // Textteppich.
-      const zeigen = k.art === "identitaet" || k.gewicht > 0.75 || zoom > 1.5 || gewaehlt?.id === k.id;
-      if (zeigen && !gedimmt) {
-        ctx.globalAlpha = 0.85;
-        ctx.fillStyle = "rgba(226,232,240,0.9)";
-        ctx.font = `${k.art === "identitaet" ? 13 : 11}px ui-sans-serif, system-ui, sans-serif`;
-        ctx.fillText(k.titel.slice(0, 34), wx(p) + r + 4, wy(p) + 4);
-      }
       ctx.globalAlpha = 1;
+    }
+
+    /*
+     * Beschriftung als eigener Durchgang, mit Vorrang und Kollisionsprüfung.
+     *
+     * Erster Versuch war "beschrifte alles ab Gewicht X" — das Ergebnis war
+     * ein Textteppich, in dem sich hundert Aussagen gegenseitig überschrieben
+     * und nichts mehr lesbar war. Beschriftet werden deshalb die
+     * ORIENTIERUNGSPUNKTE zuerst (er selbst, Themen, Kategorien, Ziele,
+     * Agenten), und ein Name, der auf einem schon gesetzten liegen würde,
+     * fällt weg. Wer mehr sehen will, zoomt hinein — dann werden es mehr.
+     */
+    const VORRANG: Record<string, number> = {
+      identitaet: 0,
+      thema: 1,
+      kategorie: 1,
+      ziel: 2,
+      agent: 2,
+      meldung: 2,
+      mitarbeiter: 3,
+      gefuehl: 3,
+      strategie: 4,
+      subjekt: 4,
+      episodenart: 4,
+    };
+    const grenze = Math.min(70, Math.round(16 + zoom * 16));
+    const belegt: [number, number, number, number][] = [];
+    let gesetzt = 0;
+
+    const beschriftbar = daten.knoten
+      .filter((k) => sichtbar.has(k.id) && !gedimmt(k) && lage.has(k.id))
+      .sort(
+        (a, b) =>
+          (VORRANG[a.art] ?? 9) - (VORRANG[b.art] ?? 9) ||
+          (gewaehlt?.id === b.id ? 1 : 0) - (gewaehlt?.id === a.id ? 1 : 0) ||
+          b.gewicht - a.gewicht,
+      );
+
+    for (const k of beschriftbar) {
+      if (gesetzt >= grenze && gewaehlt?.id !== k.id) break;
+      const p = lage.get(k.id)!;
+      const gross = k.art === "identitaet";
+      ctx.font = `${gross ? 600 : 400} ${gross ? 14 : 11}px ui-sans-serif, system-ui, sans-serif`;
+      const text = k.titel.length > 26 ? `${k.titel.slice(0, 25)}…` : k.titel;
+      const breite = ctx.measureText(text).width;
+      // Passt der Name rechts nicht mehr aufs Bild, steht er links vom Knoten
+      // — sonst schneidet ihn der Rand mitten im Wort ab.
+      const rechts = wx(p) + radius(k) + 5;
+      const lx = rechts + breite > b.width - 6 ? wx(p) - radius(k) - 5 - breite : rechts;
+      const ly = wy(p) + 4;
+      if (lx < 4 || ly < 0 || ly > b.height) continue;
+
+      const kasten: [number, number, number, number] = [lx - 2, ly - 11, breite + 4, 14];
+      const stoert = belegt.some(
+        (o) =>
+          kasten[0] < o[0] + o[2] &&
+          kasten[0] + kasten[2] > o[0] &&
+          kasten[1] < o[1] + o[3] &&
+          kasten[1] + kasten[3] > o[1],
+      );
+      if (stoert && gewaehlt?.id !== k.id) continue;
+      belegt.push(kasten);
+      gesetzt++;
+
+      // Dunkler Schatten hinter der Schrift: über einer hellen Kante wäre sie
+      // sonst nicht zu lesen.
+      ctx.fillStyle = "rgba(2,6,23,0.72)";
+      ctx.fillRect(kasten[0], kasten[1], kasten[2], kasten[3]);
+      ctx.fillStyle = gross ? "#fff" : "rgba(226,232,240,0.92)";
+      ctx.fillText(text, lx, ly);
     }
   }, [daten, lage, sichtbar, gewaehlt, nachbarn, treffer]);
 
@@ -295,14 +381,32 @@ export default function GehirnSeite() {
     return () => window.removeEventListener("resize", beiGroesse);
   }, [zeichne]);
 
-  // Beim ersten Laden so einpassen, dass alles im Bild ist.
+  /*
+   * Beim ersten Laden einpassen — ueber die Bounding-Box, nicht ueber den
+   * groessten Abstand zum Nullpunkt. Das Kraeftespiel legt den Schwerpunkt
+   * naemlich nicht auf (0,0); mit dem Nullpunkt als Mitte klebte der Graph
+   * schief in der Ecke und die halbe Flaeche blieb leer.
+   */
   useEffect(() => {
     const c = leinwand.current;
     if (!daten || !c || lage.size === 0) return;
-    let maxR = 1;
-    for (const p of lage.values()) maxR = Math.max(maxR, Math.hypot(p.x, p.y));
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const p of lage.values()) {
+      minX = Math.min(minX, p.x);
+      maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y);
+      maxY = Math.max(maxY, p.y);
+    }
     const b = c.getBoundingClientRect();
-    sicht.current = { zoom: (Math.min(b.width, b.height) / 2 / maxR) * 0.9, x: 0, y: 0 };
+    const zoom = Math.min(b.width / (maxX - minX + 1), b.height / (maxY - minY + 1)) * 0.86;
+    sicht.current = {
+      zoom,
+      x: -((minX + maxX) / 2) * zoom,
+      y: -((minY + maxY) / 2) * zoom,
+    };
     zeichne();
   }, [daten, lage, zeichne]);
 
@@ -384,8 +488,12 @@ export default function GehirnSeite() {
           />
         </div>
 
-        {/* Legende und Filter in einem: ein Klick blendet eine Art aus. */}
-        <div className="flex flex-wrap gap-1.5">
+        {/*
+          Legende und Filter in einem: ein Klick blendet eine Art aus.
+          Auf dem Handy eine einzige Zeile zum Wischen — umgebrochen waren es
+          fünf Reihen, und vom Graphen blieb kaum noch etwas übrig.
+        */}
+        <div className="flex gap-1.5 overflow-x-auto sm:flex-wrap sm:overflow-visible pb-1 -mx-1 px-1">
           {arten.map(([art, anzahl]) => {
             const an = !aus.has(art);
             return (
@@ -399,7 +507,7 @@ export default function GehirnSeite() {
                     return n;
                   })
                 }
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs transition-all shrink-0 ${
                   an ? "border-border bg-secondary/50" : "border-border/50 opacity-40"
                 }`}
               >
@@ -490,12 +598,24 @@ export default function GehirnSeite() {
               </button>
             </div>
 
-            <h3 className="mt-2 font-medium text-pretty leading-snug">{gewaehlt.titel}</h3>
-
-            {gewaehlt.text && (
-              <p className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap text-pretty leading-relaxed">
+            {/*
+              Bei einer Erinnerung ist der Titel nur der abgeschnittene Anfang
+              des Textes. Beides untereinander zu zeigen hiess denselben Satz
+              zweimal zu lesen — dann lieber nur den ganzen.
+            */}
+            {gewaehlt.text.startsWith(gewaehlt.titel.replace(/…$/, "")) ? (
+              <p className="mt-2 text-sm whitespace-pre-wrap text-pretty leading-relaxed">
                 {gewaehlt.text}
               </p>
+            ) : (
+              <>
+                <h3 className="mt-2 font-medium text-pretty leading-snug">{gewaehlt.titel}</h3>
+                {gewaehlt.text && (
+                  <p className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap text-pretty leading-relaxed">
+                    {gewaehlt.text}
+                  </p>
+                )}
+              </>
             )}
 
             {Object.keys(gewaehlt.daten).length > 0 && (

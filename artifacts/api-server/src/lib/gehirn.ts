@@ -101,12 +101,22 @@ const ORDNER: Record<Knotenart, string> = {
   meldung: "13 Meldungen",
 };
 
-const sicher = (s: string) =>
-  s
+/*
+ * Aus einem Titel einen Dateinamen machen.
+ *
+ * Raus muessen die Zeichen, an denen Windows oder Obsidian sich stoeren, und
+ * die Auslassungspunkte aus der Kuerzung — ein "Notiz ….md" sieht aus wie ein
+ * Fehler. Abgeschnitten wird an der letzten Wortgrenze statt mitten im Wort.
+ */
+const sicher = (s: string) => {
+  const roh = s
     .replace(/[<>:"/\\|?*#^[\]]/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 70) || "ohne Titel";
+    .replace(/…/g, "")
+    .trim();
+  const kurzGenug = roh.length <= 62 ? roh : roh.slice(0, roh.lastIndexOf(" ", 62) > 20 ? roh.lastIndexOf(" ", 62) : 62);
+  return kurzGenug.replace(/[\s.,;:!?–-]+$/, "") || "ohne Titel";
+};
 
 const kurz = (s: string, n = 60) => {
   const t = String(s ?? "").replace(/\s+/g, " ").trim();
@@ -298,7 +308,7 @@ export async function baueGehirn(): Promise<Gehirn> {
       agentKnoten.get(cl.subject) ??
       setze("subjekt", `subjekt/${cl.subject}`, cl.subject.replace(/_/g, " "), { gewicht: 0.5 });
 
-    const id = setze("aussage", `aussage/${cl.id}`, `${cl.predicate}: ${kurz(cl.value, 40)}`, {
+    const id = setze("aussage", `aussage/${cl.id}`, `${cl.predicate.replace(/_/g, " ")}: ${kurz(cl.value, 40)}`, {
       gewicht: zwischen(cl.confidence),
       text: cl.value,
       daten: {
@@ -430,9 +440,12 @@ function notiz(k: Knoten, ausgehend: Kante[], eingehend: Kante[], nach: Map<stri
     ...Object.entries(k.daten).map(([f, v]) => `${yamlName(f)}: ${yamlWert(v)}`),
   ].join("\n");
 
+  // Ein Alias, der genau so heisst wie die Datei, ist nur Rauschen — dann
+  // reicht der schlichte [[Link]].
   const link = (id: string) => {
     const z = nach.get(id);
-    return z ? `[[${z.datei}|${z.titel}]]` : id;
+    if (!z) return id;
+    return z.titel === z.datei ? `[[${z.datei}]]` : `[[${z.datei}|${z.titel}]]`;
   };
 
   const teile = [`---\n${kopf}\n---`, `# ${k.titel}`];

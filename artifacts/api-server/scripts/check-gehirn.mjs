@@ -194,7 +194,10 @@ for (const k of g.kanten.slice(0, 50)) {
   const ziel = nach.get(k.nach);
   if (!von || !ziel) continue; // schon oben als Kante ins Leere gemeldet
   const inhalt = notizen.get(`${von.ordner}/${von.datei}.md`);
-  pruefe(`Kante ${von.titel} → ${ziel.titel} steht in der Notiz`, inhalt?.includes(`[[${ziel.datei}|`));
+  pruefe(
+    `Kante ${von.titel} → ${ziel.titel} steht in der Notiz`,
+    inhalt?.includes(`[[${ziel.datei}|`) || inhalt?.includes(`[[${ziel.datei}]]`),
+  );
 }
 
 // ── 4. Die Karte ─────────────────────────────────────────────────────────

@@ -132,7 +132,10 @@ const tag = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : 
  * Ohne das haetten "Higgsfield", "higgsfield" und "higgs field" drei Knoten —
  * und damit waere die Verbindung, um die es ueberhaupt geht, wieder weg.
  */
-const themaSchluessel = (s: string) => s.toLowerCase().replace(/\s+/g, "-").trim();
+const themaSchluessel = (s: string) => s.toLowerCase().replace(/[\s_]+/g, "-").trim();
+
+/** Angezeigt wird das Thema lesbar: "claims_control" ist kein Wort. */
+const themaTitel = (s: string) => s.replace(/[_-]+/g, " ").trim();
 
 const agentSchluessel = (handle: string) => handle.toLowerCase().replace(/\s+/g, "_");
 
@@ -265,7 +268,7 @@ export async function baueGehirn(): Promise<Gehirn> {
 
     for (const t of m.tags ?? []) {
       if (!t?.trim()) continue;
-      const th = setze("thema", `thema/${themaSchluessel(t)}`, t, { gewicht: 0.45 });
+      const th = setze("thema", `thema/${themaSchluessel(t)}`, themaTitel(t), { gewicht: 0.45 });
       verbinde(id, th, "Thema", 0.6);
     }
   }
@@ -287,7 +290,7 @@ export async function baueGehirn(): Promise<Gehirn> {
     verbinde(ICH, id, "kennt", zwischen(a.relationshipStrength));
     for (const t of a.topics ?? []) {
       if (!t?.trim()) continue;
-      const th = setze("thema", `thema/${themaSchluessel(t)}`, t, { gewicht: 0.45 });
+      const th = setze("thema", `thema/${themaSchluessel(t)}`, themaTitel(t), { gewicht: 0.45 });
       verbinde(id, th, "Thema", 0.5);
     }
   }

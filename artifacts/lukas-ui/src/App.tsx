@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -16,7 +17,11 @@ import Diagnostics from "@/pages/diagnostics";
 import Approvals from "@/pages/approvals";
 import Proposals from "@/pages/proposals";
 import Meldungen from "@/pages/meldungen";
-import Gehirn from "@/pages/gehirn";
+/*
+ * Die 3D-Ansicht bringt three.js mit — eine halbe Megabyte, die niemand
+ * laden soll, der nur in den Chat will. Deshalb erst beim Öffnen des Tabs.
+ */
+const Gehirn = lazy(() => import("@/pages/gehirn"));
 import Mcp from "@/pages/mcp";
 
 const queryClient = new QueryClient();
@@ -24,6 +29,9 @@ const queryClient = new QueryClient();
 function Router() {
   return (
     <Layout>
+      <Suspense
+        fallback={<div className="p-6 text-sm text-muted-foreground">Lädt…</div>}
+      >
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/chat" component={Chat} />
@@ -39,6 +47,7 @@ function Router() {
         <Route path="/diagnostics" component={Diagnostics} />
         <Route component={NotFound} />
       </Switch>
+      </Suspense>
     </Layout>
   );
 }

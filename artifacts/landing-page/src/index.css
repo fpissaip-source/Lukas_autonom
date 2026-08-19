@@ -1,0 +1,218 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Design-Tokens. Alles Visuelle haengt an diesen Werten — Farbe hier aendern,
+   nicht in den Komponenten.
+--------------------------------------------------------------------------- */
+@theme {
+  --font-sans:
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
+
+  /* Grundflaechen: fast schwarz, leicht blaustichig */
+  --color-ink-900: #05070b;
+  --color-ink-800: #080b12;
+  --color-ink-700: #0c1017;
+  --color-ink-600: #11151d;
+
+  /* Schrift */
+  --color-chalk: #f4f6fb;
+  --color-mist: #a6adbd;
+  --color-ash: #6b7382;
+
+  /* Akzente: Cyan -> Blau -> Violett */
+  --color-glow-cyan: #2ee6ff;
+  --color-glow-blue: #4f7dff;
+  --color-glow-violet: #a855f7;
+
+  --radius-card: 1.5rem;
+
+  --animate-marquee: marquee 42s linear infinite;
+  --animate-float: float 9s ease-in-out infinite;
+  --animate-pulse-ring: pulse-ring 3.4s ease-out infinite;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-14px);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.55;
+  }
+  70% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@layer base {
+  * {
+    scroll-behavior: smooth;
+  }
+
+  html,
+  body {
+    background-color: var(--color-ink-900);
+  }
+
+  body {
+    @apply font-sans text-chalk antialiased;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-glow-cyan) 30%, transparent);
+    color: var(--color-chalk);
+  }
+
+  /* Dezente, dunkle Scrollbar — sonst reisst der helle Standard das Design auf */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-ink-900);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1b202b;
+    border-radius: 999px;
+    border: 2px solid var(--color-ink-900);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #2a3140;
+  }
+
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@layer components {
+  /* Glaskarte — die Basis fast aller Bloecke */
+  .surface {
+    @apply relative rounded-card border border-white/8 bg-white/[0.025];
+    backdrop-filter: blur(12px);
+  }
+
+  /* Feiner Lichtsaum an der Oberkante, wie im Referenz-Design */
+  .surface-lit::before {
+    content: "";
+    position: absolute;
+    inset-inline: 12%;
+    top: -1px;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.45),
+      transparent
+    );
+    pointer-events: none;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-1.5 text-xs font-medium tracking-wide text-mist uppercase;
+  }
+
+  .text-gradient {
+    background: linear-gradient(
+      100deg,
+      var(--color-glow-cyan) 0%,
+      var(--color-glow-blue) 52%,
+      var(--color-glow-violet) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+@layer utilities {
+  /* Grid-Textur im Hintergrund */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+
+  .mask-fade-y {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      black 18%,
+      black 82%,
+      transparent
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      black 18%,
+      black 82%,
+      transparent
+    );
+  }
+
+  .mask-fade-x {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 12%,
+      black 88%,
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 12%,
+      black 88%,
+      transparent
+    );
+  }
+
+  .glow-cyan {
+    box-shadow:
+      0 0 0 1px rgba(46, 230, 255, 0.18),
+      0 18px 60px -18px rgba(46, 230, 255, 0.5);
+  }
+}
+
+/* Wer Bewegung reduziert haben will, bekommt eine ruhige Seite. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

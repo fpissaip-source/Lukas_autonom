@@ -76,6 +76,63 @@ export async function meldeDichBeiIssa(opts: {
   );
 }
 
+/*
+ * Eine Anfrage von der Website.
+ *
+ * Bewusst NICHT ueber meldeDichBeiIssa(): die Funktion hat oben eine Sperre
+ * gegen Wiederholungen, weil Lukas im 30-Minuten-Takt sonst dieselbe Frage
+ * 48-mal am Tag stellt. Bei einem Kunden ist genau das falsch herum. Zwei
+ * Leute koennen am selben Tag "Neue Anfrage – Max" ausloesen, und der zweite
+ * waere still verschwunden. Ein verlorener Interessent ist teurer als ein
+ * doppelter Eintrag, also wird hier ohne Sperre eingefuegt.
+ *
+ * dringend: true ist keine Dramatik, sondern die Wahrheit ueber das Objekt —
+ * jemand wartet auf Antwort, und die Meldungsliste sortiert Dringendes sichtbar
+ * nach oben.
+ */
+export async function anfrageVonWebsite(opts: {
+  name: string;
+  email: string;
+  projektart: string;
+  firma?: string;
+  nachricht: string;
+  quelle?: string;
+}): Promise<Meldung> {
+  const name = opts.name.trim();
+  const email = opts.email.trim();
+  if (!name || !email) {
+    throw new Error("Ohne Name und E-Mail ist eine Anfrage nicht beantwortbar.");
+  }
+
+  /* Der Betreff ist das, was Issa in der Liste sieht, bevor er irgendetwas
+     aufklappt. Also gehoert dorthin, worum es geht und von wem — nicht das
+     Wort "Anfrage" allein. */
+  const betreff = `Anfrage: ${opts.projektart.trim()} – ${name}`;
+
+  const zeilen = [
+    `Name:        ${name}`,
+    `E-Mail:      ${email}`,
+    opts.firma?.trim() ? `Firma:       ${opts.firma.trim()}` : null,
+    `Projektart:  ${opts.projektart.trim()}`,
+    `Eingegangen: ${new Date().toLocaleString("de-DE")}`,
+    opts.quelle?.trim() ? `Quelle:      ${opts.quelle.trim()}` : null,
+    "",
+    opts.nachricht.trim() || "(keine Nachricht hinterlassen)",
+    "",
+    /* Die Antwort in diesem Tab geht an Lukas, nicht an den Kunden. Ohne
+       diesen Satz waere das eine naheliegende und teure Verwechslung. */
+    `Antworten an: ${email}`,
+  ].filter(Boolean);
+
+  const [row] = await db
+    .insert(meldungen)
+    .values({ betreff, text: zeilen.join("\n"), dringend: true })
+    .returning();
+
+  logger.info({ id: row.id, email }, "Anfrage von der Website eingegangen");
+  return row;
+}
+
 export async function listeMeldungen(): Promise<Meldung[]> {
   return db.select().from(meldungen).orderBy(desc(meldungen.createdAt)).limit(200);
 }

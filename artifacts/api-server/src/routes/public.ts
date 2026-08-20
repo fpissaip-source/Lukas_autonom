@@ -6,6 +6,7 @@ import { memoriesTable } from "@workspace/db";
 import { desc, eq } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai";
 import { buildPublicSystemPrompt } from "../lib/public-prompt";
+import { anfrageVonWebsite } from "../lib/melden";
 import { logger } from "../lib/logger";
 import { recordDebugEvent } from "../lib/debug-log";
 
@@ -372,6 +373,83 @@ ${basePrompt}`;
     recordDebugEvent("public/realtime-session", err);
     const detail = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: "Realtime session failed", detail });
+  }
+});
+
+// ── ANFRAGEN VON DER WEBSITE ───────────────────────────────────────────────
+// issahareb.me/anfrage schickt das ausgefuellte Formular hierher, und es
+// erscheint im Dashboard unter "Meldungen".
+//
+// Warum ueberhaupt hierher und nicht per E-Mail: eine Mail hat keinen Zustand.
+// Sie ist gelesen oder ungelesen, sie geht im Postfach unter, und ob eine
+// Anfrage noch unbeantwortet ist, sieht man ihr nicht an. Eine Meldung ist
+// OFFEN, bis Issa geantwortet hat — genau die Eigenschaft, die eine Anfrage
+// braucht.
+//
+// Auth: Bearer ANFRAGE_TOKEN. Kein Origin-Check, denn der Aufrufer ist die
+// Server-Route des Portfolios, nicht der Browser des Besuchers — es gibt also
+// gar keinen Origin. Der Token liegt auf beiden Seiten als Env-Variable und
+// erreicht den Browser nie.
+const PROJEKTARTEN = [
+  "Komplett neue Website",
+  "Bestehende Website überarbeiten",
+  "Automatisierung",
+  "Sichtbarkeit erhöhen",
+] as const;
+
+router.post("/public/anfrage", async (req, res) => {
+  try {
+    const token = process.env.ANFRAGE_TOKEN?.trim();
+    if (!token) {
+      recordDebugEvent("public/anfrage", "ANFRAGE_TOKEN fehlt — 503 an Aufrufer");
+      return void res.status(503).json({ error: "Anfrage-Eingang nicht konfiguriert (ANFRAGE_TOKEN fehlt)" });
+    }
+    const header = req.headers.authorization;
+    const provided = header?.startsWith("Bearer ") ? header.slice(7).trim() : undefined;
+    if (provided !== token) {
+      recordDebugEvent(
+        "public/anfrage",
+        `401 Unauthorized — Bearer-Header ${header ? "vorhanden, aber falscher Token" : "fehlt komplett"}`,
+      );
+      return void res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // Grosszuegig: das Portfolio drosselt bereits pro Besucher-IP, und die
+    // Anfragen kommen hier alle von derselben Server-Adresse an. Die Grenze
+    // faengt nur den Fall ab, dass dort etwas kaputtgeht und im Kreis sendet.
+    if (!rateLimit(req, 60, 60 * 60 * 1000)) {
+      return void res.status(429).json({ error: "Rate limit" });
+    }
+
+    const body = req.body ?? {};
+    const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+    const name = str(body.name, 120);
+    const email = str(body.email, 200);
+    const nachricht = str(body.nachricht ?? body.message, 5000);
+    const firma = str(body.firma ?? body.company, 160);
+    const quelle = str(body.quelle ?? body.source, 200);
+    const projektartRoh = str(body.projektart ?? body.projectType, 120);
+
+    if (!name || !email || !nachricht) {
+      return void res.status(422).json({ error: "name, email und nachricht sind Pflicht" });
+    }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) {
+      return void res.status(422).json({ error: "E-Mail ungültig" });
+    }
+
+    // Auf die bekannte Liste zurueckfuehren, statt Freitext zu uebernehmen:
+    // der Betreff wird daraus gebaut, und ein fremder String darin macht die
+    // Meldungsliste unlesbar.
+    const projektart =
+      PROJEKTARTEN.find((p) => p.toLowerCase() === projektartRoh.toLowerCase()) ?? "Anfrage ohne Projektart";
+
+    const row = await anfrageVonWebsite({ name, email, projektart, firma, nachricht, quelle });
+    res.status(201).json({ ok: true, id: row.id });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, "Anfrage konnte nicht gespeichert werden");
+    recordDebugEvent("public/anfrage", message);
+    res.status(500).json({ error: "Anfrage konnte nicht gespeichert werden" });
   }
 });
 

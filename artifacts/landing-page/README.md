@@ -14,6 +14,16 @@ npm run build:landing    # Produktions-Build nach artifacts/landing-page/dist
 Das Ergebnis ist eine rein statische Seite — `dist/` kann auf jedem
 Static-Host liegen (Netlify, Vercel, Cloudflare Pages, Nginx).
 
+## Als einzelne Datei weitergeben
+
+```bash
+npm run bundle --workspace=@workspace/landing-page
+```
+
+Schreibt `dist/landingpage.html`: die komplette Seite in einer Datei, mit
+eingebettetem JS und CSS. Lässt sich per Doppelklick öffnen, verschicken oder
+hochladen — ohne Server und ohne Nebendateien.
+
 ## Inhalte ändern
 
 **Alle Texte stehen in `src/content/site.ts`.** Die Komponenten enthalten

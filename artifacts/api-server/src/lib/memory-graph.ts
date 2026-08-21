@@ -24,7 +24,7 @@
  */
 import { db } from "@workspace/db";
 import { claimsTable, memoriesTable, episodesTable, type Claim } from "@workspace/db";
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { desc, inArray, or, sql } from "drizzle-orm";
 import { logger } from "./logger";
 
 /** Dieselbe Normalisierung wie in memory-writer.ts — Schluessel muessen passen. */
@@ -156,7 +156,7 @@ export function laufeGraph(
  * Wert-Seite einer Kante direkt in der Datenbank verglichen werden kann und
  * nicht erst alle Claims nach Node wandern muessen.
  */
-const wertSchluessel = sql`lower(regexp_replace(btrim(${claimsTable.value}), '\\s+', '_', 'g'))`;
+const wertSchluessel = sql<string>`lower(regexp_replace(btrim(${claimsTable.value}), '\\s+', '_', 'g'))`;
 
 /** Claims, die mit einer der gesuchten Entitaeten zu tun haben — auf beiden Seiten. */
 async function claimsUm(schluessel: string[], grenze: number): Promise<Claim[]> {
@@ -180,26 +180,27 @@ export async function einstiegsknoten(frage: string): Promise<string[]> {
   const kandidaten = entitaetskandidaten(frage);
   if (kandidaten.length === 0) return [];
 
+  /*
+   * EINE Abfrage, die beide Seiten einer Aussage zurueckgibt.
+   *
+   * Naheliegend waere, erst ueber die Subjekte zu suchen und die Wertseite
+   * danach je Kandidat nachzuschlagen. Das waeren bei zwoelf Kandidaten zwoelf
+   * Roundtrips nacheinander — und damit waere der Vorteil des gezielten
+   * Einstiegs wieder aufgebraucht, bevor der erste Schritt im Graphen getan ist.
+   */
   const treffer = await db
-    .selectDistinct({ subject: claimsTable.subject })
+    .selectDistinct({ subjekt: claimsTable.subject, wert: wertSchluessel })
     .from(claimsTable)
     .where(or(inArray(claimsTable.subject, kandidaten), inArray(wertSchluessel, kandidaten)));
 
-  const gefunden = new Set(treffer.map((t) => normEntitaet(t.subject)));
-  // Reihenfolge der Kandidaten beibehalten: laengste Wortfolge zuerst.
-  const geordnet = kandidaten.filter((k) => gefunden.has(k));
-  // Auch Kandidaten, die nur als Wert vorkommen, sind gueltige Einstiege.
-  for (const k of kandidaten) {
-    if (!geordnet.includes(k) && treffer.length > 0) {
-      const alsWert = await db
-        .select({ id: claimsTable.id })
-        .from(claimsTable)
-        .where(eq(wertSchluessel, k))
-        .limit(1);
-      if (alsWert.length > 0) geordnet.push(k);
-    }
+  const vorhanden = new Set<string>();
+  for (const t of treffer) {
+    vorhanden.add(normEntitaet(t.subjekt));
+    if (t.wert) vorhanden.add(String(t.wert));
   }
-  return geordnet.slice(0, 4);
+
+  // Reihenfolge der Kandidaten beibehalten: laengste Wortfolge zuerst.
+  return kandidaten.filter((k) => vorhanden.has(k)).slice(0, 4);
 }
 
 export type GraphTreffer = { text: string; score: number; claimId: number };

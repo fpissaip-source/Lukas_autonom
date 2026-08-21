@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, real, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, real, timestamp, jsonb, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -19,7 +19,12 @@ export const memoriesTable = pgTable("lukas_memories", {
   tags: jsonb("tags").$type<string[]>().notNull().default([]),
   embedding: jsonb("embedding").$type<number[] | null>().default(null),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  // Erinnerungen zu einem Graph-Knoten werden ueber tags @> '["schluessel"]'
+  // gesucht. Auf jsonb ist das ohne GIN ein voller Durchlauf.
+  index("lukas_memories_tags_idx").using("gin", t.tags),
+  index("lukas_memories_kategorie_idx").on(t.category),
+]);
 
 export const goalsTable = pgTable("lukas_goals", {
   id: serial("id").primaryKey(),

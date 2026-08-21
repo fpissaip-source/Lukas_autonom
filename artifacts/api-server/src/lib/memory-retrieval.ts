@@ -13,12 +13,13 @@ import {
 } from "@workspace/db";
 import { desc, eq, isNull, ilike, or } from "drizzle-orm";
 import { formatClaim } from "./memory-writer";
+import { graphTreffer, erinnerungenZuKnoten, episodenZuIds } from "./memory-graph";
 import { logger } from "./logger";
 
 const VOYAGE_MODEL = "voyage-3.5-lite";
 
 export type MemoryHit = {
-  kind: "memory" | "claim" | "episode" | "conversation";
+  kind: "memory" | "claim" | "episode" | "conversation" | "graph";
   id: number;
   text: string;
   score: number;
@@ -150,15 +151,40 @@ async function archiveCandidates(query: string) {
     .limit(300);
 }
 
+/*
+ * Wie viele Zeilen die bewertete Suche durchgeht.
+ *
+ * "breit" ist der alte Weg: alles laden, in JavaScript bewerten. Er bleibt
+ * noetig, solange die Frage an keinem benannten Ding haengt ("was habe ich
+ * letzte Woche gesagt?").
+ *
+ * "eng" gilt, sobald der Graph einen Einstieg gefunden hat. Dann ist der
+ * praezise Teil der Antwort bereits ueber Kanten geholt, und der Durchlauf
+ * muss nur noch ergaenzen statt zu suchen. Genau hier faellt die Arbeit weg.
+ */
+const BREIT = { memories: 500, claims: 300, episodes: 150 };
+const ENG = { memories: 150, claims: 80, episodes: 50 };
+
 export async function searchMemory(query: string, limit = 8): Promise<MemoryHit[]> {
   const q = query.trim();
   if (!q) return [];
 
-  const [memories, claims, episodes, archive] = await Promise.all([
-    db.select().from(memoriesTable).orderBy(desc(memoriesTable.createdAt)).limit(500),
-    db.select().from(claimsTable).orderBy(desc(claimsTable.observedAt)).limit(300),
-    db.select().from(episodesTable).orderBy(desc(episodesTable.startedAt)).limit(150),
+  /*
+   * Zuerst der Graph: zwei indizierte Abfragen, die beim genannten Ding
+   * einsteigen und ein bis zwei Kanten weit gehen. Das Ergebnis entscheidet
+   * anschliessend, wie breit ueberhaupt noch gesucht werden muss.
+   */
+  const graph = await graphTreffer(q, Math.max(3, Math.ceil(limit / 2)));
+  const gezielt = graph.einstieg.length > 0;
+  const budget = gezielt ? ENG : BREIT;
+
+  const [memories, claims, episodes, archive, graphMemories, graphEpisoden] = await Promise.all([
+    db.select().from(memoriesTable).orderBy(desc(memoriesTable.createdAt)).limit(budget.memories),
+    db.select().from(claimsTable).orderBy(desc(claimsTable.observedAt)).limit(budget.claims),
+    db.select().from(episodesTable).orderBy(desc(episodesTable.startedAt)).limit(budget.episodes),
     archiveCandidates(q),
+    gezielt ? erinnerungenZuKnoten(graph.knoten, 5) : Promise.resolve([]),
+    gezielt ? episodenZuIds(graph.episodenIds, 3) : Promise.resolve([]),
   ]);
 
   const queryVec = (await embed([q]))?.[0] ?? null;
@@ -173,6 +199,35 @@ export async function searchMemory(query: string, limit = 8): Promise<MemoryHit[
   };
 
   const hits: MemoryHit[] = [];
+
+  /*
+   * Graph-Treffer zuerst und mit Vorrang: sie stammen nicht aus einem
+   * Aehnlichkeitsmass, sondern aus einer tatsaechlich vorhandenen Verbindung
+   * zwischen zwei Dingen. Das ist die staerkere Aussage.
+   */
+  for (const t of graph.treffer) {
+    hits.push({ kind: "graph", id: t.claimId, text: t.text, score: 1 + t.score });
+  }
+
+  // Erinnerungen und Episoden, die am gefundenen Knoten haengen — ohne dass
+  // ihr Wortlaut zur Frage passen muss.
+  for (const m of graphMemories) {
+    hits.push({
+      kind: "memory",
+      id: m.id,
+      text: `[Erinnerung|${m.category}] ${m.content}`,
+      score: 0.95 * (m.importance / 10),
+    });
+  }
+  for (const e of graphEpisoden) {
+    if (!e.summary) continue;
+    hits.push({
+      kind: "episode",
+      id: e.id,
+      text: `[Episode ${e.startedAt.toISOString().slice(0, 10)}] ${e.kind}: ${e.summary}`,
+      score: 0.85,
+    });
+  }
 
   for (const m of memories) {
     const rel = relevance(m.content, m.embedding);

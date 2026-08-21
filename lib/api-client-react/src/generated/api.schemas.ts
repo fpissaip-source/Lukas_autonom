@@ -255,6 +255,9 @@ export interface AnthropicConversationWithMessages {
   title: string;
   createdAt: string;
   messages: AnthropicMessage[];
+  /** Ob gerade ein Zug fuer diese Unterhaltung laeuft. Die Oberflaeche fragt weiter nach, solange das true ist, statt nach einer festen Frist aufzugeben, waehrend Lukas noch arbeitet. */
+  laeuft?: boolean;
+  laeuftSeit?: string | null;
 }
 
 export interface AnthropicError {

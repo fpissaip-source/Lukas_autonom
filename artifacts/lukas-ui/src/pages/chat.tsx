@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { takeCompleteLines, parseSseData } from "@/lib/sse";
+import { warteSchritt, GEDULD_MS } from "@/lib/geduld";
 import { ToolSteps, type ToolStep } from "@/components/tool-steps";
 import { VoicePanel } from "@/components/voice-panel";
 
@@ -237,22 +238,83 @@ export default function Chat() {
    * nachfragen, bis sie da ist — hoechstens zwei Minuten, damit es nicht
    * ewig weiterlaeuft, wenn wirklich etwas kaputt ist.
    */
+  /*
+   * Nachfragen, solange er arbeitet.
+   *
+   * Vorher stand hier eine feste Frist von zwei Minuten. Das war die Ursache
+   * dafuer, dass er "oefter nicht antwortet": ein Zug, der ein Dutzend Dateien
+   * liest, braucht laenger als zwei Minuten — dann stand da "Lad die Seite
+   * neu", obwohl Lukas noch mitten in der Arbeit war und die Antwort kurz
+   * darauf in der Datenbank landete.
+   *
+   * Jetzt sagt der Server selbst, ob der Zug noch laeuft (Feld `laeuft`).
+   * Solange er arbeitet, geben wir nicht auf. Erst wenn er fertig meldet und
+   * trotzdem keine Antwort kommt, laeuft eine kurze Frist ab — dann ist
+   * wirklich etwas kaputt.
+   */
+  const convRef = useRef(activeConv);
+  useEffect(() => {
+    convRef.current = activeConv;
+  }, [activeConv]);
+
   useEffect(() => {
     if (!wartetAufNachzuegler || !activeId) return;
-    const bis = Date.now() + 120000;
+    const NACHFRAGE_MS = 4000;
+    let frist = Date.now() + GEDULD_MS;
+
     const t = setInterval(() => {
-      if (Date.now() > bis) {
+      // Jedes "ich arbeite noch" verlaengert die Geduld — siehe lib/geduld.ts.
+      const schritt = warteSchritt(Date.now(), convRef.current?.laeuft ?? false, frist);
+      frist = schritt.frist;
+
+      if (schritt.aufgeben) {
         setWartetAufNachzuegler(false);
         setStreamError(
-          "Die Verbindung war weg und es kam auch nach zwei Minuten keine Antwort. " +
-            "Lad die Seite neu — falls er fertig geworden ist, steht sie dann da.",
+          "Die Verbindung war weg und er meldet auch keine laufende Arbeit mehr. " +
+            "Lad die Seite neu — falls er doch fertig geworden ist, steht die Antwort dann da.",
         );
         return;
       }
       qc.invalidateQueries({ queryKey: getGetAnthropicConversationQueryKey(activeId) });
-    }, 5000);
+    }, NACHFRAGE_MS);
     return () => clearInterval(t);
   }, [wartetAufNachzuegler, activeId, qc]);
+
+  /*
+   * Zurueck im Tab — sofort nachsehen.
+   *
+   * Genau der Fall, in dem er "nicht geantwortet" hat: Handy legt den Tab
+   * schlafen, die Leitung stirbt, und im Hintergrund drosselt der Browser auch
+   * noch die Timer. Beim Zurueckkommen wartete die Oberflaeche bis zum
+   * naechsten Intervall — oder hatte laengst aufgegeben. Ein Blick beim
+   * Wiedersehen kostet eine Abfrage und spart das ganze Raetselraten.
+   */
+  useEffect(() => {
+    if (!activeId) return;
+    const nachsehen = () => {
+      if (document.visibilityState !== "visible") return;
+      qc.invalidateQueries({ queryKey: getGetAnthropicConversationQueryKey(activeId) });
+    };
+    document.addEventListener("visibilitychange", nachsehen);
+    window.addEventListener("focus", nachsehen);
+    return () => {
+      document.removeEventListener("visibilitychange", nachsehen);
+      window.removeEventListener("focus", nachsehen);
+    };
+  }, [activeId, qc]);
+
+  /*
+   * Nach einem Neuladen weiterwarten.
+   *
+   * Der Wartezustand lebte nur in React. Wurde der Tab verworfen oder die
+   * Seite neu geladen, war er weg — und damit auch das Nachfragen, obwohl der
+   * Server weiterarbeitete. Meldet er eine laufende Arbeit, nehmen wir das
+   * Warten wieder auf.
+   */
+  useEffect(() => {
+    if (streaming || wartetAufNachzuegler) return;
+    if (activeConv?.laeuft) setWartetAufNachzuegler(true);
+  }, [activeConv?.laeuft, streaming, wartetAufNachzuegler]);
 
   // Kommt eine neue Antwort an, ist das Warten vorbei.
   useEffect(() => {

@@ -34,6 +34,24 @@ const router = Router();
  */
 const stoppWuensche = new Set<number>();
 
+/*
+ * Welche Zuege gerade wirklich laufen.
+ *
+ * Der Client kann das von sich aus nicht wissen. Faellt seine Leitung weg —
+ * Tab gewechselt, Bildschirm zu, Funkloch — sieht "der Server arbeitet noch"
+ * genauso aus wie "der Server ist fertig und die Antwort ging verloren".
+ * Bisher hat er deshalb geraten: zwei Minuten nachfragen, dann aufgeben. Ein
+ * Zug, der ein Dutzend Dateien liest, braucht laenger als zwei Minuten — und
+ * genau dann stand da "Lad die Seite neu", obwohl Lukas noch am Arbeiten war.
+ *
+ * Mit dieser Auskunft muss niemand mehr raten.
+ *
+ * Bewusst im Speicher und nicht in der Datenbank: die Frage lautet "arbeitet
+ * DIESER Prozess gerade daran", und die beantwortet ein Neustart ohnehin mit
+ * nein — dann laeuft der Zug naemlich wirklich nicht mehr.
+ */
+const laufendeZuege = new Map<number, number>();
+
 router.post("/anthropic/conversations/:id/stop", (req, res) => {
   const id = parseInt(req.params.id);
   if (!Number.isFinite(id)) return void res.status(400).json({ error: "id ungültig" });
@@ -112,10 +130,15 @@ router.get("/anthropic/conversations/:id", async (req, res) => {
       .from(messages)
       .where(eq(messages.conversationId, id))
       .orderBy(asc(messages.createdAt));
+    const seit = laufendeZuege.get(id);
     res.json({
       ...conv,
       createdAt: conv.createdAt.toISOString(),
       messages: msgs.map((m) => ({ ...m, createdAt: m.createdAt.toISOString() })),
+      // Damit die Oberflaeche weiterfragen kann, statt nach zwei Minuten
+      // aufzugeben, waehrend Lukas noch arbeitet.
+      laeuft: seit !== undefined,
+      laeuftSeit: seit !== undefined ? new Date(seit).toISOString() : null,
     });
   } catch {
     res.status(500).json({ error: "Failed to get conversation" });
@@ -234,6 +257,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
    * ignoriert Zeilen, die mit ":" beginnen.
    */
   let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let laufendeId: number | null = null;
   try {
     const convId = parseInt(req.params.id);
     const { content } = req.body;
@@ -241,6 +265,10 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
 
     const [conv] = await db.select().from(conversations).where(eq(conversations.id, convId));
     if (!conv) return void res.status(404).json({ error: "Conversation not found" });
+
+    // Ab hier arbeitet er — und zwar unabhaengig davon, ob die Leitung haelt.
+    laufendeId = convId;
+    laufendeZuege.set(convId, Date.now());
 
     /*
      * Ab hier ist die Leitung offen — und zwar SOFORT.
@@ -588,6 +616,9 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
     }
   } finally {
     if (heartbeat) clearInterval(heartbeat);
+    // Muss auch bei einem Absturz mitten im Zug passieren, sonst gilt die
+    // Unterhaltung fuer immer als beschaeftigt und der Client fragt ewig nach.
+    if (laufendeId !== null) laufendeZuege.delete(laufendeId);
   }
 });
 

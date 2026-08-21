@@ -1038,6 +1038,16 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AnthropicMessage"
+        laeuft:
+          type: boolean
+          description: >-
+            Ob gerade ein Zug fuer diese Unterhaltung laeuft. Die Oberflaeche
+            fragt weiter nach, solange das true ist, statt nach einer festen
+            Frist aufzugeben, waehrend Lukas noch arbeitet.
+        laeuftSeit:
+          type: string
+          format: date-time
+          nullable: true
       required:
         - id
         - title

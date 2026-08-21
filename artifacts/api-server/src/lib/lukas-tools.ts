@@ -250,7 +250,7 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "github_read_path",
       description:
-        "Lies eine Datei oder liste ein Verzeichnis in einem GitHub-Repo (nur lesend). Ohne Pfad wird das Root-Verzeichnis gelistet. Nutze das, um Code, Konfiguration oder Inhalte konkret zu prüfen — z.B. für eine Code-Review oder SEO-Check.",
+        "Lies Dateien oder liste Verzeichnisse in einem GitHub-Repo (nur lesend). Ohne Pfad wird das Root-Verzeichnis gelistet. WICHTIG: Wenn du mehrere Dateien ansehen willst, gib sie ALLE auf einmal in 'paths' an (bis zu 6) statt sie nacheinander einzeln zu lesen — jeder einzelne Aufruf kostet eine komplette Runde. Nutze das, um Code, Konfiguration oder Inhalte konkret zu prüfen — z.B. für eine Code-Review oder SEO-Check.",
       parameters: {
         type: "object",
         properties: {
@@ -258,7 +258,13 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             type: "string",
             description: "Repo-Name, z.B. 'taxibbessen' (Owner = Issa) oder 'owner/repo' für fremde Repos",
           },
-          path: { type: "string", description: "Datei- oder Verzeichnispfad im Repo, leer = Root" },
+          paths: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Bis zu 6 Datei- oder Verzeichnispfade auf einmal. Bevorzugt gegenüber 'path', sobald du mehr als eine Datei brauchst.",
+          },
+          path: { type: "string", description: "Einzelner Pfad, leer = Root. Nutze 'paths' für mehrere." },
         },
         required: ["repo"],
       },
@@ -916,13 +922,28 @@ async function githubListRepos(): Promise<string> {
  * Lukas' eigenes Repo ist; fuer fremde Repos bleibt es null, und die liest man
  * ganz normal ueber ihren eigenen Default-Branch.
  */
-async function githubReadPath(repoInput: string, path: string): Promise<string> {
-  const { owner, repo } = await resolveGithubOwner(repoInput);
+/*
+ * Wie viel Text ein einzelner Leseaufruf hoechstens zurueckgibt — egal ueber
+ * wie viele Dateien er sich verteilt. Der Rueckgabewert landet im Kontext des
+ * naechsten Modellaufrufs, also ist das Budget hier eine Token-Entscheidung
+ * und keine Geschmacksfrage.
+ */
+const GITHUB_LESE_BUDGET = 18000;
+const GITHUB_MAX_PFADE = 6;
+
+/** Eine Datei oder ein Verzeichnis. Der Aufrufer hat Owner und Branch schon aufgeloest. */
+async function leseEinenPfad(
+  owner: string,
+  repo: string,
+  ref: string | null,
+  path: string,
+  budget: number,
+): Promise<string> {
   const cleanPath = path.replace(/^\/+/, "");
-  const ref = ownRepoRef(repo);
   const query = ref ? `?ref=${encodeURIComponent(ref)}` : "";
   const url = `/repos/${owner}/${repo}/contents${cleanPath ? "/" + cleanPath.split("/").map(encodeURIComponent).join("/") : ""}${query}`;
   const data = await githubRequest(url);
+
   if (Array.isArray(data)) {
     const entries = data as Array<{ type: string; name: string }>;
     return (
@@ -930,10 +951,53 @@ async function githubReadPath(repoInput: string, path: string): Promise<string> 
       entries.map((e) => `- ${e.type === "dir" ? "[dir] " : ""}${e.name}`).join("\n")
     );
   }
+
   const file = data as { type: string; content?: string; encoding?: string };
-  if (file.type !== "file" || !file.content) throw new Error("Kein Datei-Inhalt verfügbar (evtl. zu groß oder kein reguläres Textfile).");
+  if (file.type !== "file" || !file.content) {
+    throw new Error("Kein Datei-Inhalt verfügbar (evtl. zu groß oder kein reguläres Textfile).");
+  }
   const content = Buffer.from(file.content, file.encoding === "base64" ? "base64" : "utf-8").toString("utf-8");
-  return content.length > 15000 ? content.slice(0, 15000) + "\n\n[... gekürzt]" : content;
+  return content.length > budget ? content.slice(0, budget) + "\n\n[... gekürzt]" : content;
+}
+
+/*
+ * Mehrere Pfade in EINEM Aufruf.
+ *
+ * Vorher las das Werkzeug genau eine Datei. Ein Repo zu verstehen heisst aber,
+ * ein Dutzend Dateien anzusehen — und jede einzelne kostete eine volle Runde
+ * durch das Modell, also den kompletten Prompt noch einmal. Zwoelf Dateien
+ * waren zwoelf Prompts, nicht zwoelf Dateiabrufe.
+ *
+ * Die Dateien werden parallel geholt und teilen sich EIN Textbudget: sonst
+ * verschiebt das Batchen die Kosten nur vom Prompt in das Ergebnis.
+ *
+ * Ein Fehler bei einer Datei kippt nicht den ganzen Aufruf — sonst wuerde ein
+ * einziger Tippfehler im Pfad die anderen fuenf Ergebnisse mit wegwerfen.
+ */
+async function githubReadPath(repoInput: string, pfade: string[]): Promise<string> {
+  const { owner, repo } = await resolveGithubOwner(repoInput);
+  const ref = ownRepoRef(repo);
+
+  const liste = (pfade.length > 0 ? pfade : [""]).slice(0, GITHUB_MAX_PFADE);
+  const proDatei = Math.max(1500, Math.floor(GITHUB_LESE_BUDGET / liste.length));
+
+  if (liste.length === 1) {
+    return await leseEinenPfad(owner, repo, ref, liste[0], GITHUB_LESE_BUDGET);
+  }
+
+  const ergebnisse = await Promise.all(
+    liste.map(async (pfad) => {
+      try {
+        return { pfad, text: await leseEinenPfad(owner, repo, ref, pfad, proDatei) };
+      } catch (err) {
+        return { pfad, text: `[Fehler: ${err instanceof Error ? err.message : String(err)}]` };
+      }
+    }),
+  );
+
+  return ergebnisse
+    .map((e) => `───── ${e.pfad || "/"} ─────\n${e.text}`)
+    .join("\n\n");
 }
 
 /*
@@ -1146,7 +1210,14 @@ export async function executeLukasTool(
     case "github_list_repos":
       return await githubListRepos();
     case "github_read_path":
-      return await githubReadPath(String(input.repo), typeof input.path === "string" ? input.path : "");
+      return await githubReadPath(
+        String(input.repo),
+        Array.isArray(input.paths)
+          ? input.paths.map(String)
+          : typeof input.path === "string"
+            ? [input.path]
+            : [],
+      );
     case "github_search_code":
       return await githubSearchCode(String(input.repo), String(input.query));
     case "ask_subagent":

@@ -24,22 +24,49 @@
 
 const SID = process.env.TWILIO_ACCOUNT_SID?.trim();
 const TOKEN = process.env.TWILIO_AUTH_TOKEN?.trim();
+const API_KEY = process.env.TWILIO_API_KEY?.trim();
+const API_SECRET = process.env.TWILIO_API_SECRET?.trim();
 const PROJEKT = process.env.OPENAI_PROJECT_ID?.trim();
 const SIP_HOST = process.env.OPENAI_SIP_HOST ?? "sip.api.openai.com";
 const TRUNK_NAME = "Lukas";
 
-function fehlt(name) {
-  console.error(`\n${name} fehlt. Setz die Variablen und ruf das Skript erneut auf:\n`);
-  console.error("  export TWILIO_ACCOUNT_SID=AC...");
-  console.error("  export TWILIO_AUTH_TOKEN=...");
+function fehlt(satz) {
+  console.error(`\n${satz}\n`);
+  console.error("Nötig ist der Account SID plus EINE der beiden Anmeldungen:\n");
+  console.error("  export TWILIO_ACCOUNT_SID=AC...      (Konsole → Startseite, \"Account Info\")");
   console.error("  export OPENAI_PROJECT_ID=proj_...\n");
+  console.error("  entweder:  export TWILIO_API_KEY=SK...   export TWILIO_API_SECRET=...");
+  console.error("  oder:      export TWILIO_AUTH_TOKEN=...\n");
   process.exit(1);
 }
 
-if (!SID) fehlt("TWILIO_ACCOUNT_SID");
-if (!TOKEN) fehlt("TWILIO_AUTH_TOKEN");
+/*
+ * Zwei Wege, sich anzumelden — und sie liegen in der Konsole an verschiedenen
+ * Stellen. Unter "API keys & tokens" findet man einen API Key (SK…) mit
+ * Secret; der Account SID (AC…) steht dagegen auf der Startseite.
+ *
+ * Der Account SID wird IMMER gebraucht: er steht im PFAD der URL, nicht in der
+ * Anmeldung. Wer nur den API Key hat, kommt deshalb nicht weiter — genau hier
+ * bleiben die meisten haengen.
+ */
+if (!SID) {
+  fehlt(
+    "TWILIO_ACCOUNT_SID fehlt. Das ist NICHT der SK… aus den API Keys, " +
+      "sondern der AC… von der Konsolen-Startseite.",
+  );
+}
+if (!((API_KEY && API_SECRET) || TOKEN)) {
+  fehlt("Es fehlt die Anmeldung: entweder TWILIO_API_KEY + TWILIO_API_SECRET oder TWILIO_AUTH_TOKEN.");
+}
+if (!SID.startsWith("AC")) {
+  fehlt(
+    `TWILIO_ACCOUNT_SID muss mit "AC" beginnen, deiner beginnt mit "${SID.slice(0, 2)}". ` +
+      "Ein SK… ist der API Key, nicht das Konto — der AC… steht auf der Konsolen-Startseite.",
+  );
+}
 
-const auth = "Basic " + Buffer.from(`${SID}:${TOKEN}`).toString("base64");
+const auth =
+  "Basic " + Buffer.from(API_KEY && API_SECRET ? `${API_KEY}:${API_SECRET}` : `${SID}:${TOKEN}`).toString("base64");
 
 async function twilio(url, form) {
   const res = await fetch(url, {
@@ -83,7 +110,7 @@ async function trunkHolen() {
  * weiterreicht — hier also OpenAI. Ohne sie klingelt es nirgends.
  */
 async function originationSetzen(trunkSid) {
-  if (!PROJEKT) fehlt("OPENAI_PROJECT_ID");
+  if (!PROJEKT) fehlt("OPENAI_PROJECT_ID fehlt (platform.openai.com → Settings → Project → General).");
   const ziel = `sip:${PROJEKT}@${SIP_HOST};transport=tls`;
 
   const { origination_urls = [] } = await twilio(`${TRUNKING}/Trunks/${trunkSid}/OriginationUrls`);
@@ -211,7 +238,7 @@ if (befehl === "status") {
 Fertig auf der Twilio-Seite. Was noch in die Railway-Variablen gehört:
 
   TWILIO_ACCOUNT_SID   ${SID}
-  TWILIO_AUTH_TOKEN    (den, mit dem du dieses Skript aufgerufen hast)
+  ${API_KEY ? `TWILIO_API_KEY       ${API_KEY}\n  TWILIO_API_SECRET    (dasselbe Secret wie hier)` : "TWILIO_AUTH_TOKEN    (derselbe wie hier)"}
   TWILIO_NUMMER        ${nummer}
   OPENAI_PROJECT_ID    ${PROJEKT}
   OPENAI_WEBHOOK_SECRET (aus der OpenAI-Plattform, Webhook auf
@@ -229,6 +256,7 @@ Telefon einrichten — ohne Twilio-Konsole.
   kaufen +49…             Nummer kaufen
   verbinden [+49…]        Trunk anlegen, auf OpenAI zeigen, Nummer anhängen
 
-Nötig: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, OPENAI_PROJECT_ID
+Nötig: TWILIO_ACCOUNT_SID (AC…), OPENAI_PROJECT_ID und zur Anmeldung
+       TWILIO_API_KEY + TWILIO_API_SECRET oder TWILIO_AUTH_TOKEN
 `);
 }

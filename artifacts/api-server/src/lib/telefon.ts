@@ -206,18 +206,47 @@ export async function weiseAb(callId: string, grund: string): Promise<void> {
  * SIP-Trunk — ab da laeuft es durch denselben Webhook wie ein eingehender
  * Anruf. Deshalb wird der Anlass vorher geparkt.
  */
-export async function starteAnruf(nummer: string, anlass: string): Promise<string> {
+/*
+ * Zugangsdaten fuer Twilio.
+ *
+ * Es gibt zwei Wege, und in der Konsole liegen sie an verschiedenen Stellen:
+ *
+ *   Account SID + Auth Token   auf der Startseite unter "Account Info"
+ *   API Key (SK…) + Secret     unter "API keys & tokens"
+ *
+ * Beide funktionieren als Basic-Auth. Der API Key ist der bessere Weg — er
+ * laesst sich einzeln zurueckziehen, ohne dass alles andere stehenbleibt.
+ *
+ * Der Account SID wird IMMER gebraucht, auch mit API Key: er steht im Pfad
+ * der URL, nicht in der Anmeldung. Genau daran scheitert es sonst.
+ */
+export function twilioZugang(): { sid: string; nutzer: string; geheim: string } | null {
   const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
+  if (!sid) return null;
+
+  const key = process.env.TWILIO_API_KEY?.trim();
+  const secret = process.env.TWILIO_API_SECRET?.trim();
+  if (key && secret) return { sid, nutzer: key, geheim: secret };
+
   const token = process.env.TWILIO_AUTH_TOKEN?.trim();
+  if (token) return { sid, nutzer: sid, geheim: token };
+
+  return null;
+}
+
+export async function starteAnruf(nummer: string, anlass: string): Promise<string> {
+  const zugang = twilioZugang();
   const von = process.env.TWILIO_NUMMER?.trim();
   const projekt = process.env.OPENAI_PROJECT_ID?.trim();
 
-  if (!sid || !token || !von || !projekt) {
+  if (!zugang || !von || !projekt) {
     return (
-      "Zum Anrufen fehlen noch Zugangsdaten. Gebraucht werden TWILIO_ACCOUNT_SID, " +
-      "TWILIO_AUTH_TOKEN, TWILIO_NUMMER und OPENAI_PROJECT_ID in den Railway-Variablen."
+      "Zum Anrufen fehlen noch Zugangsdaten. Gebraucht werden TWILIO_ACCOUNT_SID (AC…), " +
+      "TWILIO_NUMMER, OPENAI_PROJECT_ID — und zur Anmeldung entweder TWILIO_API_KEY " +
+      "plus TWILIO_API_SECRET oder TWILIO_AUTH_TOKEN."
     );
   }
+  const { sid } = zugang;
 
   const ziel = normalisiere(nummer);
   const [eintrag] = await db
@@ -240,7 +269,7 @@ export async function starteAnruf(nummer: string, anlass: string): Promise<strin
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Calls.json`, {
     method: "POST",
     headers: {
-      Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
+      Authorization: `Basic ${Buffer.from(`${zugang.nutzer}:${zugang.geheim}`).toString("base64")}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: new URLSearchParams({ To: `+${ziel}`, From: von, Twiml: twiml }),

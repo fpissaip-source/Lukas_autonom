@@ -13,7 +13,9 @@ import { db } from "@workspace/db";
 import { telefonNummern } from "@workspace/db";
 import { desc, eq } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai";
-import { nimmAn, weiseAb, nummerAusSip, normalisiere, letzteAnrufe, protokolliere } from "../lib/telefon";
+import {
+  nimmAn, weiseAb, nummerAusSip, normalisiere, letzteAnrufe, protokolliere, twilioZugang,
+} from "../lib/telefon";
 import { logger } from "../lib/logger";
 import { recordDebugEvent } from "../lib/debug-log";
 
@@ -104,10 +106,7 @@ router.get("/lukas/telefon", async (_req, res) => {
       // Damit das Dashboard sagen kann, was noch fehlt, statt still nichts zu tun.
       bereit: {
         webhook: Boolean(process.env.OPENAI_WEBHOOK_SECRET),
-        anrufen: Boolean(
-          process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN &&
-          process.env.TWILIO_NUMMER && process.env.OPENAI_PROJECT_ID,
-        ),
+        anrufen: Boolean(twilioZugang() && process.env.TWILIO_NUMMER && process.env.OPENAI_PROJECT_ID),
       },
     });
   } catch (err) {

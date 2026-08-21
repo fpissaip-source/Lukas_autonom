@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import router from "./routes";
 import whatsappRouter from "./routes/whatsapp";
+import { telefonWebhookRouter } from "./routes/telefon";
 import { lukasAuth } from "./middlewares/auth";
 import { logger } from "./lib/logger";
 
@@ -61,6 +62,12 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 // So kann /api/whatsapp/webhook nicht mehr versehentlich von lukasAuth mit
 // "Unauthorized" abgefangen werden.
 app.use("/api", whatsappRouter);
+
+// Aus demselben Grund der Telefon-Webhook: OpenAI ruft ihn bei einem
+// eingehenden Anruf auf und kann keinen privaten Bearer-Token mitschicken.
+// Geschuetzt ist er stattdessen durch die signierte Zustellung — ohne gueltige
+// Signatur wird nicht einmal die call_id gelesen.
+app.use("/api", telefonWebhookRouter);
 
 // Alle übrigen privaten API-Routen bleiben hinter LUKAS_API_TOKEN.
 app.use("/api", lukasAuth, router);

@@ -53,6 +53,7 @@ export const createProposal = async () => ({});
 export const runSubagent = async () => ""; export const subagentUebersicht = async () => "";
 export const createSubagent = async () => ""; export const fixError = async () => "";
 export const meldeDichBeiIssa = async () => "";
+export const starteAnruf = async () => "";
 export const fehlerGruppen = async () => [];
 export const verbrauchsUebersicht = () => [];
 `,

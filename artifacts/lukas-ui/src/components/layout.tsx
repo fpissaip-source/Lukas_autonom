@@ -17,8 +17,7 @@ import {
   Inbox,
   Network,
   Menu,
-  X
-} from "lucide-react";
+  X, Phone } from "lucide-react";
 
 function handleLogout() {
   localStorage.removeItem("lukas_token");
@@ -48,6 +47,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/proposals", label: "Vorschläge", icon: Lightbulb },
     { href: "/approvals", label: "Freigaben", icon: ShieldCheck },
     { href: "/mcp", label: "MCP", icon: Plug },
+    { href: "/telefon", label: "Telefon", icon: Phone },
     { href: "/diagnostics", label: "Diagnose", icon: AlertTriangle },
   ];
 

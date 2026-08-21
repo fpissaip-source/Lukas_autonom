@@ -14,6 +14,7 @@ import { createProposal } from "./proposals";
 import { MCP_TOOL_PREFIX, activeServers, callMcpTool } from "./mcp";
 import { runSubagent, subagentUebersicht, createSubagent, fixError } from "./subagents";
 import { meldeDichBeiIssa } from "./melden";
+import { starteAnruf } from "./telefon";
 import { fehlerGruppen } from "./debug-log";
 import { verbrauchsUebersicht } from "./ai/model-client";
 import { logger } from "./logger";
@@ -339,6 +340,28 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             description: "Wie weit zurück. Standard 24.",
           },
         },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "ruf_an",
+      description:
+        "Rufe eine freigegebene Telefonnummer an und sprich direkt mit der Person. Nutze das nur, wenn etwas wirklich ein Gespräch braucht — dringend, komplex oder zeitkritisch. Für alles andere reicht melde_dich_bei_issa. Ein klingelndes Telefon unterbricht jemanden.",
+      parameters: {
+        type: "object",
+        properties: {
+          nummer: {
+            type: "string",
+            description: "Die Nummer, z.B. '+4915112345678'. Muss im Dashboard zum Anrufen freigegeben sein.",
+          },
+          anlass: {
+            type: "string",
+            description: "Warum du anrufst, in einem Satz. Du bekommst das beim Verbinden als Kontext.",
+          },
+        },
+        required: ["nummer", "anlass"],
       },
     },
   },
@@ -1209,6 +1232,8 @@ export async function executeLukasTool(
       return await getTradingStats();
     case "github_list_repos":
       return await githubListRepos();
+    case "ruf_an":
+      return await starteAnruf(String(input.nummer), String(input.anlass ?? ""));
     case "github_read_path":
       return await githubReadPath(
         String(input.repo),

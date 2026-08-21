@@ -15,6 +15,7 @@ import { desc, eq } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai";
 import {
   nimmAn, weiseAb, nummerAusSip, normalisiere, letzteAnrufe, protokolliere, twilioZugang,
+  twilioStand, twilioEinrichten, starteAnruf,
 } from "../lib/telefon";
 import { logger } from "../lib/logger";
 import { recordDebugEvent } from "../lib/debug-log";
@@ -112,6 +113,50 @@ router.get("/lukas/telefon", async (_req, res) => {
   } catch (err) {
     logger.error({ err }, "Telefonnummern laden fehlgeschlagen");
     res.status(500).json({ error: "Failed to load phone numbers" });
+  }
+});
+
+/*
+ * Twilio-Einrichtung aus dem Dashboard.
+ *
+ * Dieselben drei Aufrufe wie im Skript, nur ohne Kommandozeile — und ohne dass
+ * die Zugangsdaten irgendwo landen, wo sie nicht hingehoeren: der Server hat
+ * sie als Umgebungsvariablen ohnehin.
+ */
+router.get("/lukas/telefon/twilio", async (_req, res) => {
+  try {
+    res.json(await twilioStand());
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Fehler" });
+  }
+});
+
+router.post("/lukas/telefon/einrichten", async (req, res) => {
+  const nummer = String((req.body ?? {}).nummer ?? "").trim();
+  if (!nummer.startsWith("+")) {
+    return void res.status(400).json({ error: "Nummer in der Form +49… angeben." });
+  }
+  try {
+    res.json({ schritte: await twilioEinrichten(nummer) });
+  } catch (err) {
+    logger.error({ err }, "Twilio-Einrichtung fehlgeschlagen");
+    res.status(400).json({ error: err instanceof Error ? err.message : "Fehler" });
+  }
+});
+
+/*
+ * Testanruf. Umgeht bewusst die Freigabe-Liste NICHT — wer hier anrufen will,
+ * muss die Nummer vorher freigeschaltet haben. Sonst waere das Dashboard ein
+ * Weg, die Sperre zu umgehen, die es selbst verwaltet.
+ */
+router.post("/lukas/telefon/testanruf", async (req, res) => {
+  const nummer = String((req.body ?? {}).nummer ?? "").trim();
+  if (!nummer) return void res.status(400).json({ error: "Nummer fehlt." });
+  try {
+    res.json({ meldung: await starteAnruf(nummer, "Testanruf aus dem Dashboard") });
+  } catch (err) {
+    logger.error({ err }, "Testanruf fehlgeschlagen");
+    res.status(400).json({ error: err instanceof Error ? err.message : "Fehler" });
   }
 });
 

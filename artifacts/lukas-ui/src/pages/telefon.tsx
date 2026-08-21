@@ -28,6 +28,14 @@ type Anruf = {
   createdAt: string;
 };
 
+type TwilioStand = {
+  nummern: Array<{ nummer: string; name: string }>;
+  trunk: string | null;
+  origination: string[];
+  amTrunk: string[];
+  ziel: string | null;
+};
+
 type Antwort = {
   nummern: Nummer[];
   anrufe: Anruf[];
@@ -78,6 +86,7 @@ function zeigeNummer(ziffern: string): string {
 function NummerZeile({ eintrag, onChange }: { eintrag: Nummer; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
+  const [meldung, setMeldung] = useState<string | null>(null);
 
   const patch = async (werte: Partial<Nummer>) => {
     setBusy(true);
@@ -85,6 +94,28 @@ function NummerZeile({ eintrag, onChange }: { eintrag: Nummer; onChange: () => v
     try {
       await api(`/${eintrag.id}`, { method: "PATCH", body: JSON.stringify(werte) });
       onChange();
+    } catch (err) {
+      setFehler(err instanceof Error ? err.message : "Fehler");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /*
+   * Testanruf. Geht denselben Weg wie Lukas' ruf_an — inklusive der Pruefung,
+   * ob die Nummer freigegeben ist. Ein Knopf, der die Sperre umgeht, die
+   * dieselbe Seite verwaltet, waere keine Sperre.
+   */
+  const testanruf = async () => {
+    setBusy(true);
+    setFehler(null);
+    setMeldung(null);
+    try {
+      const r = await api("/testanruf", {
+        method: "POST",
+        body: JSON.stringify({ nummer: eintrag.nummer }),
+      });
+      setMeldung(r.meldung ?? "Anruf ausgelöst.");
     } catch (err) {
       setFehler(err instanceof Error ? err.message : "Fehler");
     } finally {
@@ -149,7 +180,128 @@ function NummerZeile({ eintrag, onChange }: { eintrag: Nummer; onChange: () => v
       </div>
 
       <p className="mt-2 text-xs text-muted-foreground">{STUFE[eintrag.stufe].hilfe}</p>
+
+      {eintrag.darfAngerufenWerden && (
+        <Button size="sm" variant="ghost" className="mt-3 px-0" disabled={busy} onClick={testanruf}>
+          <PhoneOutgoing className="mr-2 size-4" /> Testanruf
+        </Button>
+      )}
+
+      {meldung && <p className="mt-2 text-xs text-emerald-300">{meldung}</p>}
       {fehler && <p className="mt-2 text-xs text-red-400">{fehler}</p>}
+    </div>
+  );
+}
+
+/*
+ * Twilio einrichten, ohne Kommandozeile.
+ *
+ * Die drei Schritte — Trunk, Origination, Nummer — macht der Server. Er hat
+ * die Zugangsdaten als Umgebungsvariablen ohnehin; damit muessen sie weder in
+ * ein Terminal noch in einen Chat.
+ */
+function Einrichtung({ onChange }: { onChange: () => void }) {
+  const [stand, setStand] = useState<TwilioStand | null>(null);
+  const [fehler, setFehler] = useState<string | null>(null);
+  const [schritte, setSchritte] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const laden = useCallback(async () => {
+    try {
+      setStand(await api("/twilio"));
+      setFehler(null);
+    } catch (err) {
+      setFehler(err instanceof Error ? err.message : "Twilio nicht erreichbar");
+    }
+  }, []);
+
+  useEffect(() => {
+    void laden();
+  }, [laden]);
+
+  const einrichten = async (nummer: string) => {
+    setBusy(true);
+    setFehler(null);
+    setSchritte([]);
+    try {
+      const r = await api("/einrichten", { method: "POST", body: JSON.stringify({ nummer }) });
+      setSchritte(r.schritte ?? []);
+      await laden();
+      onChange();
+    } catch (err) {
+      setFehler(err instanceof Error ? err.message : "Fehler");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (fehler && !stand) {
+    return (
+      <div className="rounded-lg border border-border p-4 text-sm">
+        <p className="font-medium">Twilio</p>
+        <p className="mt-1 text-muted-foreground">{fehler}</p>
+      </div>
+    );
+  }
+  if (!stand) return null;
+
+  const fertig = stand.ziel !== null && stand.origination.includes(stand.ziel) && stand.amTrunk.length > 0;
+
+  return (
+    <div className="rounded-lg border border-border p-4">
+      <h2 className="flex items-center gap-2 font-medium">
+        <PhoneIncoming className="size-4" /> Eingehende Anrufe
+      </h2>
+
+      {fertig ? (
+        <p className="mt-2 text-sm text-emerald-300">
+          Eingerichtet. Anrufe auf {stand.amTrunk.join(", ")} landen bei Lukas.
+        </p>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">
+          Damit ein Anruf bei Lukas ankommt, muss die Nummer an einen Trunk hängen, der auf OpenAI
+          zeigt. Ein Klick erledigt beides.
+        </p>
+      )}
+
+      <div className="mt-4 space-y-2">
+        {stand.nummern.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Im Twilio-Konto ist noch keine Nummer. Ohne Nummer kann dich niemand anrufen — Lukas
+            kann dich aber trotzdem anrufen, sobald TWILIO_NUMMER gesetzt ist.
+          </p>
+        )}
+        {stand.nummern.map((n) => {
+          const dran = stand.amTrunk.includes(n.nummer);
+          return (
+            <div key={n.nummer} className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
+              <span className="font-mono text-sm">{n.nummer}</span>
+              {dran && <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-[0.65rem] text-emerald-300">AM TRUNK</span>}
+              <Button
+                size="sm"
+                variant={dran ? "ghost" : "default"}
+                className="ml-auto"
+                disabled={busy}
+                onClick={() => einrichten(n.nummer)}
+              >
+                {dran ? "Erneut prüfen" : "Einrichten"}
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      {schritte.length > 0 && (
+        <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
+          {schritte.map((s) => (
+            <li key={s}>· {s}</li>
+          ))}
+        </ul>
+      )}
+      {fehler && <p className="mt-3 text-sm text-red-400">{fehler}</p>}
+      {stand.ziel && (
+        <p className="mt-3 font-mono text-xs break-all text-muted-foreground">Ziel: {stand.ziel}</p>
+      )}
     </div>
   );
 }
@@ -214,6 +366,8 @@ export default function Telefon() {
               <code className="mx-1">TWILIO_NUMMER</code> und <code className="mx-1">OPENAI_PROJECT_ID</code>.
             </div>
           )}
+
+          <Einrichtung onChange={laden} />
 
           <div className="rounded-lg border border-border p-4">
             <h2 className="mb-3 flex items-center gap-2 font-medium">

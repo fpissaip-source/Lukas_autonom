@@ -296,3 +296,168 @@ export async function starteAnruf(nummer: string, anlass: string): Promise<strin
 export async function letzteAnrufe(grenze = 30) {
   return db.select().from(telefonAnrufe).orderBy(desc(telefonAnrufe.createdAt)).limit(grenze);
 }
+
+/*
+ * ── Twilio einrichten, ohne Terminal ──────────────────────────────────────
+ *
+ * Die Einrichtung besteht aus drei Aufrufen an Twilio: Trunk anlegen,
+ * Origination-URI auf OpenAI zeigen lassen, Nummer anhaengen. Dafuer gab es
+ * bisher nur das Skript — und das braucht eine Kommandozeile.
+ *
+ * Der Server kann dasselbe. Er hat die Zugangsdaten ohnehin als
+ * Umgebungsvariablen, und damit muessen sie nirgends sonst auftauchen: nicht
+ * im Chat, nicht im Gedaechtnis, nicht auf einem fremden Rechner. Ein Knopf im
+ * Dashboard reicht.
+ */
+
+const TRUNK_NAME = "Lukas";
+
+async function twilioAnfrage(
+  url: string,
+  form?: Record<string, string>,
+): Promise<Record<string, unknown>> {
+  const zugang = twilioZugang();
+  if (!zugang) throw new Error("Twilio-Zugangsdaten fehlen.");
+
+  const res = await fetch(url, {
+    method: form ? "POST" : "GET",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${zugang.nutzer}:${zugang.geheim}`).toString("base64")}`,
+      ...(form ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+    },
+    body: form ? new URLSearchParams(form) : undefined,
+    signal: AbortSignal.timeout(20000),
+  });
+
+  const text = await res.text();
+  let daten: Record<string, unknown>;
+  try {
+    daten = JSON.parse(text);
+  } catch {
+    daten = { raw: text };
+  }
+  if (!res.ok) {
+    // Twilios Fehlertexte sind brauchbar — durchreichen statt verschlucken.
+    throw new Error(`Twilio ${res.status}: ${daten.message ?? text.slice(0, 200)}`);
+  }
+  return daten;
+}
+
+function sipZiel(): string {
+  const projekt = process.env.OPENAI_PROJECT_ID?.trim();
+  if (!projekt) throw new Error("OPENAI_PROJECT_ID fehlt.");
+  return `sip:${projekt}@${process.env.OPENAI_SIP_HOST ?? "sip.api.openai.com"};transport=tls`;
+}
+
+export type TwilioStand = {
+  nummern: Array<{ nummer: string; name: string }>;
+  trunk: string | null;
+  origination: string[];
+  amTrunk: string[];
+  ziel: string | null;
+};
+
+/** Was bei Twilio gerade eingerichtet ist. */
+export async function twilioStand(): Promise<TwilioStand> {
+  const zugang = twilioZugang();
+  if (!zugang) throw new Error("Twilio-Zugangsdaten fehlen.");
+
+  const konto = (await twilioAnfrage(
+    `https://api.twilio.com/2010-04-01/Accounts/${zugang.sid}/IncomingPhoneNumbers.json?PageSize=50`,
+  )) as { incoming_phone_numbers?: Array<{ phone_number: string; friendly_name: string }> };
+
+  const { trunks = [] } = (await twilioAnfrage(
+    "https://trunking.twilio.com/v1/Trunks?PageSize=50",
+  )) as { trunks?: Array<{ sid: string; friendly_name: string }> };
+  const trunk = trunks.find((t) => t.friendly_name === TRUNK_NAME) ?? null;
+
+  let origination: string[] = [];
+  let amTrunk: string[] = [];
+  if (trunk) {
+    const o = (await twilioAnfrage(
+      `https://trunking.twilio.com/v1/Trunks/${trunk.sid}/OriginationUrls`,
+    )) as { origination_urls?: Array<{ sip_url: string; enabled: boolean }> };
+    origination = (o.origination_urls ?? []).filter((u) => u.enabled).map((u) => u.sip_url);
+
+    const n = (await twilioAnfrage(
+      `https://trunking.twilio.com/v1/Trunks/${trunk.sid}/PhoneNumbers`,
+    )) as { phone_numbers?: Array<{ phone_number: string }> };
+    amTrunk = (n.phone_numbers ?? []).map((p) => p.phone_number);
+  }
+
+  return {
+    nummern: (konto.incoming_phone_numbers ?? []).map((n) => ({
+      nummer: n.phone_number,
+      name: n.friendly_name,
+    })),
+    trunk: trunk?.sid ?? null,
+    origination,
+    amTrunk,
+    ziel: process.env.OPENAI_PROJECT_ID ? sipZiel() : null,
+  };
+}
+
+/**
+ * Trunk anlegen, auf OpenAI zeigen lassen, Nummer anhaengen.
+ *
+ * Bewusst wiederholbar: jeder Schritt prueft erst, ob er schon getan ist.
+ * Ein zweiter Klick darf nichts kaputtmachen — sonst traut sich niemand, ihn
+ * zu druecken, wenn beim ersten Mal etwas schiefging.
+ */
+export async function twilioEinrichten(nummer: string): Promise<string[]> {
+  const zugang = twilioZugang();
+  if (!zugang) throw new Error("Twilio-Zugangsdaten fehlen.");
+  const ziel = sipZiel();
+  const schritte: string[] = [];
+
+  const { trunks = [] } = (await twilioAnfrage(
+    "https://trunking.twilio.com/v1/Trunks?PageSize=50",
+  )) as { trunks?: Array<{ sid: string; friendly_name: string }> };
+
+  let trunkSid = trunks.find((t) => t.friendly_name === TRUNK_NAME)?.sid;
+  if (trunkSid) {
+    schritte.push(`Trunk „${TRUNK_NAME}" war schon da.`);
+  } else {
+    const neu = (await twilioAnfrage("https://trunking.twilio.com/v1/Trunks", {
+      FriendlyName: TRUNK_NAME,
+    })) as { sid: string };
+    trunkSid = neu.sid;
+    schritte.push(`Trunk „${TRUNK_NAME}" angelegt.`);
+  }
+
+  const o = (await twilioAnfrage(
+    `https://trunking.twilio.com/v1/Trunks/${trunkSid}/OriginationUrls`,
+  )) as { origination_urls?: Array<{ sip_url: string }> };
+  if ((o.origination_urls ?? []).some((u) => u.sip_url === ziel)) {
+    schritte.push("Origination zeigte bereits auf OpenAI.");
+  } else {
+    await twilioAnfrage(`https://trunking.twilio.com/v1/Trunks/${trunkSid}/OriginationUrls`, {
+      FriendlyName: "OpenAI Realtime",
+      SipUrl: ziel,
+      Priority: "10",
+      Weight: "10",
+      Enabled: "true",
+    });
+    schritte.push("Origination auf OpenAI gesetzt.");
+  }
+
+  const konto = (await twilioAnfrage(
+    `https://api.twilio.com/2010-04-01/Accounts/${zugang.sid}/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(nummer)}`,
+  )) as { incoming_phone_numbers?: Array<{ sid: string }> };
+  const eintrag = konto.incoming_phone_numbers?.[0];
+  if (!eintrag) throw new Error(`${nummer} gehört diesem Twilio-Konto nicht.`);
+
+  const schon = (await twilioAnfrage(
+    `https://trunking.twilio.com/v1/Trunks/${trunkSid}/PhoneNumbers`,
+  )) as { phone_numbers?: Array<{ phone_number: string }> };
+  if ((schon.phone_numbers ?? []).some((p) => p.phone_number === nummer)) {
+    schritte.push(`${nummer} hing schon am Trunk.`);
+  } else {
+    await twilioAnfrage(`https://trunking.twilio.com/v1/Trunks/${trunkSid}/PhoneNumbers`, {
+      PhoneNumberSid: eintrag.sid,
+    });
+    schritte.push(`${nummer} an den Trunk gehängt.`);
+  }
+
+  return schritte;
+}

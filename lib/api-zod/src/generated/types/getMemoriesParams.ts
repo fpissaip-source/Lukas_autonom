@@ -19,4 +19,9 @@ search?: string | null;
  * @nullable
  */
 limit?: number | null;
+/**
+ * Kategorie, die NICHT geliefert wird. Gedacht fuer "conversation": jede Chatnachricht wird als niedrig gewichtete Erinnerung abgelegt, und ohne diesen Filter besteht eine Seite mit 100 Eintraegen fast nur daraus.
+ * @nullable
+ */
+exclude?: string | null;
 };

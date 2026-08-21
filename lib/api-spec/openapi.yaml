@@ -64,6 +64,15 @@ paths:
           in: query
           schema:
             type: ["integer", "null"]
+        - name: exclude
+          in: query
+          description: >-
+            Kategorie, die NICHT geliefert wird. Gedacht fuer "conversation":
+            jede Chatnachricht wird als niedrig gewichtete Erinnerung abgelegt,
+            und ohne diesen Filter besteht eine Seite mit 100 Eintraegen fast
+            nur daraus.
+          schema:
+            type: ["string", "null"]
       responses:
         "200":
           description: List of memories

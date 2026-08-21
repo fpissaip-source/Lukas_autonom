@@ -8,7 +8,7 @@ import {
   emotionsTable,
   claimsTable,
 } from "@workspace/db";
-import { eq, desc, ilike, and } from "drizzle-orm";
+import { eq, desc, ilike, and, ne } from "drizzle-orm";
 import { getLukasStatus, DEFAULT_STATUS } from "../lib/lukas-status";
 import { getCharacter } from "../lib/emotion-engine";
 import { runReflection } from "../lib/reflection";
@@ -154,10 +154,20 @@ router.get("/lukas/emotions", async (req, res) => {
 // ── MEMORIES ───────────────────────────────────────────────────────────────
 router.get("/lukas/memories", async (req, res) => {
   try {
-    const { category, search, limit = "50" } = req.query as Record<string, string>;
+    const { category, search, limit = "50", exclude } = req.query as Record<string, string>;
 
     const conditions = [];
     if (category) conditions.push(eq(memoriesTable.category, category));
+    /*
+     * Eine Kategorie ausschliessen.
+     *
+     * Jede Chatnachricht wird als niedrig gewichtete "conversation"-Erinnerung
+     * abgelegt, damit Lukas alte Formulierungen wiederfindet. Fuer die Suche
+     * ist das richtig, fuer die Uebersicht nicht: ohne diesen Filter besteht
+     * eine Seite mit 100 Eintraegen fast nur aus Gespraechsschnipseln, und die
+     * kuratierten Fakten sind nicht mehr zu finden.
+     */
+    if (exclude) conditions.push(ne(memoriesTable.category, exclude));
     if (search) conditions.push(ilike(memoriesTable.content, `%${search}%`));
 
     const rows = await db

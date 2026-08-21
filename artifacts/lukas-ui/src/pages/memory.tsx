@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  useGetLukasStatus,
   useGetMemories,
   useCreateMemory,
   useDeleteMemory,
@@ -36,18 +37,32 @@ const CATEGORY_COLORS: Record<string, string> = {
 export default function Memory() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<string>("all");
+  const [category, setCategory] = useState<string>("kuratiert");
   const [open, setOpen] = useState(false);
   const [newContent, setNewContent] = useState("");
   const [newCat, setNewCat] = useState("personal");
   const [newImportance, setNewImportance] = useState("5");
   const [newTags, setNewTags] = useState("");
 
+  /*
+   * Standardmaessig OHNE Chatverlauf.
+   *
+   * Jede Nachricht wird als niedrig gewichtete "conversation"-Erinnerung
+   * abgelegt, damit Lukas alte Formulierungen wiederfindet. Fuer die Suche ist
+   * das richtig — fuer diese Uebersicht nicht: sonst bestehen die 100
+   * geladenen Eintraege fast nur aus Gespraechsschnipseln, und die kuratierten
+   * Fakten sind zwischen ihnen nicht mehr zu finden.
+   */
   const { data: memories = [], isLoading } = useGetMemories({
     search: search || undefined,
-    category: category !== "all" ? category : undefined,
+    category: category !== "all" && category !== "kuratiert" ? category : undefined,
+    exclude: category === "kuratiert" ? "conversation" : undefined,
     limit: 100,
   });
+
+  // Echter Bestand (COUNT(*)) — die Liste selbst ist auf 100 gedeckelt.
+  const { data: uebersicht } = useGetLukasStatus();
+  const gesamt = uebersicht?.memoriesCount;
 
   const createMemory = useCreateMemory();
   const deleteMemory = useDeleteMemory();
@@ -78,7 +93,17 @@ export default function Memory() {
       <PageHeader
         icon={Brain}
         title="Gedächtnis"
-        subtitle={`${memories.length} Erinnerungen gespeichert`}
+        /*
+         * memories.length war die SEITENGROESSE, nicht der Bestand: die Liste
+         * wird mit limit 100 geholt, also stand dort bei jedem groesseren
+         * Gedaechtnis exakt "100 Erinnerungen gespeichert". Der echte Wert
+         * kommt als COUNT(*) aus dem Dashboard-Endpunkt.
+         */
+        subtitle={
+          gesamt !== undefined
+            ? `${memories.length} von ${gesamt} geladen`
+            : `${memories.length} geladen`
+        }
         actions={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
@@ -135,6 +160,7 @@ export default function Memory() {
           <Select value={category} onValueChange={setCategory}>
             <SelectTrigger className="w-full sm:w-40 text-sm"><SelectValue placeholder="Kategorie" /></SelectTrigger>
             <SelectContent>
+              <SelectItem value="kuratiert">Ohne Chatverlauf</SelectItem>
               <SelectItem value="all">Alle</SelectItem>
               {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
@@ -150,10 +176,24 @@ export default function Memory() {
           {memories.map((m) => (
             <div key={m.id} className="group bg-card border border-border rounded-lg p-4 hover:border-primary/30 transition-colors">
               <div className="flex items-start justify-between gap-3">
-                <p className="text-sm leading-relaxed flex-1">{m.content}</p>
+                {/*
+                 * min-w-0 ist hier nicht kosmetisch: ein Flex-Kind schrumpft
+                 * sonst nicht unter seine Inhaltsbreite, und ein einzelner
+                 * langer Block ohne Leerzeichen — ein SHA-256-Hash etwa —
+                 * sprengt damit die ganze Karte nach rechts aus dem Bild.
+                 */}
+                <p className="text-sm leading-relaxed flex-1 min-w-0 break-words whitespace-pre-wrap">
+                  {m.content}
+                </p>
                 <button
                   onClick={() => handleDelete(m.id)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive shrink-0 mt-0.5"
+                  aria-label="Erinnerung löschen"
+                  /*
+                   * Auf dem Handy gibt es kein Hover. Mit opacity-0 war der
+                   * Knopf dort schlicht nie erreichbar — sichtbar erst ab sm,
+                   * wo es einen Zeiger gibt.
+                   */
+                  className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive shrink-0 mt-0.5"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>

@@ -36,7 +36,8 @@ export const GetLukasStatusResponse = zod.object({
 export const GetMemoriesQueryParams = zod.object({
   "category": zod.coerce.string().nullish(),
   "search": zod.coerce.string().nullish(),
-  "limit": zod.coerce.number().nullish()
+  "limit": zod.coerce.number().nullish(),
+  "exclude": zod.coerce.string().nullish().describe('Kategorie, die NICHT geliefert wird. Gedacht fuer \"conversation\": jede Chatnachricht wird als niedrig gewichtete Erinnerung abgelegt, und ohne diesen Filter besteht eine Seite mit 100 Eintraegen fast nur daraus.')
 })
 
 export const GetMemoriesResponseItem = zod.object({

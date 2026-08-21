@@ -1,21 +1,11 @@
 /*
- * Prueft die Stelle, an der Lukas' Antworten verschwunden sind.
+ * Prueft die Stelle, an der Lukas' Antworten verschwunden sind, und dass die
+ * reine Ausgabeschicht den privaten Vollkontext nicht ein zweites Mal sendet.
  *
- * Der Fehler: renderLukasVoice bekam den kompletten Verlauf mitsamt der
- * Assistenten-Nachrichten MIT tool_calls und der tool-Ergebnisse — obwohl
- * dieser Aufruf bewusst KEINE Werkzeuge hat, er soll nur formulieren.
- *
- * Unter chat.completions war das folgenlos. Seit der Responses-API nicht mehr:
- * dort werden aus tool_calls eigene function_call-Elemente, und die weist die
- * API zurueck, wenn im selben Aufruf keine Werkzeuge definiert sind. Jeder Zug,
- * in dem Lukas auch nur EIN Werkzeug benutzt hat, ist damit im letzten Schritt
- * gescheitert — nach getaner Arbeit, kurz vor der Antwort. Ein reines Gespraech
- * kam durch, und genau das sah aus wie "sporadisch".
- *
- * Zwei Dinge werden hier festgehalten:
+ * Zwei Invarianten werden hier festgehalten:
  *  1. In einen werkzeuglosen Aufruf gelangt kein einziges Werkzeug-Element.
- *  2. Scheitert der Aufruf trotzdem, geht der Entwurf raus. Eine unpolierte
- *     Antwort ist unendlich viel besser als keine.
+ *  2. Soul, Memories, Ziele und Tagebuch werden nicht erneut uebertragen.
+ *  3. Scheitert die Politur trotzdem, geht der fertige Entwurf raus.
  */
 import { build } from "esbuild";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -24,11 +14,6 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(process.cwd(), ".ausgabe-check-"));
 const out = join(dir, "voice.mjs");
 
-/*
- * Ein OpenAI-Ersatz, der nicht antwortet, sondern mitschreibt: die Pruefung
- * will sehen, WAS rausgegangen waere. Ein echter Aufruf wuerde nur sagen, dass
- * es klappt oder nicht — nicht, warum.
- */
 const attrappe = join(dir, "attrappe.mjs");
 writeFileSync(
   attrappe,
@@ -78,7 +63,6 @@ const pruefe = (was, bedingung) => {
   }
 };
 
-/** Genau der Verlauf, an dem es gescheitert ist: Werkzeug benutzt, dann Antwort. */
 const verlaufMitWerkzeug = [
   { role: "system", content: "Du bist Lukas." },
   { role: "user", content: "Schau dir die Seite an." },
@@ -93,33 +77,49 @@ const verlaufMitWerkzeug = [
   { role: "assistant", content: "Ich habe sie gelesen." },
 ];
 
+const privaterVollkontext = [
+  "SOUL_SECRET_MARKER",
+  "MEMORY_MARKER",
+  "DIARY_MARKER",
+  "GOAL_MARKER",
+].join("\n");
+
 globalThis.__gesendet = [];
 globalThis.__sollScheitern = false;
 
 const antwort = await renderLukasVoice({
-  systemPrompt: "Du bist Lukas.",
+  systemPrompt: privaterVollkontext,
   conversation: verlaufMitWerkzeug,
-  draft: "Die Seite zeigt drei Clips.",
+  draft: "Die Seite zeigt drei Clips. Quelle B ist noch unsicher.",
 });
 
 pruefe("es wurde genau ein Aufruf gemacht", globalThis.__gesendet.length === 1);
 
 const req = globalThis.__gesendet[0] ?? {};
+const serialisiert = JSON.stringify(req);
 const eingabe = JSON.stringify(req.input ?? []);
 
 pruefe("der Aufruf hat keine Werkzeuge", !req.tools || req.tools.length === 0);
 pruefe("und deshalb auch KEIN function_call", !eingabe.includes("function_call"));
 pruefe("und kein function_call_output", !eingabe.includes("function_call_output"));
 pruefe("der Entwurf ist trotzdem drin", eingabe.includes("Die Seite zeigt drei Clips"));
+pruefe("die Unsicherheit des Entwurfs ist drin", eingabe.includes("Quelle B ist noch unsicher"));
 pruefe("und der Dialog auch", eingabe.includes("Schau dir die Seite an"));
-pruefe("die polierte Antwort kommt zurück", antwort === "Poliert.");
+pruefe("die sichtbare Identitaet Lukas bleibt fest", eingabe.includes("sichtbare Identitaet ist Lukas"));
+pruefe("die Ausgabeschicht darf nichts erfinden", eingabe.includes("Erfinde nichts"));
+pruefe("der Entwurf wird nur als Inhalt behandelt", eingabe.includes("zu formulierenden Inhalt"));
+pruefe("Soul wird nicht ein zweites Mal gesendet", !serialisiert.includes("SOUL_SECRET_MARKER"));
+pruefe("Memories werden nicht ein zweites Mal gesendet", !serialisiert.includes("MEMORY_MARKER"));
+pruefe("Tagebuch wird nicht ein zweites Mal gesendet", !serialisiert.includes("DIARY_MARKER"));
+pruefe("Ziele werden nicht ein zweites Mal gesendet", !serialisiert.includes("GOAL_MARKER"));
+pruefe("die polierte Antwort kommt zurueck", antwort === "Poliert.");
 
 // Scheitert der Aufruf, darf die Antwort NICHT verloren gehen.
 globalThis.__gesendet = [];
 globalThis.__sollScheitern = true;
 
 const trotzdem = await renderLukasVoice({
-  systemPrompt: "Du bist Lukas.",
+  systemPrompt: privaterVollkontext,
   conversation: verlaufMitWerkzeug,
   draft: "Die Seite zeigt drei Clips.",
 });
@@ -129,12 +129,12 @@ pruefe("bei einem Fehler geht der Entwurf raus", trotzdem === "Die Seite zeigt d
 globalThis.__gesendet = [];
 globalThis.__sollScheitern = false;
 const leer = await renderLukasVoice({
-  systemPrompt: "Du bist Lukas.",
+  systemPrompt: privaterVollkontext,
   conversation: verlaufMitWerkzeug,
   draft: "   ",
 });
 pruefe("ohne Entwurf keine Antwort", leer === "");
-pruefe("und kein unnötiger Aufruf", globalThis.__gesendet.length === 0);
+pruefe("und kein unnoetiger Aufruf", globalThis.__gesendet.length === 0);
 
 if (fehler > 0) process.exit(1);
-console.log("OK — Ausgabeschicht: keine Werkzeug-Elemente im werkzeuglosen Aufruf, Antwort geht nie verloren.");
+console.log("OK — Ausgabeschicht: keine Werkzeug-Elemente und kein privater Vollkontext im zweiten Aufruf; Antwort geht nie verloren.");

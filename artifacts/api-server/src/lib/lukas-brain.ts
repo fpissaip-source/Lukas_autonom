@@ -102,6 +102,7 @@ export async function runLukasTurn(opts: {
     // Budget bewusst offen lassen — siehe callOpenAI: bei Reasoning-Modellen
     // teilen sich Denken und Antwort dasselbe max_output_tokens.
     const result = await callLukasModel({
+      cacheKey: `lukas-${opts.conversationId ?? "ohne"}`,
       route,
       tools,
       messages: convo,
@@ -205,6 +206,7 @@ export async function runLukasTurn(opts: {
     logger.info({ usedTools }, "Durchlauf ohne Text — Abschlussrunde ohne Werkzeuge");
     try {
       const letzte = await callLukasModel({
+      cacheKey: `lukas-${opts.conversationId ?? "ohne"}`,
         route: routeLukasModel({
           userText: opts.userText,
           hasAttachments,

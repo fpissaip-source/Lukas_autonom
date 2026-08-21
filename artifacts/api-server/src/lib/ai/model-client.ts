@@ -23,6 +23,12 @@ type CallInput = {
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
   tools?: OpenAI.Chat.Completions.ChatCompletionTool[];
   maxTokens?: number;
+  /*
+   * Lenkt gleichartige Anfragen auf dieselbe Maschine, damit der Cache
+   * ueberhaupt greifen kann. Pro Unterhaltung, nicht pro Aufruf: die Runden
+   * EINES Zuges teilen sich den Praefix.
+   */
+  cacheKey?: string;
 };
 
 function anthropicKey(): string {
@@ -284,18 +290,49 @@ function toResponsesInput(
  * wie viel verbraucht — und das ist die Frage, die zaehlt, denn zwischen
  * luna und sol liegt ein Vielfaches.
  */
-const verbrauch = new Map<string, { aufrufe: number; rein: number; raus: number }>();
+const verbrauch = new Map<
+  string,
+  { aufrufe: number; rein: number; raus: number; ausCache: number; inCache: number }
+>();
+
+/*
+ * Beide Anbieter melden Cache-Treffer, nur unter verschiedenen Namen:
+ *   OpenAI     usage.input_tokens_details.cached_tokens
+ *   Anthropic  usage.cache_read_input_tokens / cache_creation_input_tokens
+ *
+ * Vorher wurde nichts davon gelesen. Damit liess sich nicht beantworten, ob
+ * Caching ueberhaupt greift — und ohne diese Zahl ist jede Aussage ueber
+ * Kosten geraten.
+ */
+function cacheTreffer(usage: any): { gelesen: number; geschrieben: number } {
+  const gelesen =
+    Number(usage.cache_read_input_tokens ?? 0) ||
+    Number(usage.input_tokens_details?.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? 0);
+  return {
+    gelesen,
+    geschrieben: Number(usage.cache_creation_input_tokens ?? 0),
+  };
+}
 
 function merkeVerbrauch(model: string, usage: any): void {
   if (!usage) return;
-  const eintrag = verbrauch.get(model) ?? { aufrufe: 0, rein: 0, raus: 0 };
+  const eintrag = verbrauch.get(model) ?? { aufrufe: 0, rein: 0, raus: 0, ausCache: 0, inCache: 0 };
+  const cache = cacheTreffer(usage);
   eintrag.aufrufe++;
   eintrag.rein += Number(usage.input_tokens ?? usage.prompt_tokens ?? 0);
   eintrag.raus += Number(usage.output_tokens ?? usage.completion_tokens ?? 0);
+  eintrag.ausCache += cache.gelesen;
+  eintrag.inCache += cache.geschrieben;
   verbrauch.set(model, eintrag);
 
   logger.info(
-    { model, rein: eintrag.rein, raus: eintrag.raus, aufrufe: eintrag.aufrufe },
+    {
+      model,
+      rein: eintrag.rein,
+      raus: eintrag.raus,
+      ausCache: eintrag.ausCache,
+      aufrufe: eintrag.aufrufe,
+    },
     "Modellverbrauch",
   );
 }
@@ -305,6 +342,8 @@ export function verbrauchsUebersicht(): Array<{
   aufrufe: number;
   rein: number;
   raus: number;
+  ausCache: number;
+  inCache: number;
 }> {
   return [...verbrauch.entries()]
     .map(([model, v]) => ({ model, ...v }))
@@ -327,6 +366,17 @@ async function callOpenAI(input: CallInput): Promise<LukasModelResult> {
      */
     max_output_tokens: input.maxTokens ?? Number(process.env.LUKAS_MAX_OUTPUT_TOKENS ?? 16384),
   };
+  /*
+   * OpenAI cached Praefixe ab etwa 1024 Token von selbst — aber nur, wenn
+   * gleichartige Anfragen auf derselben Maschine landen. Der Schluessel lenkt
+   * sie dorthin. Ohne ihn ist der Treffer Zufall, gerade wenn parallel noch
+   * ein autonomer Lauf unterwegs ist.
+   *
+   * Pro Unterhaltung, nicht pro Aufruf: die Runden EINES Zuges teilen sich den
+   * Praefix, und genau die sollen sich treffen.
+   */
+  request.prompt_cache_key = input.cacheKey ?? "lukas";
+
   const tools = toResponsesTools(input.tools);
   if (tools.length) request.tools = tools;
   // Der Verlauf richtet sich danach, ob dieser Aufruf ueberhaupt Werkzeuge hat.
@@ -390,10 +440,25 @@ async function callAnthropic(input: CallInput): Promise<LukasModelResult> {
     input_schema: tool.function.parameters ?? { type: "object", properties: {} },
   }));
 
+  /*
+   * Prompt-Caching.
+   *
+   * Anthropic rendert in der Reihenfolge tools -> system -> messages. Eine
+   * Cache-Marke am ENDE des System-Prompts deckt damit beides ab: die
+   * Werkzeugliste und die Seele — zusammen rund 11.600 Token, die bei jeder
+   * einzelnen Runde eines Zuges byte-gleich wieder rausgehen.
+   *
+   * Ohne das zahlt ein Zug mit zehn Werkzeugrunden diesen Block zehnmal voll.
+   * Genau das hat die Rechnung getrieben.
+   *
+   * Es MUSS explizit angefordert werden — anders als bei OpenAI passiert hier
+   * ohne cache_control nichts. Unter etwa 1024 Token greift es nicht, was hier
+   * nie der Fall ist.
+   */
   const body: any = {
     model: input.route.model,
     max_tokens: input.maxTokens ?? 8192,
-    system: converted.system,
+    system: [{ type: "text", text: converted.system, cache_control: { type: "ephemeral" } }],
     messages: converted.messages,
   };
   if (tools.length) {

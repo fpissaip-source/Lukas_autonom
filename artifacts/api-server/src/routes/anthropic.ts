@@ -391,6 +391,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       // Ohne festen Deckel: das Budget kommt aus dem Modell-Client, damit die
       // Denk-Tokens der Reasoning-Modelle die Antwort nicht auffressen.
       const result = await callLukasModel({
+        cacheKey: `lukas-${convId}`,
         route,
         tools: await allLukasTools(),
         messages: convo,
@@ -522,6 +523,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
       );
       try {
         const letzte = await callLukasModel({
+        cacheKey: `lukas-${convId}`,
           route: routeLukasModel({
             userText: String(content),
             hasAttachments: pendingAttachments.length > 0,

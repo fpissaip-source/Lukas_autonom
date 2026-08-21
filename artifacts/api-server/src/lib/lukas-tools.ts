@@ -1251,6 +1251,10 @@ export async function executeLukasTool(
       const zeilen = verbrauchsUebersicht();
       if (zeilen.length === 0) return "Seit dem Start wurde noch kein Modellaufruf gezählt.";
       const gesamt = zeilen.reduce((n, z) => n + z.rein + z.raus, 0);
+      const cacheGesamt = zeilen.reduce((n, z) => n + z.ausCache, 0);
+      const einGesamt = zeilen.reduce((n, z) => n + z.rein + z.ausCache, 0);
+      const quote = einGesamt > 0 ? Math.round((cacheGesamt / einGesamt) * 100) : 0;
+
       return (
         `Tokenverbrauch seit dem Start des Servers (${gesamt.toLocaleString("de-DE")} gesamt):\n\n` +
         zeilen
@@ -1258,9 +1262,16 @@ export async function executeLukasTool(
             (z) =>
               `${z.model}: ${z.aufrufe} Aufrufe, ${z.rein.toLocaleString("de-DE")} rein / ` +
               `${z.raus.toLocaleString("de-DE")} raus` +
+              (z.ausCache > 0 ? ` / ${z.ausCache.toLocaleString("de-DE")} aus dem Cache` : "") +
               `  (${Math.round(((z.rein + z.raus) / gesamt) * 100)}% des Verbrauchs)`,
           )
           .join("\n") +
+        `\n\nCache-Quote: ${quote}% der Eingabe kam aus dem Cache.` +
+        (quote < 20
+          ? ` Das ist wenig. Bei einem Zug mit vielen Werkzeugrunden sollte der ` +
+            `Anteil hoch sein — der Prompt ist dabei jedes Mal derselbe. Ist er es nicht, ` +
+            `verändert etwas den Anfang des Prompts zwischen den Runden.`
+          : ` Der wiederholte Teil des Prompts wird also nicht jedes Mal voll bezahlt.`) +
         `\n\nZur Einordnung: sol ist das teure Modell, terra das mittlere, luna das günstige. ` +
         `Steht sol weit oben, obwohl es überwiegend Gespräche waren, arbeitest du zu teuer.`
       );

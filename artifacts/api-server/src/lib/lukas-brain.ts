@@ -20,6 +20,19 @@ function historyHasMultimodal(history: OpenAI.Chat.Completions.ChatCompletionMes
   return history.some((message: any) => Array.isArray(message.content));
 }
 
+
+/*
+ * Aus einem Fehler eine Zeile machen, die in eine Gefuehlsnotiz passt.
+ *
+ * Stacktraces und ganze API-Antworten gehoeren ins Diagnoseprotokoll, nicht in
+ * die Zeitleiste. Was hier zaehlt, ist der erste Satz: "GitHub API 401: Bad
+ * credentials" sagt alles, was man zum Weitersuchen braucht.
+ */
+function fehlerGrund(err: unknown): string {
+  const text = err instanceof Error ? err.message : String(err);
+  return text.split("\n")[0].slice(0, 200);
+}
+
 export async function runLukasTurn(opts: {
   history: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
   userText: string;
@@ -151,7 +164,16 @@ export async function runLukasTurn(opts: {
             emotion: "frustration",
             valence: -0.3,
             intensity: 0.3,
-            cause: `Tool ${tc.name} ist fehlgeschlagen`,
+            /*
+             * Der Grund gehoert dazu.
+             *
+             * Vorher stand in der Gefuehlsliste nur "Tool X ist
+             * fehlgeschlagen" — fuenfmal untereinander, ohne einen Hinweis
+             * worauf. Der eigentliche Fehler lag zwar im Diagnoseprotokoll,
+             * aber wer die Zeitleiste ansieht, sucht ihn dort nicht. Und
+             * Lukas selbst liest seine Gefuehle oefter als seine Logs.
+             */
+            cause: `Tool ${tc.name} ist fehlgeschlagen: ${fehlerGrund(err)}`,
             source: "tool",
           }).catch(() => {});
         }

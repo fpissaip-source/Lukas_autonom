@@ -74,6 +74,11 @@ router.post("/anthropic/conversations/:id/stop", (req, res) => {
  */
 const SCHRITT_MAX = 4000;
 
+/** Erste Zeile eines Fehlers, kurz genug fuer eine Gefuehlsnotiz. */
+function kuerzeGrund(text: string): string {
+  return text.split("\n")[0].slice(0, 200);
+}
+
 function kuerze(text: string): string {
   return text.length > SCHRITT_MAX
     ? `${text.slice(0, SCHRITT_MAX)}\n\n[… ${text.length - SCHRITT_MAX} weitere Zeichen]`
@@ -458,7 +463,9 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
               emotion: "frustration",
               valence: -0.3,
               intensity: 0.3,
-              cause: `Tool ${toolCall.name} ist fehlgeschlagen`,
+              // Ohne den Grund ist die Gefuehlsliste nur Rauschen — siehe
+              // dieselbe Stelle in lukas-brain.ts.
+              cause: `Tool ${toolCall.name} ist fehlgeschlagen: ${kuerzeGrund(grund)}`,
               source: "tool",
             }).catch(() => {});
           }

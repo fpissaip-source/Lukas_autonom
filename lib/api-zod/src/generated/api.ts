@@ -442,7 +442,9 @@ export const GetAnthropicConversationResponse = zod.object({
   "role": zod.string(),
   "content": zod.string(),
   "createdAt": zod.coerce.date()
-}))
+})),
+  "laeuft": zod.boolean().optional().describe('Ob gerade ein Zug fuer diese Unterhaltung laeuft. Die Oberflaeche fragt weiter nach, solange das true ist, statt nach einer festen Frist aufzugeben, waehrend Lukas noch arbeitet.'),
+  "laeuftSeit": zod.coerce.date().nullish()
 })
 
 

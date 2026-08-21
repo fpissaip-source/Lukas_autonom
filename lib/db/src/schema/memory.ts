@@ -1,4 +1,5 @@
-import { pgTable, serial, text, integer, real, timestamp, jsonb, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, real, timestamp, jsonb, boolean, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // ── Vier-Schichten-Gedächtnis: Postgres ist die Wahrheitsquelle ────────────
 // Obsidian-Vault und Graphify sind nur generierte Sichten darauf.
@@ -44,7 +45,21 @@ export const claimsTable = pgTable("lukas_claims", {
   episodeId: integer("episode_id"),
   corroborations: integer("corroborations").notNull().default(1),
   embedding: jsonb("embedding").$type<number[] | null>().default(null),
-});
+}, (t) => [
+  /*
+   * Der Graph-Einstieg sucht Entitaeten auf beiden Seiten einer Aussage.
+   *
+   * Die Subjektseite ist eine normale Spalte. Die Wertseite muss erst
+   * normalisiert werden ("Hareb Digital" -> "hareb_digital") — ohne
+   * Ausdrucksindex wuerde genau dieser Vergleich die Tabelle Zeile fuer Zeile
+   * durchgehen und den Sinn der gezielten Suche wieder auffressen.
+   */
+  index("lukas_claims_subject_idx").on(t.subject),
+  index("lukas_claims_wert_idx").on(
+    sql`lower(regexp_replace(btrim(${t.value}), '\\s+', '_', 'g'))`,
+  ),
+  index("lukas_claims_episode_idx").on(t.episodeId),
+]);
 
 export type ActionOutcome = {
   responseReceived?: boolean;

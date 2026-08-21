@@ -81,6 +81,18 @@ export const TOOL_RISK: Record<string, RiskTier> = {
    * Lukas ihn fragen darf — also genau das, was er nicht mehr tun soll.
    */
   melde_dich_bei_issa: "R1",
+
+  /*
+   * Anrufen steht auf R1, obwohl es nach aussen wirkt.
+   *
+   * Der Grund: die eigentliche Sperre sitzt woanders. Anrufen kann er nur
+   * Nummern, die Issa im Dashboard ausdruecklich dafuer freigegeben hat —
+   * eine Liste, die Lukas selbst nicht aendern kann. Stuende das zusaetzlich
+   * auf R2, muesste Issa jeden Anruf im Dashboard freigeben; dann koennte er
+   * aber auch gleich selbst nachsehen, und "Lukas meldet sich von sich aus"
+   * waere sinnlos. Wer das anders will, stellt hier auf R2.
+   */
+  ruf_an: "R1",
   mcp_find_tool: "R0",
   read_diagnostics: "R0",
   read_usage: "R0",

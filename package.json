@@ -26,7 +26,8 @@
     "build:landing": "npm run build --workspace=@workspace/landing-page",
     "db:push": "npm run push --workspace=@workspace/db",
     "moltbook:register": "npm run moltbook:register --workspace=@workspace/scripts",
-    "codegen": "npm run codegen --workspace=@workspace/api-spec"
+    "codegen": "npm run codegen --workspace=@workspace/api-spec",
+    "telefon:einrichten": "node scripts/telefon-einrichten.mjs"
   },
   "devDependencies": {
     "prettier": "^3.8.3",

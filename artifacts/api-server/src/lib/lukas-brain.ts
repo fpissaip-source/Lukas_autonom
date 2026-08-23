@@ -57,6 +57,11 @@ export async function runLukasTurn(opts: {
    * nicht, dass hier ein Entwickler am Werk sein soll.
    */
   profil?: "code" | "reasoning" | "general" | "fast";
+  /*
+   * Der Auftragstext bringt Ziele und Tagebuch schon selbst mit (autonomer
+   * Lauf). Dann gehoeren sie nicht ein zweites Mal in den System-Prompt.
+   */
+  ohneZieleUndTagebuch?: boolean;
 }): Promise<string> {
   /*
    * Dashboard-Chats haben eine dauerhafte positive Konversations-ID. Autonome
@@ -73,7 +78,10 @@ export async function runLukasTurn(opts: {
   const conversationId = opts.conversationId ?? -randomInt(1, 2_147_483_648);
 
   const systemPrompt =
-    opts.systemPromptOverride ?? (await buildSystemPrompt(opts.userText.slice(0, 1000)));
+    opts.systemPromptOverride ??
+    (await buildSystemPrompt(opts.userText.slice(0, 1000), {
+      ohneZieleUndTagebuch: opts.ohneZieleUndTagebuch,
+    }));
   const tools = opts.tools ?? (await allLukasTools());
   const convo: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },

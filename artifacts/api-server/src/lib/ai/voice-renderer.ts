@@ -62,6 +62,18 @@ export async function renderLukasVoice(opts: {
     return true;
   });
 
+  /*
+   * Und davon nur das Ende.
+   *
+   * Diese Schicht formuliert einen fertigen Entwurf aus — sie muss nicht das
+   * ganze Gespraech kennen, sondern nur, worauf gerade geantwortet wird und in
+   * welchem Ton man zuletzt miteinander geredet hat. Der Inhalt steht im
+   * Entwurf. Vorher fuhr bei jedem Zug der komplette Verlauf ein zweites Mal
+   * mit — bei einem langen Gespraech war das der groesste einzelne Posten, und
+   * zwar fuer die billigste Aufgabe im ganzen System.
+   */
+  const letzte = dialog.slice(-Number(process.env.LUKAS_VOICE_HISTORY ?? 4));
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     {
       role: "system",
@@ -73,7 +85,7 @@ export async function renderLukasVoice(opts: {
        */
       content: VOICE_RULES,
     },
-    ...dialog,
+    ...letzte,
     {
       role: "user",
       content:
@@ -91,7 +103,15 @@ export async function renderLukasVoice(opts: {
    * verschlucken kann, war der eigentliche Konstruktionsfehler.
    */
   try {
-    const result = await callLukasModel({ route, messages, maxTokens: 8192 });
+    /*
+     * Das Budget richtet sich nach dem Entwurf. 8192 waren hier immer gesetzt,
+     * obwohl eine ausformulierte Antwort nie laenger wird als das, was schon
+     * dasteht — mit etwas Luft fuer Formatierung. Bei Modellen, die ihr Denken
+     * aus demselben Budget nehmen, ist ein zu grosser Deckel keine Reserve,
+     * sondern eine Einladung.
+     */
+    const budget = Math.min(8192, Math.max(1200, Math.ceil(draft.length / 3) + 700));
+    const result = await callLukasModel({ route, messages, maxTokens: budget });
     return result.content.trim() || draft;
   } catch (err) {
     logger.warn({ err }, "Ausgabeschicht fehlgeschlagen — der Entwurf geht unveraendert raus");

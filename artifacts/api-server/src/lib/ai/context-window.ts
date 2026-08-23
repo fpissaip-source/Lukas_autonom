@@ -1,7 +1,21 @@
 import type OpenAI from "openai";
 import { logger } from "../logger";
 
-const DEFAULT_MAX_CONTEXT_CHARS = 220_000;
+/*
+ * Wie viel Gespraech ueberhaupt mitgeschickt wird.
+ *
+ * Der Wert stand auf 220.000 Zeichen — rund 60.000 Tokens. Erreicht ein Thread
+ * diese Groesse, wird er ab dann jede Runde in voller Laenge erneut bezahlt,
+ * und ein Zug mit zehn Werkzeugrunden zehnmal. Fuer ein Modellfenster war das
+ * grosszuegig gedacht; fuer die Rechnung ist es der teuerste Posten ueberhaupt.
+ *
+ * 60.000 Zeichen (~17.000 Tokens) sind ein langes Gespraech, nicht ein kurzes.
+ * Was davor liegt, ist NICHT verloren: der Rohverlauf steht vollstaendig in der
+ * Datenbank, und was zur aktuellen Nachricht passt, holt buildSystemPrompt
+ * ueber memoryContextFor gezielt zurueck — plus query_memory, wenn Lukas
+ * gezielt sucht. Gekuerzt wird also nur, was in DIESEM Aufruf mitfaehrt.
+ */
+const DEFAULT_MAX_CONTEXT_CHARS = Number(process.env.LUKAS_CONTEXT_MAX_CHARS ?? 60_000);
 
 function contentCost(content: unknown): number {
   if (typeof content === "string") return content.length;
@@ -33,7 +47,7 @@ function messageCost(message: OpenAI.Chat.Completions.ChatCompletionMessageParam
 function maxContextChars(): number {
   const raw = Number(process.env.LUKAS_CONTEXT_MAX_CHARS ?? DEFAULT_MAX_CONTEXT_CHARS);
   if (!Number.isFinite(raw)) return DEFAULT_MAX_CONTEXT_CHARS;
-  return Math.max(40_000, Math.floor(raw));
+  return Math.max(12_000, Math.floor(raw));
 }
 
 /**

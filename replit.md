@@ -48,6 +48,9 @@ Persistenter KI-Agent mit Persönlichkeit, Gedächtnis (PostgreSQL), echtem Tool
 - `LUKAS_API_TOKEN` ist Pflicht: fehlt er, bleibt die private API geschlossen (503) statt offen. UI liest den Token aus `localStorage.getItem("lukas_token")`.
 - Die private API akzeptiert Browser-Aufrufe nur vom eigenen Host; weitere Ursprünge über `LUKAS_ALLOWED_ORIGINS` (kommagetrennt). `/api/public/*` und die Webhooks bleiben bewusst offen.
 - Rate-Limit der privaten API: 240 Anfragen/Minute je Adresse, per `LUKAS_RATE_LIMIT` änderbar. Ausgenommen: localhost, Webhooks, `/healthz`, `/api/public/*` (hat ein eigenes, engeres Limit).
+- Kontextfenster je Modellaufruf: `LUKAS_CONTEXT_MAX_CHARS` (Standard 60.000 Zeichen ≈ 17k Tokens). Der Rohverlauf bleibt vollständig in der DB; Älteres kommt über memoryContextFor/query_memory zurück.
+- Autonomie: Herzschlag alle `LUKAS_AUTONOMY_INTERVAL_MIN` (30) Minuten, ein voller Lauf startet aber nur bei einem Ereignis (Ziel bewegt, Freigabe, Antwort von Issa, ≥3 neue Fehler) oder nach `LUKAS_AUTONOMY_MIN_PAUSE_MIN` (180) Minuten Grundtakt — `lib/autonomie-anlass.ts`.
+- Ausgabeschicht bekommt nur die letzten `LUKAS_VOICE_HISTORY` (4) Dialogzeilen plus den Entwurf, nie den System-Prompt.
 - Das Python-/VPS-System liegt unter `vps/` (Quelle der Wahrheit; Deploy via `scripts/lukas-deploy/deploy.sh`). Die Web-App startet es nicht — nur Lesezugriff auf dessen Postgres.
 
 ## User preferences

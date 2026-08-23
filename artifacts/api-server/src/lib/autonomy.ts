@@ -5,6 +5,7 @@ import { runLukasTurn } from "./lukas-brain";
 import { openEpisode, closeEpisode } from "./memory-writer";
 import { logger } from "./logger";
 import { neueAntworten } from "./melden";
+import { anlass, laufNotiert } from "./autonomie-anlass";
 
 /*
  * Lukas arbeitet an Issas Zielen.
@@ -169,17 +170,31 @@ Wichtig, damit das hier nicht zur Beschäftigungstherapie wird:
 }
 
 export async function runAutonomyCycle(): Promise<void> {
+  /*
+   * Erst nachsehen, ob es etwas zu tun gibt — das kostet vier kleine Abfragen
+   * und kein Token. Ohne diese Frage lief alle 30 Minuten ein voller Lauf,
+   * auch wenn sich seit dem letzten nichts geaendert hatte.
+   */
+  const grund = await anlass();
+  if (!grund.starten) {
+    logger.info({ grund: grund.grund }, "Autonomie: übersprungen");
+    return;
+  }
+
   const brief = await briefing();
   if (!brief) {
     logger.info("Autonomie: keine aktiven Ziele — nichts zu tun");
     return;
   }
+  logger.info({ grund: grund.grund }, "Autonomie: Lauf startet");
 
   const episode = await openEpisode("autonomer_lauf");
   try {
     const result = await runLukasTurn({
       history: [{ role: "user", content: brief }],
       userText: brief,
+      // Ziele und Tagebuch stehen oben im Auftrag — nicht noch einmal.
+      ohneZieleUndTagebuch: true,
     });
 
     const summary = (result || "").trim();
@@ -188,6 +203,10 @@ export async function runAutonomyCycle(): Promise<void> {
   } catch (err) {
     logger.warn({ err }, "Autonomer Lauf fehlgeschlagen");
     await closeEpisode(episode.id, `Fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    // Auch nach einem Fehlschlag: sonst laeuft dieselbe kaputte Sache im
+    // Halbstundentakt weiter.
+    await laufNotiert();
   }
 }
 

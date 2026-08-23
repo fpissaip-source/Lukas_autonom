@@ -1252,7 +1252,10 @@ export async function executeLukasTool(
       if (zeilen.length === 0) return "Seit dem Start wurde noch kein Modellaufruf gezählt.";
       const gesamt = zeilen.reduce((n, z) => n + z.rein + z.raus, 0);
       const cacheGesamt = zeilen.reduce((n, z) => n + z.ausCache, 0);
-      const einGesamt = zeilen.reduce((n, z) => n + z.rein + z.ausCache, 0);
+      const schreibGesamt = zeilen.reduce((n, z) => n + z.inCache, 0);
+      // `rein` ist der frisch bezahlte Eingang (siehe model-client.ts) — der
+      // ganze Eingang ist erst rein + gelesen + geschrieben.
+      const einGesamt = zeilen.reduce((n, z) => n + z.rein + z.ausCache + z.inCache, 0);
       const quote = einGesamt > 0 ? Math.round((cacheGesamt / einGesamt) * 100) : 0;
 
       return (
@@ -1266,7 +1269,11 @@ export async function executeLukasTool(
               `  (${Math.round(((z.rein + z.raus) / gesamt) * 100)}% des Verbrauchs)`,
           )
           .join("\n") +
-        `\n\nCache-Quote: ${quote}% der Eingabe kam aus dem Cache.` +
+        `\n\nCache-Quote: ${quote}% der Eingabe kam aus dem Cache` +
+        (schreibGesamt > 0
+          ? ` (${schreibGesamt.toLocaleString("de-DE")} Tokens wurden neu hineingeschrieben — ` +
+            `das kostet mehr als normale Eingabe und lohnt nur, wenn derselbe Anfang wiederkommt).`
+          : ".") +
         (quote < 20
           ? ` Das ist wenig. Bei einem Zug mit vielen Werkzeugrunden sollte der ` +
             `Anteil hoch sein — der Prompt ist dabei jedes Mal derselbe. Ist er es nicht, ` +

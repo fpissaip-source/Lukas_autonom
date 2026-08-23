@@ -30,7 +30,19 @@ function executionContext(): string {
   return "DEINE AUSFÜHRUNGSUMGEBUNG: execute_command nutzt aktuell eine isolierte E2B-Sandbox. Dauerhafte DigitalOcean-Arbeiten sind erst aktiv, wenn LUKAS_EXECUTION_BACKEND auf ssh oder host gestellt ist.";
 }
 
-export async function buildSystemPrompt(userQuery?: string): Promise<string> {
+/*
+ * `ohneZieleUndTagebuch` ist fuer den autonomen Lauf.
+ *
+ * Dessen Auftragstext enthaelt die Ziele bereits ausfuehrlich (mit
+ * Beschreibung und Stand) und die letzten drei Tagebucheintraege. Kommen sie
+ * hier ein zweites Mal, steht dasselbe zweimal im selben Aufruf — bezahlt wird
+ * es auch zweimal, und das Modell muss sich obendrein reimen, warum.
+ */
+export async function buildSystemPrompt(
+  userQuery?: string,
+  opts: { ohneZieleUndTagebuch?: boolean } = {},
+): Promise<string> {
+  const kurzfassung = opts.ohneZieleUndTagebuch === true;
   const [
     statusRow,
     importantMemories,
@@ -55,8 +67,12 @@ export async function buildSystemPrompt(userQuery?: string): Promise<string> {
       .where(ne(memoriesTable.category, CONVERSATION_CATEGORY))
       .orderBy(desc(memoriesTable.createdAt))
       .limit(10),
-    db.select().from(goalsTable).where(eq(goalsTable.status, "active")).limit(5),
-    db.select().from(diaryTable).orderBy(desc(diaryTable.createdAt)).limit(2),
+    kurzfassung
+      ? Promise.resolve([])
+      : db.select().from(goalsTable).where(eq(goalsTable.status, "active")).limit(5),
+    kurzfassung
+      ? Promise.resolve([])
+      : db.select().from(diaryTable).orderBy(desc(diaryTable.createdAt)).limit(2),
     getEmotionalContext(),
     getCharacterContext(),
     getProposalContext().catch(() => ""),

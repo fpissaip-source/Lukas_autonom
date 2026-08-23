@@ -304,13 +304,34 @@ const verbrauch = new Map<
  * Caching ueberhaupt greift — und ohne diese Zahl ist jede Aussage ueber
  * Kosten geraten.
  */
-function cacheTreffer(usage: any): { gelesen: number; geschrieben: number } {
-  const gelesen =
-    Number(usage.cache_read_input_tokens ?? 0) ||
-    Number(usage.input_tokens_details?.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? 0);
+function cacheTreffer(usage: any): { gelesen: number; geschrieben: number; imEingang: boolean } {
+  /*
+   * Und hier liegt die Falle, an der jede Cache-Quote falsch wird:
+   *
+   *   OpenAI     input_tokens ENTHAELT die gecachten Tokens bereits.
+   *              cached_tokens ist eine Teilmenge davon.
+   *   Anthropic  input_tokens enthaelt sie NICHT. cache_read_input_tokens und
+   *              cache_creation_input_tokens stehen daneben.
+   *
+   * Wer beides gleich behandelt, zaehlt bei OpenAI dieselben Tokens zweimal —
+   * einmal als Eingang, einmal als Cache — und bekommt eine Quote, die zu
+   * niedrig ist. Genau das stand hier. Deshalb sagt `imEingang`, welcher Fall
+   * vorliegt, und merkeVerbrauch rechnet danach.
+   */
+  const anthropisch = usage.cache_read_input_tokens !== undefined || usage.cache_creation_input_tokens !== undefined;
+  if (anthropisch) {
+    return {
+      gelesen: Number(usage.cache_read_input_tokens ?? 0),
+      geschrieben: Number(usage.cache_creation_input_tokens ?? 0),
+      imEingang: false,
+    };
+  }
   return {
-    gelesen,
-    geschrieben: Number(usage.cache_creation_input_tokens ?? 0),
+    gelesen: Number(
+      usage.input_tokens_details?.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? 0,
+    ),
+    geschrieben: 0,
+    imEingang: true,
   };
 }
 
@@ -318,8 +339,14 @@ function merkeVerbrauch(model: string, usage: any): void {
   if (!usage) return;
   const eintrag = verbrauch.get(model) ?? { aufrufe: 0, rein: 0, raus: 0, ausCache: 0, inCache: 0 };
   const cache = cacheTreffer(usage);
+  const gemeldet = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0);
   eintrag.aufrufe++;
-  eintrag.rein += Number(usage.input_tokens ?? usage.prompt_tokens ?? 0);
+  /*
+   * `rein` heisst ab hier ueberall dasselbe: frisch bezahlter Eingang, ohne
+   * das, was aus dem Cache kam. Nur so ist rein + ausCache der ganze Eingang —
+   * bei beiden Anbietern.
+   */
+  eintrag.rein += cache.imEingang ? Math.max(0, gemeldet - cache.gelesen) : gemeldet;
   eintrag.raus += Number(usage.output_tokens ?? usage.completion_tokens ?? 0);
   eintrag.ausCache += cache.gelesen;
   eintrag.inCache += cache.geschrieben;

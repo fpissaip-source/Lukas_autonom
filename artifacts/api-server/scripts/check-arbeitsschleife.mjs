@@ -97,5 +97,98 @@ pruefe("Notbremse deutlich über jeder normalen Arbeit", NOTBREMSE >= 100);
   pruefe("und zwar erst bei NOTBREMSE", s.rundenZahl === NOTBREMSE);
 }
 
+
+// ── Budget je Zug ─────────────────────────────────────────────────────────
+// Vorher gab es keins: 200 Runden konnten zehn Minuten oder drei Stunden sein,
+// ein paar tausend Tokens oder eine Million.
+{
+  process.env.LUKAS_TURN_TOKEN_BUDGET = "10000";
+  process.env.LUKAS_TURN_MAX_MINUTEN = "10000"; // Zeit hier bewusst kein Faktor
+  const s = new Arbeitsschleife();
+
+  s.naechsteRunde();
+  s.verbucht({ rein: 4000, raus: 500 });
+  pruefe("unter dem Budget läuft er ohne Bemerkung weiter", s.hinweise([]).length === 0);
+  pruefe("und darf weiter", s.darfWeiter());
+  pruefe("der Abbruchgrund ist leer", s.abbruchGrund() === null);
+
+  s.naechsteRunde();
+  s.verbucht({ rein: 6000, raus: 500 });
+  const warnung = s.hinweise([]).map((h) => h.content).join(" ");
+  pruefe("bei aufgebrauchtem Budget bekommt er einen Hinweis", /Budget/.test(warnung));
+  pruefe("und wird nicht abgeschnitten, sondern soll zum Ende kommen", /zum Ende/.test(warnung));
+  pruefe("er darf trotzdem noch fertig werden", s.darfWeiter());
+  pruefe("der Hinweis kommt nur einmal", !/Budget/.test(s.hinweise([]).map((h) => h.content).join(" ")));
+
+  // Erst deutlich darüber ist Schluss — sonst wirft man weg, was er schon hat.
+  s.verbucht({ rein: 6000, raus: 0 });
+  pruefe("bei 150 % ist Schluss", !s.darfWeiter());
+  pruefe("und der Grund steht fest", /Budget/.test(s.abbruchGrund() ?? ""));
+  pruefe("mit der echten Zahl darin", /17\.000|17000/.test(s.abbruchGrund() ?? ""));
+
+  delete process.env.LUKAS_TURN_TOKEN_BUDGET;
+  delete process.env.LUKAS_TURN_MAX_MINUTEN;
+}
+
+// Die Zeitgrenze wirkt genauso, auch ohne einen einzigen Token.
+{
+  process.env.LUKAS_TURN_MAX_MINUTEN = "0.0001"; // ~6 ms
+  const s = new Arbeitsschleife();
+  await new Promise((r) => setTimeout(r, 30));
+  pruefe("nach der Zeitgrenze ist ebenfalls Schluss", !s.darfWeiter());
+  pruefe("und es steht dran, dass es die Zeit war", /min/.test(s.abbruchGrund() ?? ""));
+  delete process.env.LUKAS_TURN_MAX_MINUTEN;
+}
+
+// ── Ähnliche Aufrufe ──────────────────────────────────────────────────────
+// Dieselbe Frage in anderen Worten ist formal nie derselbe Aufruf — und lief
+// deshalb an der Wiederholungssperre vorbei.
+{
+  const s = new Arbeitsschleife();
+  const suchen = ["foo bar", "foo bar latest", "latest foo bar", "foo bar neueste"];
+  let texte = [];
+  for (const q of suchen) {
+    s.naechsteRunde();
+    texte.push(
+      ...s.hinweise([{ name: "web_search", arguments: JSON.stringify({ query: q }) }]).map((h) => h.content),
+    );
+  }
+  const aehnlich = texte.filter((t) => t.includes("sehr ähnlich"));
+  pruefe("vier Umformulierungen derselben Suche werden bemerkt", aehnlich.length === 1);
+  pruefe("und er wird auf einen anderen Weg geschickt", /Werkzeug oder die Quelle/.test(aehnlich[0] ?? ""));
+}
+
+// Gegenrichtung, und die ist wichtiger: echte Arbeit darf nicht so aussehen.
+{
+  const s = new Arbeitsschleife();
+  let texte = [];
+  for (let i = 0; i < 12; i++) {
+    s.naechsteRunde();
+    texte.push(
+      ...s
+        .hinweise([{ name: "browse_page", arguments: JSON.stringify({ url: `https://x.test/seite/${i}` }) }])
+        .map((h) => h.content),
+    );
+  }
+  pruefe(
+    "zwölf Seiten derselben Domain sind Arbeit, keine Wiederholung",
+    !texte.some((t) => t.includes("sehr ähnlich")),
+  );
+}
+{
+  const s = new Arbeitsschleife();
+  let texte = [];
+  for (const befehl of ["npm install express", "npm run build", "git status", "ls -la /srv"]) {
+    s.naechsteRunde();
+    texte.push(
+      ...s.hinweise([{ name: "execute_command", arguments: JSON.stringify({ command: befehl }) }]).map((h) => h.content),
+    );
+  }
+  pruefe(
+    "vier verschiedene Befehle ebenfalls nicht",
+    !texte.some((t) => t.includes("sehr ähnlich")),
+  );
+}
+
 if (fehler > 0) process.exit(1);
 console.log(`OK — Arbeitsschleife: keine Bremse bei echter Arbeit, Hinweis nur beim Im-Kreis-Laufen (Notbremse ${NOTBREMSE}).`);

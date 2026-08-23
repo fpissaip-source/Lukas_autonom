@@ -415,6 +415,9 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
 
       // Erst nach den Ergebnissen einfuegen: zwischen Aufruf und Ergebnis darf
       // nichts stehen, sonst weist die API den ganzen Aufruf zurueck.
+      // Was dieser Aufruf gekostet hat, zaehlt aufs Budget dieses Zuges.
+      schleife.verbucht(result.usage);
+
       const hinweise = schleife.hinweise(result.toolCalls);
 
       for (const toolCall of result.toolCalls) {

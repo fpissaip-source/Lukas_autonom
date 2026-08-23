@@ -175,6 +175,41 @@ pruefe("und laesst den oeffentlichen Teil zu", regel?.origin === true);
   pruefe("hinter HTTPS dagegen schon", Boolean(res.kopf["Strict-Transport-Security"]));
 }
 
+// ── 2b. Content-Security-Policy ───────────────────────────────────────────
+// Im localStorage liegt der Zugangstoken. Der einzige realistische Weg, ihn
+// auszulesen, ist ein eingeschleustes Skript — genau dagegen steht script-src.
+{
+  const { res } = durch(sicherheitsKopfzeilen, anfrage("/chat"));
+  const csp = res.kopf["Content-Security-Policy"] ?? "";
+  pruefe("es gibt eine CSP", csp.length > 0);
+  pruefe("fremde Skripte sind ausgesperrt", /script-src 'self'(;|$)/.test(csp));
+  pruefe("und kein 'unsafe-inline' beim Skript", !/script-src[^;]*unsafe-inline/.test(csp));
+  pruefe("nichts darf uns einbetten außer wir selbst", /frame-ancestors 'self'/.test(csp));
+  pruefe("Plugins sind aus", /object-src 'none'/.test(csp));
+
+  // Gegenrichtung: was das Dashboard wirklich braucht, muss durchkommen.
+  pruefe("der Sprachkanal erreicht OpenAI direkt", /connect-src[^;]*api\.openai\.com/.test(csp));
+  pruefe("und per WebSocket", /connect-src[^;]*wss:\/\/\*\.openai\.com/.test(csp));
+  pruefe("fremde Bilder (Anhänge, Medien) werden angezeigt", /img-src[^;]*https:/.test(csp));
+  pruefe("Laufzeit-Stile bleiben erlaubt", /style-src[^;]*'unsafe-inline'/.test(csp));
+  pruefe("Worker aus Blobs auch", /worker-src[^;]*blob:/.test(csp));
+}
+{
+  // Das Widget wird in fremde Seiten eingebettet — dort gilt deren CSP.
+  const { res } = durch(sicherheitsKopfzeilen, anfrage("/widget.js"));
+  pruefe("das Widget bekommt keine CSP aufgedrückt", !res.kopf["Content-Security-Policy"]);
+}
+{
+  process.env.LUKAS_CSP = "report";
+  const { res } = durch(sicherheitsKopfzeilen, anfrage("/chat"));
+  pruefe("im Report-Modus wird nur gemeldet", Boolean(res.kopf["Content-Security-Policy-Report-Only"]));
+  pruefe("und nichts blockiert", !res.kopf["Content-Security-Policy"]);
+  process.env.LUKAS_CSP = "off";
+  const aus = durch(sicherheitsKopfzeilen, anfrage("/chat")).res;
+  pruefe("und ganz abschaltbar, falls doch etwas bricht", !aus.kopf["Content-Security-Policy"]);
+  delete process.env.LUKAS_CSP;
+}
+
 // ── 3. Limit ──────────────────────────────────────────────────────────────
 process.env.LUKAS_RATE_LIMIT = "5";
 drosselZuruecksetzen();

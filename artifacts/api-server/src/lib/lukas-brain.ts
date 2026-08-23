@@ -136,6 +136,9 @@ export async function runLukasTurn(opts: {
      * zugehoerigen Ergebnisse folgen — schiebt man eine System-Nachricht
      * dazwischen, weist die API den ganzen Aufruf zurueck.
      */
+    // Was dieser Aufruf gekostet hat, zaehlt aufs Budget dieses Zuges.
+    schleife.verbucht(result.usage);
+
     const hinweise = schleife.hinweise(result.toolCalls);
 
     for (const tc of result.toolCalls) {
@@ -192,8 +195,12 @@ export async function runLukasTurn(opts: {
     convo.push(...hinweise);
   }
 
-  if (schleife.notbremseGriff()) {
-    logger.warn({ runden: schleife.rundenZahl }, "Notbremse gegriffen — echte Endlosschleife?");
+  const abbruch = schleife.abbruchGrund();
+  if (abbruch) {
+    logger.warn(
+      { runden: schleife.rundenZahl, tokens: schleife.verbrauchteTokens, grund: abbruch },
+      "Zug wurde beendet, bevor Lukas fertig war",
+    );
   }
 
   /*

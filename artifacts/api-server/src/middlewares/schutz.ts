@@ -12,12 +12,13 @@ import type { Request, Response, NextFunction } from "express";
  *
  * Was hier NICHT steht, und warum:
  *
- *  - Keine Content-Security-Policy. Eine falsche CSP legt das Dashboard
- *    lautlos lahm (Vite bootet ueber ein Inline-Skript, three.js baut den
- *    WebGL-Kontext zur Laufzeit). Das sauber zu machen heisst: Nonces durch
- *    den Build reichen. Das ist eine eigene Aufgabe, keine Zeile nebenbei —
- *    und eine halbe CSP ist schlimmer als keine, weil sie Sicherheit
- *    vortaeuscht und Funktionen kaputtmacht.
+ *  - Die Content-Security-Policy stand hier zuerst NICHT, aus Sorge vor
+ *    Nonce-Pipelines. Beim Nachsehen im gebauten Dashboard war die Sorge
+ *    unbegruendet: Vite erzeugt genau ein <script src=...>, kein Inline-Skript
+ *    und kein <style>-Tag. `script-src 'self'` reicht also — und das ist die
+ *    Richtung, auf die es ankommt, weil im localStorage der Zugangstoken
+ *    liegt. Ein eingeschleustes Skript ist der einzige realistische Weg, ihn
+ *    auszulesen.
  *  - Kein Cross-Origin-Opener-Policy. Die MCP-Anmeldung laeuft ueber ein
  *    Browserfenster zu einem fremden Anbieter und zurueck; COOP kann genau
  *    diesen Rueckweg abschneiden.
@@ -110,7 +111,56 @@ export function korsRegeln(
   });
 }
 
+/*
+ * Die Regeln im Einzelnen — jede steht fuer etwas, das das Dashboard wirklich
+ * tut. Wer hier etwas streicht, schaltet eine Funktion ab:
+ *
+ *   connect-src  api.openai.com: der Sprachkanal verbindet sich DIREKT zu
+ *                OpenAI (WebRTC), damit das Gespraech nicht ueber unseren
+ *                Server umgeleitet wird. Ohne diese Zeile bleibt er stumm.
+ *   img-src      https: — Anhaenge und fertige Medien kommen von fremden
+ *                Adressen (Higgsfield, Mail-Anhaenge).
+ *   style-src    'unsafe-inline': Komponenten setzen Stile zur Laufzeit. Stile
+ *                sind kein Weg, an den Token zu kommen; Skripte schon.
+ *   worker-src   blob: — Vite und three.js starten Worker aus Blobs.
+ */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://api.openai.com https://*.openai.com wss://*.openai.com blob:",
+  "worker-src 'self' blob:",
+  "frame-ancestors 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "form-action 'self'",
+].join("; ");
+
+/*
+ * Das Widget und seine Demoseite bleiben aussen vor: sie werden in fremde
+ * Seiten eingebettet, und dort gilt ohnehin die CSP der fremden Seite. Der
+ * Token liegt dort nicht.
+ */
+const ohneCsp = (pfad: string) => pfad === "/widget.js" || pfad.startsWith("/embed-demo");
+
 export function sicherheitsKopfzeilen(req: Request, res: Response, next: NextFunction): void {
+  /*
+   * LUKAS_CSP=off schaltet sie ab, LUKAS_CSP=report meldet nur, statt zu
+   * blockieren. Der Report-Modus ist der ehrliche Weg, eine CSP einzufuehren:
+   * bricht doch etwas, sieht man es in der Browserkonsole, statt dass das
+   * Dashboard weiss bleibt.
+   */
+  const modus = (process.env.LUKAS_CSP ?? "an").trim().toLowerCase();
+  if (modus !== "off" && !ohneCsp(req.path)) {
+    res.setHeader(
+      modus === "report" ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy",
+      CSP,
+    );
+  }
+
   // Kein Raten am Inhaltstyp: verhindert, dass ein hochgeladener Text als
   // Skript ausgefuehrt wird, nur weil er danach aussieht.
   res.setHeader("X-Content-Type-Options", "nosniff");

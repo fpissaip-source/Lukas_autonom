@@ -16,6 +16,12 @@ export type LukasModelResult = {
   toolCalls: LukasToolCall[];
   finishReason: string | null;
   route: ModelRoute;
+  /*
+   * Was dieser eine Aufruf gekostet hat. Bisher wanderte das nur in die
+   * Gesamtstatistik — die weiss aber nicht, welcher Zug dahintersteckt. Fuer
+   * ein Budget PRO ZUG muss die Arbeitsschleife es sehen.
+   */
+  usage?: { rein: number; raus: number };
 };
 
 type CallInput = {
@@ -335,8 +341,8 @@ function cacheTreffer(usage: any): { gelesen: number; geschrieben: number; imEin
   };
 }
 
-function merkeVerbrauch(model: string, usage: any): void {
-  if (!usage) return;
+function merkeVerbrauch(model: string, usage: any): { rein: number; raus: number } {
+  if (!usage) return { rein: 0, raus: 0 };
   const eintrag = verbrauch.get(model) ?? { aufrufe: 0, rein: 0, raus: 0, ausCache: 0, inCache: 0 };
   const cache = cacheTreffer(usage);
   const gemeldet = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0);
@@ -362,6 +368,13 @@ function merkeVerbrauch(model: string, usage: any): void {
     },
     "Modellverbrauch",
   );
+
+  // Fuer das Budget zaehlt der ganze Eingang, auch der gecachte Teil: guenstiger
+  // heisst nicht kostenlos.
+  return {
+    rein: cache.imEingang ? gemeldet : gemeldet + cache.gelesen + cache.geschrieben,
+    raus: Number(usage.output_tokens ?? usage.completion_tokens ?? 0),
+  };
 }
 
 export function verbrauchsUebersicht(): Array<{
@@ -429,7 +442,7 @@ async function callOpenAI(input: CallInput): Promise<LukasModelResult> {
    *
    * Die Zahlen kommen ohnehin in jeder Antwort mit, sie wurden nur weggeworfen.
    */
-  merkeVerbrauch(input.route.model, response.usage);
+  const verbraucht = merkeVerbrauch(input.route.model, response.usage);
 
   const content = String(response.output_text ?? "");
 
@@ -456,6 +469,7 @@ async function callOpenAI(input: CallInput): Promise<LukasModelResult> {
     toolCalls,
     finishReason: toolCalls.length ? "tool_calls" : String(response.status ?? "stop"),
     route: input.route,
+    usage: verbraucht,
   };
 }
 
@@ -507,7 +521,7 @@ async function callAnthropic(input: CallInput): Promise<LukasModelResult> {
   const raw = await response.text();
   if (!response.ok) throw new Error(`Anthropic ${response.status}: ${raw.slice(0, 1000)}`);
   const data = JSON.parse(raw) as any;
-  merkeVerbrauch(input.route.model, data.usage);
+  const verbraucht = merkeVerbrauch(input.route.model, data.usage);
   const text: string[] = [];
   const toolCalls: LukasToolCall[] = [];
   for (const block of data.content ?? []) {
@@ -525,6 +539,7 @@ async function callAnthropic(input: CallInput): Promise<LukasModelResult> {
     toolCalls,
     finishReason: data.stop_reason === "tool_use" ? "tool_calls" : String(data.stop_reason ?? "stop"),
     route: input.route,
+    usage: verbraucht,
   };
 }
 
@@ -582,7 +597,7 @@ async function callLocal(input: CallInput): Promise<LukasModelResult> {
     throw new Error(`Lokales Modell hat kein JSON geliefert: ${raw.slice(0, 300)}`);
   }
 
-  merkeVerbrauch(input.route.model, data.usage);
+  const verbraucht = merkeVerbrauch(input.route.model, data.usage);
   const choice = data.choices?.[0];
   const toolCalls: LukasToolCall[] = [];
   for (const tc of choice?.message?.tool_calls ?? []) {
@@ -601,6 +616,7 @@ async function callLocal(input: CallInput): Promise<LukasModelResult> {
     toolCalls,
     finishReason: String(choice?.finish_reason ?? "stop"),
     route: input.route,
+    usage: verbraucht,
   };
 }
 
@@ -626,7 +642,7 @@ async function callGoogle(input: CallInput): Promise<LukasModelResult> {
   const raw = await response.text();
   if (!response.ok) throw new Error(`Gemini ${response.status}: ${raw.slice(0, 1000)}`);
   const data = JSON.parse(raw) as any;
-  merkeVerbrauch(input.route.model, data.usage);
+  const verbraucht = merkeVerbrauch(input.route.model, data.usage);
   const choice = data.choices?.[0];
   const toolCalls: LukasToolCall[] = [];
   for (const tc of choice?.message?.tool_calls ?? []) {
@@ -642,6 +658,7 @@ async function callGoogle(input: CallInput): Promise<LukasModelResult> {
     toolCalls,
     finishReason: String(choice?.finish_reason ?? "stop"),
     route: input.route,
+    usage: verbraucht,
   };
 }
 

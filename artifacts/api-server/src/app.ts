@@ -7,6 +7,7 @@ import router from "./routes";
 import whatsappRouter from "./routes/whatsapp";
 import { telefonWebhookRouter } from "./routes/telefon";
 import { lukasAuth } from "./middlewares/auth";
+import { korsRegeln, sicherheitsKopfzeilen, apiDrossel } from "./middlewares/schutz";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
@@ -30,7 +31,19 @@ app.use(
     },
   }),
 );
-app.use(cors());
+/*
+ * Kopfzeilen und Herkunft, bevor irgendetwas anderes laeuft.
+ *
+ * Hier stand `app.use(cors())` — jede Webseite der Welt durfte im Browser
+ * eines Angemeldeten diese API aufrufen und die Antwort lesen. Der Token hat
+ * es aufgefangen; die Tuer stand trotzdem offen. Der oeffentliche Teil
+ * (/api/public/*, Webhooks) bleibt bewusst offen, alles andere ist auf den
+ * eigenen Host plus LUKAS_ALLOWED_ORIGINS beschraenkt — Details in
+ * middlewares/schutz.ts.
+ */
+app.use(sicherheitsKopfzeilen);
+app.use(cors(korsRegeln));
+app.use(apiDrossel);
 // Rohen Body mitschneiden: die WhatsApp-Webhook-Signatur (HMAC-SHA256) wird
 // ueber die exakten Bytes gebildet — nach dem JSON-Parsen laesst sie sich
 // nicht mehr zuverlaessig nachrechnen.

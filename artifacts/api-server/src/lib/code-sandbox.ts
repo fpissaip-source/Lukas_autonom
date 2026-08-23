@@ -343,10 +343,16 @@ export async function executeCommand(
  * hier aus sind die Trading-Credentials, die Datenbank und die laufenden Bots
  * erreichbar.
  *
- * Deshalb ist der zugehörige Tool-Aufruf als R3 eingestuft und braucht Issas
- * Freigabe für JEDEN einzelnen Befehl, gebunden an genau diesen Wortlaut. Die
- * Absicherung liegt bewusst nicht hier, sondern in lib/policy.ts — diese
- * Funktion führt nur aus, was dort bereits genehmigt wurde.
+ * Wie streng das gehandhabt wird, entscheidet NICHT diese Datei, sondern
+ * lib/policy.ts. Stand dort früher fest auf R3 (Freigabe für jeden einzelnen
+ * Befehl); heute ist es R1 — Issas Entscheidung: der Droplet gehört ihm, Lukas
+ * hat dort ohnehin root, und ein Assistent, der für jedes `apt install` fragt,
+ * ist keiner. Mit LUKAS_HOST_APPROVAL=true kommt die Freigabepflicht zurück.
+ *
+ * Diese Funktion führt in beiden Fällen nur aus, was die Policy vorher
+ * durchgelassen hat. Der Satz hier ist bewusst keine zweite Wahrheit über die
+ * Stufe — die steht in policy.ts, und was Lukas darüber erfährt, erzeugt
+ * policyHinweis() daraus.
  */
 export async function executeOnHost(command: string, timeoutSeconds = 120): Promise<string> {
   if (!command.trim()) throw new Error("command darf nicht leer sein");

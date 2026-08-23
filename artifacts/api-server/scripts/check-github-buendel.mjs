@@ -30,6 +30,9 @@ export const logger = { warn() {}, info() {}, error() {} };
 
 // Das Policy-Gate laesst hier alles durch; geprueft wird das Lesen, nicht die Freigabe.
 export const checkPolicy = async () => ({ allow: true });
+// policyHinweis haengt jedem Werkzeug an, was die Policy dazu sagt — hier ohne
+// Belang, muss es aber geben, sonst laesst sich lukas-tools nicht buendeln.
+export const policyHinweis = () => "";
 export const setMcpRiskTiers = () => {};
 
 // Die eine Stelle, die der Test steuert: was GitHub antwortet.

@@ -1,0 +1,55 @@
+# Was hier laeuft, lief vorher nur, wenn jemand daran dachte.
+#
+# Im Repo stehen zweiundzwanzig check-*.mjs — jede einzelne haelt einen Fehler
+# fest, der schon einmal passiert ist: die verschluckte Antwort nach
+# Werkzeugen, der Chat-Stream, der grosse Bloecke verlor, die Freigabe, die
+# Lukas versprochen bekam und nicht hatte. Ohne CI schuetzt das nur den, der
+# vor dem Push "npm run typecheck" tippt.
+#
+# Bewusst kein Deploy-Schritt: Railway baut selbst von main. Hier wird
+# geprueft, nicht ausgeliefert.
+name: Prüfungen
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Ein neuer Push auf denselben Branch macht den vorherigen Lauf ueberfluessig.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pruefen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # npm ci statt install: baut exakt das, was in package-lock.json steht.
+      - run: npm ci
+
+      # Enthaelt tsc über alle Pakete UND alle check-*.mjs — die Prüfungen
+      # hängen bewusst am typecheck-Skript, damit sie lokal und hier
+      # dieselben sind.
+      - name: Typecheck und Regressionsprüfungen
+        run: npm run typecheck
+
+      - name: Build (API, Dashboard, Landingpage)
+        run: npm run build --workspaces --if-present
+
+      # Die Sicherheitsgrenze zum Schluss noch einmal einzeln, damit im
+      # Protokoll auf einen Blick steht, ob sie stand.
+      - name: Sicherheitsgrenze
+        working-directory: artifacts/api-server
+        run: |
+          node scripts/check-policy-wahrheit.mjs
+          node scripts/check-consent.mjs
+          node scripts/check-schutz.mjs

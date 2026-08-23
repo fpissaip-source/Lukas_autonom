@@ -2,7 +2,7 @@ import type OpenAI from "openai";
 import { db } from "@workspace/db";
 import { subagentsTable, type Subagent as DbSubagent } from "@workspace/db";
 import { eq, desc, sql } from "drizzle-orm";
-import { LUKAS_TOOLS } from "./lukas-tools";
+import { LUKAS_TOOLS, mitPolicyHinweis } from "./lukas-tools";
 import { runLukasTurn } from "./lukas-brain";
 import { logger } from "./logger";
 
@@ -465,8 +465,10 @@ export async function runSubagent(id: string, auftrag: string): Promise<string> 
 
   // Der Tool-Typ ist eine Union (function | custom); nur die Funktionsvariante
   // hat einen Namen, nach dem sich filtern laesst.
-  const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = LUKAS_TOOLS.filter(
-    (t) => t.type === "function" && agent.tools.includes(t.function.name),
+  // Auch der Mitarbeiter bekommt die Policy-Wahrheit an seine Werkzeuge
+  // geheftet — er arbeitet mit denselben Stufen wie Lukas.
+  const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = mitPolicyHinweis(
+    LUKAS_TOOLS.filter((t) => t.type === "function" && agent.tools.includes(t.function.name)),
   );
 
   logger.info({ helfer: id, werkzeuge: tools.length }, "Subagent gestartet");

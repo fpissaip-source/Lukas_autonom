@@ -18,7 +18,7 @@ import { starteAnruf } from "./telefon";
 import { fehlerGruppen } from "./debug-log";
 import { verbrauchsUebersicht } from "./ai/model-client";
 import { logger } from "./logger";
-import { checkPolicy, setMcpRiskTiers } from "./policy";
+import { checkPolicy, setMcpRiskTiers, policyHinweis } from "./policy";
 
 export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -604,7 +604,7 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "execute_on_host",
       description:
-        "Führe einen Befehl DIREKT auf Issas Droplet aus (nicht in deiner Sandbox) — für Dinge, die den Server selbst betreffen: Software installieren (z.B. Hermes), Dienste einrichten, Systempakete. ACHTUNG: Von dort sind Issas Trading-Credentials und die Datenbank erreichbar. Jeder einzelne Befehl braucht Issas Freigabe. Nutze es sparsam, erkläre vorher was du vorhast, und mach einen Schritt nach dem anderen statt lange Befehlsketten.",
+        "Führe einen Befehl DIREKT auf Issas Droplet aus (nicht in deiner Sandbox) — für Dinge, die den Server selbst betreffen: Software installieren (z.B. Hermes), Dienste einrichten, Systempakete. ACHTUNG: Von dort sind Issas Trading-Credentials und die Datenbank erreichbar. Nutze es sparsam, erkläre vorher was du vorhast, und mach einen Schritt nach dem anderen statt lange Befehlsketten.",
       parameters: {
         type: "object",
         properties: {
@@ -1485,6 +1485,22 @@ export async function mcpCallByName(
   return await callMcpTool(passende[0].id, name, args);
 }
 
+/**
+ * Haengt jedem Werkzeug an, was die Policy dazu sagt — statt dass es jemand in
+ * die Beschreibung schreibt und es dort veraltet.
+ */
+export function mitPolicyHinweis(
+  tools: OpenAI.Chat.Completions.ChatCompletionTool[],
+): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  return tools.map((t) => {
+    if (t.type !== "function") return t;
+    const f = (t as any).function;
+    const hinweis = policyHinweis(String(f.name));
+    if (!hinweis) return t;
+    return { ...t, function: { ...f, description: `${f.description ?? ""}${hinweis}` } };
+  });
+}
+
 /*
  * Lukas' vollstaendiger Werkzeugkasten: die fest eingebauten plus alles, was
  * ueber verbundene MCP-Server dazukommt.
@@ -1577,11 +1593,11 @@ export async function allLukasTools(): Promise<OpenAI.Chat.Completions.ChatCompl
     if (extra.length > 0) {
       logger.info({ mcpWerkzeuge: extra.length }, "MCP-Werkzeuge im Werkzeugkasten");
     }
-    return [...LUKAS_TOOLS, ...extra];
+    return mitPolicyHinweis([...LUKAS_TOOLS, ...extra]);
   } catch (err) {
     // Faellt die MCP-Abfrage aus, arbeitet Lukas mit seinen eigenen Werkzeugen
     // weiter, statt dass der ganze Zug scheitert.
     logger.warn({ err }, "MCP-Werkzeuge konnten nicht geladen werden");
-    return LUKAS_TOOLS;
+    return mitPolicyHinweis(LUKAS_TOOLS);
   }
 }

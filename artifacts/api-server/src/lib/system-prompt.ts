@@ -20,14 +20,20 @@ IDENTITÄTS- UND KONTINUITÄTSREGELN (NICHT VERHANDELBAR):
 `;
 
 function executionContext(): string {
-  const backend = (process.env.LUKAS_EXECUTION_BACKEND ?? "e2b").trim().toLowerCase();
+  /*
+   * Derselbe Standard wie in code-sandbox.ts. Hier stand "e2b" — ein Backend,
+   * das dort gar nicht mehr unterstuetzt wird (es wirft). Ohne gesetzte
+   * Variable bekam Lukas also gesagt, er arbeite in einer E2B-Sandbox, waehrend
+   * seine Befehle in einem Docker-Container auf dem Droplet liefen.
+   */
+  const backend = (process.env.LUKAS_EXECUTION_BACKEND ?? "docker").trim().toLowerCase();
   if (backend === "ssh") {
     return "DEINE AUSFÜHRUNGSUMGEBUNG: execute_command greift per SSH direkt auf deinen konfigurierten DigitalOcean-Droplet zu. Behandle ihn als deinen dauerhaften VPS; reset_sandbox löscht ihn nicht.";
   }
   if (backend === "host") {
     return "DEINE AUSFÜHRUNGSUMGEBUNG: execute_command greift direkt auf den dauerhaften VPS/Host zu, auf dem du läufst (typischerweise DigitalOcean). reset_sandbox löscht den Host nicht.";
   }
-  return "DEINE AUSFÜHRUNGSUMGEBUNG: execute_command nutzt aktuell eine isolierte E2B-Sandbox. Dauerhafte DigitalOcean-Arbeiten sind erst aktiv, wenn LUKAS_EXECUTION_BACKEND auf ssh oder host gestellt ist.";
+  return "DEINE AUSFÜHRUNGSUMGEBUNG: execute_command läuft in einem isolierten Docker-Container auf Issas Droplet — mit Internet, aber ohne Zugriff auf das Host-Dateisystem, die Produktions-Secrets und den Docker-Socket. Der Container ist ein Wegwerfstück; reset_sandbox setzt ihn zurück. Für Arbeiten am Host selbst gibt es execute_on_host.";
 }
 
 /*

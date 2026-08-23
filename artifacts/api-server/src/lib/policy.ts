@@ -128,9 +128,18 @@ export const TOOL_RISK: Record<string, RiskTier> = {
    * LUKAS_HOST_APPROVAL=true. Der Container-Weg (execute_command) bleibt
    * ohnehin die Standard-Ausführungsumgebung.
    */
-  execute_on_host:
-    (process.env.LUKAS_HOST_APPROVAL ?? "").trim().toLowerCase() === "true" ? "R3" : "R1",
+  // execute_on_host steht bewusst NICHT hier: seine Stufe haengt an einem
+  // Schalter und wird in riskFor() bei jedem Aufruf frisch gelesen. Als
+  // Eintrag in dieser Tabelle wurde sie einmal beim Laden des Moduls
+  // festgeschrieben — dann greift LUKAS_HOST_APPROVAL erst nach einem
+  // Neustart, waehrend derselbe Schalter fuer execute_command sofort wirkte.
+  // Zwei Verhalten fuer einen Schalter sind eins zu viel.
 };
+
+/** Host-Ebene: R1, solange Issa es so will — mit Schalter zurueck auf R3. */
+function hostStufe(): RiskTier {
+  return (process.env.LUKAS_HOST_APPROVAL ?? "").trim().toLowerCase() === "true" ? "R3" : "R1";
+}
 
 /*
  * Unbekannte Tools sind absichtlich R2, nicht R0: wer künftig ein Tool
@@ -203,14 +212,36 @@ export function riskFor(tool: string): RiskTier {
    * Prompt — genau so, wie es sein muss. Wer die Isolation abschaltet, schaltet
    * damit nicht versehentlich auch die Freigabepflicht ab.
    */
+  if (tool === "execute_on_host") return hostStufe();
+
   if (tool === "execute_command" && !isIsolatedBackend()) {
     // Direkt auf dem Host statt im Container. Stand frueher automatisch auf R3;
     // seit Issa den Host bewusst freigegeben hat, folgt das derselben Linie wie
     // execute_on_host — inklusive desselben Schalters, falls er es doch wieder
     // enger haben will.
-    return (process.env.LUKAS_HOST_APPROVAL ?? "").trim().toLowerCase() === "true" ? "R3" : "R1";
+    return hostStufe();
   }
   return TOOL_RISK[tool] ?? DEFAULT_RISK;
+}
+
+/*
+ * Der Satz, der Lukas sagt, was fuer dieses Werkzeug WIRKLICH gilt.
+ *
+ * Anlass: in der Beschreibung von execute_on_host stand "Jeder einzelne Befehl
+ * braucht Issas Freigabe" — waehrend die Policy daneben R1 sagte, also gar
+ * keine. Das ist schlimmer als eine veraltete Doku: Lukas kalkuliert dann mit
+ * einem Netz, das nicht da ist.
+ *
+ * Deshalb wird dieser Hinweis nicht mehr von Hand geschrieben, sondern aus der
+ * Einstufung erzeugt. Aendert sich die Stufe — auch zur Laufzeit ueber
+ * LUKAS_HOST_APPROVAL — aendert sich der Satz mit. Auseinanderlaufen kann das
+ * jetzt nur noch, wenn jemand ihn wieder von Hand hinschreibt, und genau davor
+ * steht check-policy-wahrheit.mjs.
+ */
+export function policyHinweis(tool: string): string {
+  return needsApproval(riskFor(tool))
+    ? " Diese Aktion braucht Issas Freigabe; sie wird angefordert, sobald du sie aufrufst."
+    : "";
 }
 
 export function needsApproval(tier: RiskTier): boolean {

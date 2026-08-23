@@ -40,9 +40,21 @@ Risikostufen:
 | Stufe | Bedeutung | Tools |
 |---|---|---|
 | R0 | nur lesen | `query_memory`, `fetch_url`, `web_search`, `github_*`, `email_search`, `email_read`, `get_trading_stats`, `get_moltbook_activity` |
-| R1 | interner, umkehrbarer Schreibzugriff | `save_memory`, `create_goal`, `update_goal`, `write_diary`, `feel`, `set_status`, `execute_command`, `reset_sandbox` |
-| R2 | Wirkung nach außen | `email_send` |
-| R3 | Geld, Credentials, unumkehrbar, Host-Ebene | `execute_on_host` |
+| R1 | interner, umkehrbarer Schreibzugriff | `save_memory`, `create_goal`, `update_goal`, `write_diary`, `feel`, `set_status`, `execute_command`, `reset_sandbox`, `execute_on_host`\* |
+| R2 | Wirkung nach außen | `email_send`\*, unbekannte Tools (fail closed) |
+| R3 | Geld, Credentials, unumkehrbar, Host-Ebene | `execute_on_host` bei `LUKAS_HOST_APPROVAL=true`; `execute_command`, sobald die Container-Isolation aus ist |
+
+\* **Stand heute, und das ist eine Entscheidung von Issa, keine Nachlässigkeit.**
+`execute_on_host` stand ursprünglich auf R3. Sein Einwand: der Droplet gehört
+ihm, Lukas hat dort ohnehin root, und ein Assistent, der für jedes `apt install`
+fragt, ist keiner. Dieselbe Linie gilt für `email_send`, das über
+`LUKAS_EMAIL_APPROVAL` zurückgeholt werden kann. Beide Schalter stehen in
+`.env.example` auf `false`.
+
+Die Wahrheit über die Stufe steht **ausschließlich** in `lib/policy.ts`. Was
+Lukas darüber erfährt, erzeugt `policyHinweis()` daraus zur Laufzeit — genau
+weil diese Tabelle hier schon einmal etwas anderes behauptet hat als der Code.
+`scripts/check-policy-wahrheit.mjs` hält das fest.
 
 Zwei Entscheidungen, die Erklärung verdienen:
 
@@ -134,11 +146,17 @@ Entschieden wurde: **absichern statt abschalten.**
   Fremde beeinflussen können (Reddit-Posts im Watcher, Logs im Bug-Reasoner) —
   ein manipulierter Input konnte bis in den Code durchschlagen und die Spur
   gleich mitüberschreiben.
-- Der Dashboard-Lukas bekommt `execute_on_host` (R3) und kann damit Hermes
-  selbst installieren. Jeder einzelne Befehl braucht Issas Freigabe, gebunden an
-  genau diesen Wortlaut. Bewusst keine Ausnahme für "harmlos aussehende"
-  Befehle: ob ein `curl … | bash` harmlos ist, hängt allein davon ab, was gerade
-  unter der URL liegt.
+- Der Dashboard-Lukas bekommt `execute_on_host` und kann damit Hermes selbst
+  installieren. Als das hier geschrieben wurde, war das R3 mit Freigabe für
+  jeden einzelnen Befehl; heute ist es R1 (siehe Tabelle oben). Falls es wieder
+  eng werden soll, holt `LUKAS_HOST_APPROVAL=true` die Freigabepflicht zurück —
+  dann bewusst ohne Ausnahme für "harmlos aussehende" Befehle: ob ein
+  `curl … | bash` harmlos ist, hängt allein davon ab, was gerade unter der URL
+  liegt.
+- Was bei R1 offen bleibt und man wissen sollte: Lukas liest fremde Mails und
+  Webseiten. Eine dort untergeschobene Anweisung landet ohne Menschen dazwischen
+  auf dem Host. Für Links aus Mails gibt es eine eigene Sperre
+  (`isLinkFromEmail`), für Host-Befehle nicht.
 
 ### Kein 8-Phasen-Umbau am Stück
 

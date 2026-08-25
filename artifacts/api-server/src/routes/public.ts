@@ -8,6 +8,7 @@ import { openai } from "@workspace/integrations-openai-ai";
 import { buildPublicSystemPrompt } from "../lib/public-prompt";
 import { anfrageVonWebsite } from "../lib/melden";
 import { logger } from "../lib/logger";
+import { gleicherToken } from "../middlewares/schutz";
 import { recordDebugEvent } from "../lib/debug-log";
 
 const router = Router();
@@ -406,7 +407,7 @@ router.post("/public/anfrage", async (req, res) => {
     }
     const header = req.headers.authorization;
     const provided = header?.startsWith("Bearer ") ? header.slice(7).trim() : undefined;
-    if (provided !== token) {
+    if (!gleicherToken(provided, token)) {
       recordDebugEvent(
         "public/anfrage",
         `401 Unauthorized — Bearer-Header ${header ? "vorhanden, aber falscher Token" : "fehlt komplett"}`,
@@ -470,7 +471,7 @@ router.post("/public/llm/v1/chat/completions", async (req, res) => {
     }
     const header = req.headers.authorization;
     const provided = header?.startsWith("Bearer ") ? header.slice(7).trim() : undefined;
-    if (provided !== token) {
+    if (!gleicherToken(provided, token)) {
       recordDebugEvent(
         "public/llm",
         `401 Unauthorized — Bearer-Header ${header ? "vorhanden, aber falscher Token" : "fehlt komplett"}`,

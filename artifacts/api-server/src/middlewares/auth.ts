@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { logger } from "../lib/logger";
+import { gleicherToken } from "./schutz";
 
 /*
  * Bearer-Auth fuer die private API.
@@ -70,7 +71,7 @@ export function lukasAuth(req: Request, res: Response, next: NextFunction): void
 
   const header = req.headers.authorization;
   const provided = header?.startsWith("Bearer ") ? header.slice(7).trim() : undefined;
-  if (provided !== token) {
+  if (!gleicherToken(provided, token)) {
     return void res.status(401).json({ error: "Unauthorized" });
   }
   next();

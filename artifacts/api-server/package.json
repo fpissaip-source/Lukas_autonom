@@ -7,7 +7,7 @@
     "dev": "export NODE_ENV=development && npm run build && npm run start",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/check-soul-tools.mjs && node scripts/check-consent.mjs && node scripts/check-higgsfield.mjs && node scripts/check-memory-filter.mjs && node scripts/check-mcp-auswahl.mjs && node scripts/check-arbeitsschleife.mjs && node scripts/check-melden.mjs && node scripts/check-ausgabeschicht.mjs && node scripts/check-selbstheilung.mjs && node scripts/check-lokales-modell.mjs && node scripts/check-vorschlaege.mjs && node scripts/check-stream-start.mjs && node scripts/check-gehirn.mjs && node scripts/check-memory-graph.mjs && node scripts/check-github-buendel.mjs && node scripts/check-telefon.mjs && node scripts/check-caching.mjs && node scripts/check-schutz.mjs && node scripts/check-sparsamkeit.mjs && node scripts/check-policy-wahrheit.mjs"
+    "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/check-soul-tools.mjs && node scripts/check-consent.mjs && node scripts/check-higgsfield.mjs && node scripts/check-memory-filter.mjs && node scripts/check-mcp-auswahl.mjs && node scripts/check-arbeitsschleife.mjs && node scripts/check-melden.mjs && node scripts/check-ausgabeschicht.mjs && node scripts/check-selbstheilung.mjs && node scripts/check-lokales-modell.mjs && node scripts/check-vorschlaege.mjs && node scripts/check-stream-start.mjs && node scripts/check-gehirn.mjs && node scripts/check-memory-graph.mjs && node scripts/check-github-buendel.mjs && node scripts/check-telefon.mjs && node scripts/check-caching.mjs && node scripts/check-schutz.mjs && node scripts/check-sparsamkeit.mjs && node scripts/check-policy-wahrheit.mjs && node scripts/check-netzschutz.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -21,9 +21,9 @@
     "express": "^5.2.1",
     "ffmpeg-static": "^5.3.0",
     "imapflow": "^1.5.0",
-    "mailparser": "^3.9.14",
+    "mailparser": "^3.9.16",
     "multer": "^2.2.0",
-    "nodemailer": "^7.0.13",
+    "nodemailer": "^9.0.5",
     "openai": "^6.48.0",
     "pg": "^8.20.0",
     "pino": "^9.14.0",

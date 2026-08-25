@@ -12,6 +12,10 @@ import { logger } from "./lib/logger";
 
 const app: Express = express();
 
+// "X-Powered-By: Express" in jeder Antwort ist eine kostenlose Auskunft an
+// jeden, der nach Zielen sucht. Sie nuetzt niemandem ausser ihm.
+app.disable("x-powered-by");
+
 app.use(
   pinoHttp({
     logger,

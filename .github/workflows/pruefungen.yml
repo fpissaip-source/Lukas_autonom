@@ -53,3 +53,4 @@ jobs:
           node scripts/check-policy-wahrheit.mjs
           node scripts/check-consent.mjs
           node scripts/check-schutz.mjs
+          node scripts/check-netzschutz.mjs

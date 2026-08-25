@@ -53,6 +53,7 @@ Persistenter KI-Agent mit Persönlichkeit, Gedächtnis (PostgreSQL), echtem Tool
 - Ausgabeschicht bekommt nur die letzten `LUKAS_VOICE_HISTORY` (4) Dialogzeilen plus den Entwurf, nie den System-Prompt.
 - Budget je Zug: `LUKAS_TURN_TOKEN_BUDGET` (300.000 Tokens) und `LUKAS_TURN_MAX_MINUTEN` (25). Bei 100 % Hinweis "komm zum Ende", bei 150 % Schluss — `lib/arbeitsschleife.ts`.
 - Content-Security-Policy ist an; `LUKAS_CSP=report` meldet nur, `LUKAS_CSP=off` schaltet sie ab. Widget und Demoseite bleiben ausgenommen.
+- Ausgehende Netzzugriffe (`fetch_url`, `browse_page`) laufen über `lib/netzschutz.ts`: aufgelöste Adresse und jede Weiterleitung werden gegen interne Ziele geprüft (Metadaten-Dienst, Loopback, privates Netz). Ausnahmen über `LUKAS_FETCH_ALLOWLIST`.
 - Risikostufen stehen ausschließlich in `lib/policy.ts`. Was Lukas darüber erfährt, erzeugt `policyHinweis()` daraus — Tool-Beschreibungen dürfen keine Freigabe von Hand versprechen (`check-policy-wahrheit.mjs`).
 - Das Python-/VPS-System liegt unter `vps/` (Quelle der Wahrheit; Deploy via `scripts/lukas-deploy/deploy.sh`). Die Web-App startet es nicht — nur Lesezugriff auf dessen Postgres.
 

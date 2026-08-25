@@ -31,8 +31,15 @@ await build({
   logLevel: "silent",
 });
 
-const { herkunftErlaubt, korsRegeln, sicherheitsKopfzeilen, apiDrossel, klientIp, drosselZuruecksetzen } =
-  await import(`file://${out}`);
+const {
+  herkunftErlaubt,
+  korsRegeln,
+  sicherheitsKopfzeilen,
+  apiDrossel,
+  klientIp,
+  drosselZuruecksetzen,
+  gleicherToken,
+} = await import(`file://${out}`);
 rmSync(dir, { recursive: true, force: true });
 
 let fehler = 0;
@@ -209,6 +216,16 @@ pruefe("und laesst den oeffentlichen Teil zu", regel?.origin === true);
   pruefe("und ganz abschaltbar, falls doch etwas bricht", !aus.kopf["Content-Security-Policy"]);
   delete process.env.LUKAS_CSP;
 }
+
+// ── 2c. Token-Vergleich ───────────────────────────────────────────────────
+// Zeitkonstant: `a !== b` bricht beim ersten falschen Zeichen ab, und daraus
+// laesst sich ein Token Stueck fuer Stueck erraten.
+pruefe("der richtige Token passt", gleicherToken("geheim-123", "geheim-123"));
+pruefe("ein falscher nicht", !gleicherToken("geheim-124", "geheim-123"));
+pruefe("ein kürzerer nicht", !gleicherToken("geheim", "geheim-123"));
+pruefe("ein längerer nicht", !gleicherToken("geheim-123-mehr", "geheim-123"));
+pruefe("kein Token ist kein Zutritt", !gleicherToken(undefined, "geheim-123"));
+pruefe("und ein leerer erst recht nicht", !gleicherToken("", ""));
 
 // ── 3. Limit ──────────────────────────────────────────────────────────────
 process.env.LUKAS_RATE_LIMIT = "5";

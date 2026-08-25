@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 
 /*
@@ -23,6 +24,29 @@ import type { Request, Response, NextFunction } from "express";
  *    Browserfenster zu einem fremden Anbieter und zurueck; COOP kann genau
  *    diesen Rueckweg abschneiden.
  */
+
+/*
+ * Zwei Zugangscodes vergleichen, ohne ueber die Dauer zu verraten, wie weit
+ * jemand gekommen ist.
+ *
+ * `a !== b` bricht beim ersten falschen Zeichen ab. Ueber viele Versuche laesst
+ * sich daraus Zeichen fuer Zeichen ein Token rekonstruieren. Praktisch ist das
+ * ueber das Internet schwer — aber es kostet drei Zeilen, es richtig zu machen,
+ * und dieser Token oeffnet Gedaechtnis, GitHub und Infrastruktur.
+ */
+export function gleicherToken(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  const einA = Buffer.from(a, "utf8");
+  const einB = Buffer.from(b, "utf8");
+  // Laengen zuerst angleichen: timingSafeEqual wirft bei ungleicher Laenge, und
+  // eine geworfene Ausnahme verraet die Laenge genauso.
+  if (einA.length !== einB.length) {
+    // Trotzdem vergleichen, damit die Dauer nicht von der Laenge abhaengt.
+    timingSafeEqual(einA, einA);
+    return false;
+  }
+  return timingSafeEqual(einA, einB);
+}
 
 /** Die echte Adresse hinter Railways Proxy — sonst zaehlt alles auf eine IP. */
 export function klientIp(req: Request): string {

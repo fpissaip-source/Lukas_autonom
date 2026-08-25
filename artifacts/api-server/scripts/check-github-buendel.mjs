@@ -33,6 +33,10 @@ export const checkPolicy = async () => ({ allow: true });
 // policyHinweis haengt jedem Werkzeug an, was die Policy dazu sagt — hier ohne
 // Belang, muss es aber geben, sonst laesst sich lukas-tools nicht buendeln.
 export const policyHinweis = () => "";
+// Der Netzschutz prueft Ziele gegen interne Adressen — hier ohne Belang, aber
+// lukas-tools importiert ihn.
+export const sicherFetch = (url, init) => fetch(url, init);
+export const pruefeZiel = async (url) => new URL(url);
 export const setMcpRiskTiers = () => {};
 
 // Die eine Stelle, die der Test steuert: was GitHub antwortet.

@@ -19,6 +19,7 @@ import { fehlerGruppen } from "./debug-log";
 import { verbrauchsUebersicht } from "./ai/model-client";
 import { logger } from "./logger";
 import { checkPolicy, setMcpRiskTiers, policyHinweis } from "./policy";
+import { sicherFetch, pruefeZiel } from "./netzschutz";
 
 export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -687,11 +688,13 @@ function wirktLeer(sichtbar: string, eingebettet: string): boolean {
 }
 
 async function fetchUrl(url: string, offset = 0): Promise<string> {
-  const parsed = new URL(url);
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("Nur http/https URLs sind erlaubt");
-  }
-  const res = await fetch(url, {
+  /*
+   * sicherFetch statt fetch: prueft die aufgeloeste Adresse und jede
+   * Weiterleitung gegen interne Ziele. Vorher stand hier nur eine
+   * Protokollpruefung — http://169.254.169.254/metadata/v1/ kam damit
+   * anstandslos durch, und diese Adresse kann in einer fremden Mail stehen.
+   */
+  const res = await sicherFetch(url, {
     // Manche Seiten liefern Bots absichtlich weniger aus. Ein normaler
     // Browser-Kennstring bekommt dieselbe Seite wie ein Mensch.
     headers: {
@@ -700,7 +703,6 @@ async function fetchUrl(url: string, offset = 0): Promise<string> {
       Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
     },
     signal: AbortSignal.timeout(20000),
-    redirect: "follow",
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} beim Abruf von ${url}`);
 
@@ -787,6 +789,9 @@ function inAbschnitten(voll: string, offset: number, weiterMit: string): string 
 }
 
 async function browsePage(url: string, offset = 0, scrolls = 12): Promise<string> {
+  // Derselbe Schutz wie bei fetch_url: der Browser laeuft in einem Container
+  // auf dem Droplet und erreicht von dort das interne Netz.
+  await pruefeZiel(url);
   const r = await renderPage(url, scrolls);
   if (!r.ok) {
     throw new Error(

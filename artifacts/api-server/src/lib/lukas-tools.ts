@@ -20,6 +20,7 @@ import { verbrauchsUebersicht } from "./ai/model-client";
 import { logger } from "./logger";
 import { checkPolicy, setMcpRiskTiers, policyHinweis } from "./policy";
 import { sicherFetch, pruefeZiel } from "./netzschutz";
+import { sendeSms } from "./sms";
 
 export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -597,6 +598,22 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           timeoutSeconds: { type: "integer", description: "Timeout in Sekunden, Standard 60, max 280" },
         },
         required: ["command"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_sms",
+      description:
+        "Schick eine SMS. Für kurze, dringende Dinge, die jemand SOFORT sehen soll — eine Terminbestätigung, ein Rückruf-Bitte, eine Absage. Für alles Längere nimm E-Mail. Nummer international mit +49…, Text kurz halten: 160 Zeichen sind eine SMS, darüber wird es eine Kette und kostet je Teil.",
+      parameters: {
+        type: "object",
+        properties: {
+          an: { type: "string", description: "Empfängernummer, international: +49…" },
+          text: { type: "string", description: "Der Nachrichtentext, so kurz wie möglich" },
+        },
+        required: ["an", "text"],
       },
     },
   },
@@ -1364,6 +1381,12 @@ export async function executeLukasTool(
         String(input.command),
         typeof input.timeoutSeconds === "number" ? input.timeoutSeconds : 60,
       );
+    }
+    case "send_sms": {
+      const e = await sendeSms({ an: String(input.an ?? ""), text: String(input.text ?? ""), quelle: "lukas" });
+      return e.ok
+        ? `SMS an ${e.nummer} ist raus (${e.segmente} Segment${e.segmente === 1 ? "" : "e"}${e.preis ? `, ${e.preis}` : ""}).`
+        : `SMS an ${e.nummer} nicht zugestellt: ${e.fehler ?? e.status}`;
     }
     case "execute_on_host": {
       return await executeOnHost(

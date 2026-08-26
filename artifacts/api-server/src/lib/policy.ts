@@ -118,6 +118,13 @@ export const TOOL_RISK: Record<string, RiskTier> = {
   email_send: "R2",
 
   /*
+   * SMS: dieselbe Ueberlegung wie beim Mailversand, nur unmittelbarer. Sie
+   * landet auf einem fremden Telefon, in Issas Namen, und es gibt kein
+   * Zurueckholen. Deshalb R2 — Lukas formuliert, Issa schickt ab.
+   */
+  send_sms: "R2",
+
+  /*
    * Host-Ebene auf Issas Droplet.
    *
    * Stand vorher auf R3, also Freigabe für jeden einzelnen Befehl. Issas

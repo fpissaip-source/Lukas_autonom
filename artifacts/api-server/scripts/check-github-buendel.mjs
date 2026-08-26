@@ -37,6 +37,7 @@ export const policyHinweis = () => "";
 // lukas-tools importiert ihn.
 export const sicherFetch = (url, init) => fetch(url, init);
 export const pruefeZiel = async (url) => new URL(url);
+export const sendeSms = async () => ({ ok: true, status: "SUCCESS", nummer: "+49", segmente: 1 });
 export const setMcpRiskTiers = () => {};
 
 // Die eine Stelle, die der Test steuert: was GitHub antwortet.

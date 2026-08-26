@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Phone, PhoneIncoming, PhoneOutgoing, Plus, Trash2, ShieldAlert } from "lucide-react";
+import { Phone, PhoneIncoming, PhoneOutgoing, Plus, Trash2, ShieldAlert, MessageSquare, Send } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -306,6 +306,178 @@ function Einrichtung({ onChange }: { onChange: () => void }) {
   );
 }
 
+
+type SmsZeile = {
+  id: number;
+  richtung: string;
+  nummer: string;
+  text: string;
+  quelle: string;
+  status: string;
+  preis: string | null;
+  createdAt: string;
+};
+
+/*
+ * SMS.
+ *
+ * Steht hier und nicht auf einer eigenen Seite: es ist dieselbe Sache wie das
+ * Telefon — eine Nummer, ein Kontakt, dieselbe Sperrliste. Wer hier tippt, ist
+ * Issa selbst; was Lukas von sich aus schreibt, braucht eine Freigabe und
+ * taucht danach in derselben Liste auf, erkennbar an der Quelle.
+ */
+function SmsBereich({ nummern }: { nummern: Nummer[] }) {
+  const [an, setAn] = useState("");
+  const [text, setText] = useState("");
+  const [zeilen, setZeilen] = useState<SmsZeile[]>([]);
+  const [bereit, setBereit] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [fehler, setFehler] = useState<string | null>(null);
+  const [meldung, setMeldung] = useState<string | null>(null);
+
+  const laden = useCallback(async () => {
+    try {
+      const antwort = await fetch(`${BASE}/api/lukas/sms`, { headers: authHeaders() });
+      if (!antwort.ok) return;
+      const daten = await antwort.json();
+      setZeilen(daten.nachrichten ?? []);
+      setBereit(Boolean(daten.bereit));
+    } catch {
+      /* Die Liste ist Beiwerk; ein Fehler hier darf das Feld nicht blockieren. */
+    }
+  }, []);
+
+  useEffect(() => {
+    void laden();
+  }, [laden]);
+
+  /*
+   * Die Segmentzahl steht am Feld, nicht in einer Fußnote.
+   *
+   * 160 Zeichen sind eine SMS — aber ein einziges Emoji oder ein
+   * typografischer Gedankenstrich schaltet auf Unicode, und dann sind es 70.
+   * Wer das erst auf der Rechnung merkt, hat es zu spät gemerkt.
+   */
+  const GSM7 =
+    "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?" +
+    "¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà" +
+    "^{}\\[~]|€";
+  const unicode = [...text].some((z) => !GSM7.includes(z));
+  const proTeil = unicode ? (text.length > 70 ? 67 : 70) : text.length > 160 ? 153 : 160;
+  const teile = text.length === 0 ? 0 : Math.ceil(text.length / proTeil);
+
+  const senden = async () => {
+    if (!an.trim() || !text.trim()) return;
+    setBusy(true);
+    setFehler(null);
+    setMeldung(null);
+    try {
+      const antwort = await fetch(`${BASE}/api/lukas/sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ an, text }),
+      });
+      const daten = await antwort.json();
+      if (!antwort.ok) throw new Error(daten?.error ?? daten?.fehler ?? "SMS ging nicht raus");
+      setMeldung(`Raus an ${daten.nummer}${daten.preis ? ` · ${daten.preis}` : ""}`);
+      setText("");
+      await laden();
+    } catch (err) {
+      setFehler(err instanceof Error ? err.message : "SMS ging nicht raus");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card-soft p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <MessageSquare className="size-4 text-primary" />
+        <h2 className="font-medium">SMS schreiben</h2>
+      </div>
+
+      {!bereit && (
+        <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          <p className="font-medium text-amber-200">Noch keine Zugangsdaten</p>
+          <p className="mt-1 text-muted-foreground">
+            Setz <code>CLICKSEND_USERNAME</code> und <code>CLICKSEND_API_KEY</code>, optional{" "}
+            <code>CLICKSEND_ABSENDER</code> als sichtbaren Absender.
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <input
+          value={an}
+          onChange={(e) => setAn(e.target.value)}
+          list="bekannte-nummern"
+          placeholder="+49…"
+          className="h-9 w-full rounded-xl border border-border bg-secondary/60 px-3 font-mono text-sm outline-none focus:border-primary/50"
+        />
+        {/* Die eingetragenen Kontakte als Vorschlag — Nummern tippt niemand gern ab. */}
+        <datalist id="bekannte-nummern">
+          {nummern.map((n) => (
+            <option key={n.id} value={n.nummer}>
+              {n.name || n.nummer}
+            </option>
+          ))}
+        </datalist>
+
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={3}
+          placeholder="Kurz und direkt — eine SMS ist kein Brief."
+          className="w-full resize-none rounded-xl border border-border bg-secondary/60 px-3 py-2 text-sm outline-none focus:border-primary/50"
+        />
+
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">
+            {text.length} Zeichen
+            {teile > 0 && (
+              <>
+                {" · "}
+                <span className={teile > 1 ? "text-amber-300" : ""}>
+                  {teile} SMS
+                </span>
+                {unicode && <span className="text-amber-300"> · Unicode, nur 70 je Teil</span>}
+              </>
+            )}
+          </span>
+          <Button
+            size="sm"
+            className="ml-auto gap-2"
+            disabled={busy || !an.trim() || !text.trim()}
+            onClick={senden}
+          >
+            <Send className="size-4" />
+            Senden
+          </Button>
+        </div>
+
+        {fehler && <p className="text-sm text-red-400">{fehler}</p>}
+        {meldung && <p className="text-sm text-emerald-400">{meldung}</p>}
+      </div>
+
+      {zeilen.length > 0 && (
+        <div className="mt-4 space-y-1 border-t border-border pt-3">
+          {zeilen.slice(0, 8).map((z) => (
+            <div key={z.id} className="flex items-start gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-secondary/40">
+              <span className="font-mono shrink-0">{zeigeNummer(z.nummer)}</span>
+              <span className="truncate text-muted-foreground">{z.text}</span>
+              <span className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                {z.quelle === "lukas" && <span className="text-primary">von Lukas</span>}
+                <span className={/success/i.test(z.status) ? "" : "text-amber-300"}>{z.status}</span>
+                {new Date(z.createdAt).toLocaleString("de-DE")}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Telefon() {
   const [daten, setDaten] = useState<Antwort | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
@@ -404,6 +576,8 @@ export default function Telefon() {
               Webseite, ohne alles Private.
             </p>
           </div>
+
+          <SmsBereich nummern={daten?.nummern ?? []} />
 
           {fehler && <p className="text-sm text-red-400">{fehler}</p>}
 

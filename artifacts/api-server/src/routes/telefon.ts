@@ -18,6 +18,7 @@ import {
   twilioStand, twilioEinrichten, starteAnruf,
 } from "../lib/telefon";
 import { logger } from "../lib/logger";
+import { sendeSms, letzteSms, zugangVorhanden } from "../lib/sms";
 import { recordDebugEvent } from "../lib/debug-log";
 
 export const telefonWebhookRouter = Router();
@@ -149,6 +150,43 @@ router.post("/lukas/telefon/einrichten", async (req, res) => {
  * muss die Nummer vorher freigeschaltet haben. Sonst waere das Dashboard ein
  * Weg, die Sperre zu umgehen, die es selbst verwaltet.
  */
+/*
+ * SMS.
+ *
+ * Bewusst hier und nicht in einer eigenen Datei: es ist dieselbe Sache wie das
+ * Telefon — eine Nummer, ein Kontakt, dieselbe Sperrliste. Wer am Telefon
+ * abgewiesen wird, bekommt auch keine SMS; das prueft lib/sms.ts.
+ */
+router.get("/lukas/sms", async (_req, res) => {
+  try {
+    const zeilen = await letzteSms(50);
+    res.json({
+      bereit: zugangVorhanden(),
+      nachrichten: zeilen.map((z) => ({ ...z, createdAt: z.createdAt.toISOString() })),
+    });
+  } catch (err) {
+    logger.error({ err }, "SMS-Liste konnte nicht gelesen werden");
+    res.status(500).json({ error: "SMS konnten nicht geladen werden" });
+  }
+});
+
+router.post("/lukas/sms", async (req, res) => {
+  try {
+    const ergebnis = await sendeSms({
+      an: String(req.body?.an ?? ""),
+      text: String(req.body?.text ?? ""),
+      // Aus dem Dashboard hat Issa selbst getippt — das ist seine eigene
+      // Nachricht, keine von Lukas formulierte.
+      quelle: "dashboard",
+    });
+    res.status(ergebnis.ok ? 200 : 502).json(ergebnis);
+  } catch (err) {
+    const grund = err instanceof Error ? err.message : String(err);
+    logger.warn({ err }, "SMS aus dem Dashboard fehlgeschlagen");
+    res.status(400).json({ error: grund });
+  }
+});
+
 router.post("/lukas/telefon/testanruf", async (req, res) => {
   const nummer = String((req.body ?? {}).nummer ?? "").trim();
   if (!nummer) return void res.status(400).json({ error: "Nummer fehlt." });

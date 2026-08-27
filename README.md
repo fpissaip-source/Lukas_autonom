@@ -1,183 +1,175 @@
-Lukas – Autonomes KI-System
+# L.U.K.A.S.
 
-Lukas ist kein klassischer Chatbot und kein einfacher KI-Assistent. Er ist ein selbst gehostetes, zielgetriebenes und erweiterbares KI-System, das eigenständig recherchieren, analysieren, planen, programmieren, Inhalte erstellen, externe Dienste nutzen und reale Aufgaben ausführen kann.
+Ein selbst gehosteter, zielgetriebener KI-Agent. Er hat ein dauerhaftes
+Gedächtnis, 34 Werkzeuge, ein Team von Subagenten, ein Dashboard zur Kontrolle
+— und einen Kontrollpunkt aus Code, der entscheidet, was davon ohne Rückfrage
+laufen darf.
 
-Lukas läuft auf einer eigenen Server-Infrastruktur und besitzt ein dauerhaftes Gedächtnis, eigene Werkzeuge, eine autonome Arbeitslogik sowie ein eigenes Dashboard zur Kontrolle, Überwachung und Freigabe von Aktionen.
+Dieses README beschreibt, was **da ist**. Was fehlt, steht unter
+[Aktuelle Grenzen](#aktuelle-grenzen) — mit derselben Sorgfalt.
 
-Autonomie statt einfacher Befehlsausführung
+---
 
-Lukas arbeitet nicht nur nach fest programmierten „Wenn X, dann Y“-Abläufen.
+## Was ihn von einem Chatbot unterscheidet
 
-Er bekommt ein Ziel und entscheidet selbst, wie dieses Ziel am sinnvollsten erreicht werden kann.
+**Er arbeitet weiter, wenn niemand zusieht.** Alle 30 Minuten fragt
+`lib/autonomy.ts`, ob es etwas zu tun gibt: aktive Ziele, neue Antworten,
+Ereignisse. Gab es seit dem letzten Lauf keine Änderung, wird gar nicht erst
+gedacht — das spart Geld, statt im Leerlauf Tokens zu verbrennen.
 
-Dabei kann er beispielsweise:
+**Er entscheidet selbst, womit.** Es gibt keine "Recherche-Schleife" und keine
+"YouTube-Schleife". Es gibt eine Schleife, die Ziele liest und Lukas fragen
+lässt: woran arbeite ich jetzt, und mit welchem Werkzeug?
 
-* das Internet recherchieren und Informationen auswerten
-* Webseiten und umfangreiche Dokumente analysieren
-* sein eigenes Gedächtnis durchsuchen
-* Dateien und Code untersuchen
-* auf seinen eigenen Server bzw. seine Infrastruktur zugreifen
-* externe Werkzeuge über MCP verwenden
-* spezialisierte Subagenten für Teilaufgaben einsetzen
-* Ergebnisse kritisch überprüfen lassen
-* Lösungen vergleichen und Schwachstellen identifizieren
-* Inhalte und Medien erstellen
-* E-Mails lesen und Entwürfe vorbereiten
-* über WhatsApp kommunizieren
-* GitHub-Repositories analysieren
-* eigene Codeänderungen vorschlagen
-* angenommene Codeänderungen selbst in das laufende System deployen
-* langfristige Ziele verfolgen und seine Arbeit daran ausrichten.
+**Er hat keine feste Rundenzahl.** Braucht eine Aufgabe zwanzig Befehle, macht
+er zwanzig. Gegen Im-Kreis-Laufen hilft ein Hinweis, keine Bremse
+(`lib/arbeitsschleife.ts`); die Grenze ist ein Token- und Zeitbudget pro Zug.
 
-Die Autonomie ist dabei nicht an eine einzelne Tätigkeit gebunden. Lukas entscheidet selbst, ob für ein Ziel beispielsweise Web-Recherche, Code, Shell, Gedächtnis, externe APIs oder seine Subagenten sinnvoll sind.
+**Er sieht, was er tut.** `browser_do` bedient Seiten in einer dauerhaft
+angemeldeten Browser-Sitzung und schickt ein Bildschirmfoto zurück — der Text
+einer Seite verrät nicht, ob ein Cookie-Banner über dem Knopf liegt.
 
-Eigenes Team aus spezialisierten Agenten
+---
 
-Lukas kann Aufgaben an ein internes Team spezialisierter Subagenten delegieren.
+## Was er kann
 
-Dazu gehören unter anderem:
+| Bereich | Konkret | Wo |
+|---|---|---|
+| **Gedächtnis** | Erinnerungen, Ziele, Tagebuch, Episoden, Gefühle in Postgres; Abruf über Einbettungen; ein Graph aus Knoten und Kanten, als Obsidian-Vault exportierbar | `lib/memory-*.ts`, `lib/gehirn.ts` |
+| **Web** | lesen (`browse_page`), **bedienen** (`browser_do` — klicken, tippen, hochladen, angemeldet bleiben), suchen, abrufen | `lib/browser*.ts` |
+| **Code** | eigene Sandbox pro Gespräch, Shell auf dem Droplet, GitHub lesen und durchsuchen, Änderungsvorschläge, die Issa im Dashboard annimmt | `lib/code-sandbox.ts`, `lib/github.ts`, `lib/proposals.ts` |
+| **Kommunikation** | Dashboard-Chat (SSE), WhatsApp, Telefon (Sprache, ein- und ausgehend), SMS über ClickSend, E-Mail lesen und Entwürfe vorbereiten | `routes/*`, `lib/telefon.ts`, `lib/sms.ts`, `lib/email.ts` |
+| **Team** | neun Subagenten mit eigenen Profilen — Macher, Rechercheur, Ideenprüfer, Analyst, Texter, Code-Prüfer, Entwickler, Fehleranalyst, Sammler | `lib/subagents.ts` |
+| **Erweiterung** | fremde MCP-Server, OAuth 2.1 mit PKCE, Discovery, Dynamic Registration | `lib/mcp.ts` |
+| **Selbstheilung** | wiederkehrende Fehler werden erkannt, analysiert und als Vorschlag vorgelegt | `lib/selbstheilung.ts` |
 
-Macher – setzt Dinge praktisch um und arbeitet direkt mit einer eigenen Umgebung.
+---
 
-Rechercheur – recherchiert gründlich und liefert Quellen sowie eine Einschätzung darüber, was nicht verifiziert werden konnte.
+## Sicherheit in drei Sätzen
 
-Ideenprüfer – sucht Schwachstellen in Ideen und ermittelt möglichst günstige Wege, diese zu testen.
+1. **Ein Sprachmodell ist niemals ein Autorisierungsserver.** Lukas entscheidet,
+   *was* er tun will; ob es läuft, entscheidet `lib/policy.ts` — nach dem
+   Modell, vor dem Werkzeug mit den echten Zugangsdaten.
+2. **Vier Stufen.** R0 lesen und R1 intern laufen allein; R2 (Wirkung nach
+   außen) und R3 (Geld, Zerstörung) brauchen Issas Freigabe. Ein Werkzeug ohne
+   Einstufung ist automatisch R2 — *fail closed*.
+3. **Fremde bekommen keine Werkzeuge.** Nicht "die Anweisung, keine zu
+   benutzen", sondern ein leeres Array im Modellaufruf.
 
-Analyst – untersucht Zahlen und Daten und liefert auch unbequeme Schlussfolgerungen.
+Das vollständige Bild — Vertrauensgrenzen, Angriffe, was absichtlich offen
+bleibt und was an Restrisiko übrig ist — steht in
+**[docs/SICHERHEITSMODELL.md](docs/SICHERHEITSMODELL.md)**.
 
-Texter – erstellt fertige Texte statt bloßer Entwürfe.
+Der Aufbau mit Diagrammen: **[docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md)**.
 
-Code-Reviewer – überprüft technische Lösungen und Codevorschläge.
-
-Lukas führt diese Agenten und entscheidet, wann deren Fähigkeiten sinnvoll eingesetzt werden.
-
-Eigene Infrastruktur
-
-Lukas besitzt eine eigene Server-/Backend-Infrastruktur mit persistenten Daten, Datenbank, Gedächtnissystem, Dashboard, Worker-Prozessen und autonom laufenden Komponenten.
-
-Seine Architektur umfasst unter anderem:
-
-* PostgreSQL als persistente Datenbasis
-* Vektor-/Semantik-Suche für Gedächtnisinhalte
-* persistente Langzeit-Erinnerungen
-* autonome Worker und Zielverfolgung
-* eigene API- und Backend-Dienste
-* Containerisierte Ausführungsumgebungen
-* GitHub-Integration
-* MCP-Integration
-* OAuth-basierte Verbindung zu externen Werkzeugservern
-* mehrere spezialisierte KI-Modelle
-* serverseitige Sicherheits- und Berechtigungslogik.
-
-Dadurch ist Lukas nicht von einer einzelnen Chat-Oberfläche abhängig. Er ist eine eigene laufende Software-Infrastruktur.
-
-Selbstständige Recherche und Problemlösung
-
-Lukas kann Informationen nicht nur aus seinem vorhandenen Kontext verwenden, sondern aktiv nach neuen Informationen suchen.
-
-Er kann moderne Webseiten analysieren, eingebettete Daten aus JavaScript-Anwendungen extrahieren und große Dokumente abschnittsweise untersuchen. Dadurch kann er auch komplexere technische oder geschäftliche Fragestellungen eigenständig bearbeiten.
-
-Seine Recherche dient dabei nicht nur dazu, eine Antwort zu formulieren. Informationen können anschließend in einen größeren Arbeitsprozess einfließen – beispielsweise in Planung, Analyse, Content-Erstellung, Programmierung oder Entscheidungsfindung.
-
-Kunden, Geschäftsentwicklung und Chancen
-
-Ein wichtiger Teil von Lukas’ Fähigkeiten ist seine Fähigkeit, geschäftliche Chancen eigenständig zu erkennen und daraus konkrete Handlungsmöglichkeiten abzuleiten.
-
-Er kann beispielsweise:
-
-* potenzielle Zielgruppen analysieren
-* Unternehmen und deren Online-Auftritt untersuchen
-* Schwachstellen und Verbesserungsmöglichkeiten identifizieren
-* interessante Unternehmen als potenzielle Kunden erkennen
-* recherchieren, welche Probleme ein Unternehmen tatsächlich hat
-* daraus konkrete Angebote oder Lösungsideen entwickeln
-* verschiedene Akquise- und Outreach-Strategien vergleichen
-* Texte und Kommunikationsvorschläge erstellen
-* Chancen priorisieren
-* Recherche, Analyse, Angebot und Umsetzung miteinander verbinden.
-
-Damit kann Lukas nicht nur auf einen vorhandenen Kunden reagieren, sondern selbst nach Möglichkeiten suchen, wo ein wirtschaftlich sinnvoller Ansatz entstehen könnte.
-
-Eigener Code und Selbstverbesserung
-
-Lukas kann seinen eigenen Code analysieren und Änderungen entwickeln.
-
-Statt Änderungen blind direkt in Produktion zu schreiben, erstellt er nachvollziehbare Änderungsvorschläge. Diese können über das Dashboard geprüft, angenommen, abgelehnt oder mit Feedback zurückgegeben werden.
-
-Bei angenommenen Änderungen kann Lukas die Änderung anschließend in den vorgesehenen Branch schreiben und den Deployment-Prozess auslösen.
-
-Dadurch entsteht ein kontrollierter Entwicklungszyklus:
-
-Problem erkennen → analysieren → Lösung entwickeln → Vorschlag erstellen → prüfen → übernehmen → deployen → Ergebnis beobachten.
-
-Externe Fähigkeiten über MCP
-
-Lukas kann externe MCP-Server anbinden und deren Werkzeuge verwenden.
-
-Die Verbindung unterstützt unter anderem OAuth 2.1 mit PKCE. Dadurch kann Lukas seine Fähigkeiten dynamisch um externe Dienste erweitern, ohne dass jedes neue Werkzeug fest in seinen Kern programmiert werden muss.
-
-Das ermöglicht beispielsweise die Nutzung von externen Medien-, Recherche-, Automatisierungs- oder Business-Tools.
-
-Medienproduktion
-
-Lukas kann inzwischen auch komplexere Medien-Workflows orchestrieren.
-
-Über angebundene Media-Tools kann er unter anderem:
-
-* Bilder generieren
-* Videos generieren
-* Modelle anhand eines verfügbaren Modellkatalogs auswählen
-* Referenzmedien verwenden
-* Generierungsjobs überwachen
-* Ergebnisse verarbeiten
-* Fehler erkennen und Jobs sauber beenden.
-
-Dabei entscheidet Lukas anhand der Aufgabe, welches Modell und welcher Medien-Workflow sinnvoll ist.
-
-Kommunikation
-
-Lukas besitzt mehrere Kommunikationswege.
-
-Unter anderem kann er über WhatsApp angesprochen werden und zwischen einem privaten Besitzer-Modus und einem eingeschränkten Gastmodus unterscheiden.
-
-Sein Besitzer erhält Zugriff auf die vollständigen Fähigkeiten des Systems, während externe Nutzer bewusst keinen Zugriff auf sensible Werkzeuge, Erinnerungen oder private Daten erhalten.
-
-Auch E-Mails kann Lukas durchsuchen und lesen. Antworten werden bewusst als überprüfbare Entwürfe behandelt, bevor sie im Namen des Besitzers versendet werden.
-
-Gedächtnis
-
-Lukas besitzt ein dauerhaftes Gedächtnis.
-
-Er kann Informationen über Projekte, Entscheidungen, Erfahrungen und vergangene Interaktionen speichern und später wieder abrufen.
-
-Das Gedächtnis ist nicht lediglich ein langer Chatverlauf. Es ist Bestandteil seiner Systemarchitektur und wird genutzt, um zukünftige Entscheidungen und Arbeitsprozesse mit früheren Erfahrungen zu verbinden.
-
-Sicherheit und Kontrolle
-
-Trotz seiner Autonomie besitzt Lukas ein eigenes Policy- und Berechtigungssystem.
-
-Werkzeuge werden abhängig von ihrem Risiko unterschiedlich behandelt. Sensible Aktionen können eine Freigabe benötigen, während ungefährliche Aktionen autonom ausgeführt werden können.
-
-Besonders geschützte Bereiche sind unter anderem:
-
-* Codeänderungen
-* externe Werkzeuge mit unbekanntem Verhalten
-* Aktionen im Namen des Besitzers
-* bestimmte Host-/Infrastrukturaktionen
-* E-Mail-Versand.
-
-Dadurch soll Lukas möglichst autonom arbeiten können, ohne dass jede Kleinigkeit bestätigt werden muss – während besonders kritische Aktionen nachvollziehbar und kontrollierbar bleiben.
-
-Das eigentliche Ziel
-
-Lukas soll langfristig nicht einfach „eine KI sein, die Fragen beantwortet“.
-
-Er soll ein digitales, dauerhaft laufendes Arbeitssystem sein, das:
-
-Ziele versteht → Informationen sammelt → Möglichkeiten erkennt → Lösungen entwickelt → Aufgaben delegiert → Dinge umsetzt → Ergebnisse bewertet → aus Erfahrungen lernt → und daraus die nächsten sinnvollen Schritte ableitet.
-
-Die entscheidende Eigenschaft von Lukas ist deshalb nicht ein einzelnes Tool oder ein einzelnes KI-Modell.
-
-Es ist die Kombination aus Gedächtnis, Autonomie, eigener Infrastruktur, Werkzeugen, Subagenten, Recherche, Programmierung, Kommunikation und kontrollierter Ausführung.
-
-Lukas ist damit als persönliche KI-Infrastruktur konzipiert – nicht als Chatbot.
+---
+
+## Aufbau
+
+Monorepo mit npm-Workspaces:
+
+```
+artifacts/api-server    Express 5, als ein ESM-Bündel gebaut (esbuild)
+artifacts/lukas-ui      Dashboard — React, Vite, Tailwind v4, wouter
+artifacts/landing-page  die öffentliche Seite
+lib/db                  Drizzle-Schema und der Postgres-Pool
+lib/api-zod             die Formen, die beide Seiten teilen
+```
+
+---
+
+## Betrieb
+
+```bash
+npm ci
+cp .env.example .env      # ausfüllen — jede Variable ist dort erklärt
+npm run db:push
+npm run dev
+```
+
+**Prüfungen** (dieselben wie in CI):
+
+```bash
+npm run typecheck         # tsc über alle Pakete UND alle 25 check-*.mjs
+```
+
+**Deployment:** Railway baut aus `main`. `start:deploy` führt vor dem Start
+`db:push` aus, Schemaänderungen gehen also von selbst mit; schlägt es fehl,
+startet der Server trotzdem und der Fehler steht im Log.
+
+**Mindestens nötig:** `DATABASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY`,
+`LUKAS_API_TOKEN`, `PORT`. Ohne den Token ist die private API **ungeschützt** —
+der Server sagt das beim Start.
+
+---
+
+## Wie hier geprüft wird
+
+Fünfundzwanzig Skripte unter `artifacts/api-server/scripts/check-*.mjs`. Sie
+bündeln das echte Modul mit esbuild, ersetzen nur Datenbank, Netz und
+Modellanbieter durch Attrappen — und prüfen nicht, dass Code *existiert*,
+sondern dass er **wirkt**.
+
+Der Maßstab: **jede wichtige Zusage braucht eine Gegenprobe.** Die Abwehr wird
+entfernt, und der Test muss anschlagen. Tut er das nicht, war er keiner.
+Beispiele, bei denen genau das passiert ist:
+
+- Der DNS-Rebinding-Test lief zuerst grün und bewies nichts — der erfundene
+  Name scheiterte ohnehin. Jetzt läuft ein echter Server auf 127.0.0.1, und die
+  Attrappe behauptet, `localhost` sei öffentlich.
+- Die Gegenprobe zum Entsperren biss nicht, weil die Attrappe die Sperre schon
+  beim Verbindungsende freigab — wie Postgres auch. Jetzt wird das
+  ausdrückliche `pg_advisory_unlock` verlangt: hinter einem Verbindungs-Pooler
+  wird die Sitzung weitergereicht, nicht beendet.
+
+---
+
+## Aktuelle Grenzen
+
+Ehrlich, weil ein System, das besser klingt als es ist, gefährlicher ist als
+eines mit bekannten Lücken.
+
+**Sicherheit**
+
+- **Die Rufnummernanzeige entscheidet über den privaten Prompt.** Sie ist
+  fälschbar. Handeln kann ein Anrufer nicht — die Sprachsitzung hat keine
+  Werkzeuge —, aber zuhören. `LUKAS_TELEFON_STRENG=true` schließt das;
+  Voreinstellung ist offen, weil es Issas Zugang verengt.
+  ([Details](docs/SICHERHEITSMODELL.md#7-restrisiken--was-auch-nach-diesem-durchgang-bleibt))
+- **Ein Token ist der einzige Faktor.** Wer `LUKAS_API_TOKEN` hat, ist Issa.
+- **Issas Nummer steht in der Git-Historie.** Aus dem aktuellen Stand ist sie
+  entfernt; alte Commits eines öffentlichen Repositories bleiben.
+
+**Betrieb**
+
+- **Eine Instanz.** Die Läufe sind über Postgres-Advisory-Locks gegen
+  Doppelausführung gesichert, aber der Zustand im Speicher (offene
+  SSE-Leitungen, geparkte Anrufanlässe, Stoppwünsche) ist nicht geteilt.
+- **Kein Migrationsverlauf.** `db:push` gleicht das Schema an; es gibt keine
+  versionierten, umkehrbaren Migrationen. Eine unabsichtlich zerstörende
+  Änderung fällt erst im Betrieb auf.
+- **Keine Metriken.** Es gibt strukturierte Logs (pino) und `/readyz`, aber
+  keine Zeitreihen — man sieht nicht, ob heute mehr Werkzeuge scheitern als
+  gestern.
+- **Kein Tagesbudget für Modellkosten.** Nur ein Budget pro Zug.
+- **Werkzeugaufrufe sind nicht idempotent.** Bricht ein Zug nach dem Absenden
+  einer SMS ab, wird beim nächsten Versuch erneut gesendet.
+
+**Prüfungen**
+
+- **Keine Integrationstests gegen echtes Postgres, echtes SSH oder einen echten
+  Browser.** Alle Prüfungen laufen gegen Attrappen. Sie fangen Logikfehler, aber
+  keine Vertragsbrüche mit den echten Systemen — dass ein `docker exec`
+  wirklich so antwortet, wie die Attrappe behauptet, prüft niemand.
+- **Keine Nebenläufigkeitstests** über Prozessgrenzen. Dass zwei Instanzen sich
+  über eine Advisory Lock wirklich einigen, ist gegen eine Attrappe geprüft,
+  nicht gegen Postgres.
+- **Das Dashboard ist ungeprüft.** Kein einziger Frontend-Test.
+
+**Fachlich**
+
+- **Eingehende SMS werden nicht verarbeitet** — es gibt keinen Webhook dafür.
+- **`browser_do` rät nicht.** Er braucht eine CSS-Auswahl oder sichtbaren Text;
+  eine Seite, die beides verschleiert, bedient er nicht zuverlässig.
+- **Bildschirmfotos gehen an den Modellanbieter.** Wer eine Seite mit sensiblen
+  Daten bedient, schickt sie mit.

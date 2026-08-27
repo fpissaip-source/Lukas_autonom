@@ -16,7 +16,7 @@
  *     zwar ohne Fehlermeldung. Fertige Bibliotheken tun das im Standardfall.
  */
 import { build } from "esbuild";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 const dir = mkdtempSync(join(process.cwd(), ".schutz-check-"));
@@ -226,6 +226,41 @@ pruefe("ein kürzerer nicht", !gleicherToken("geheim", "geheim-123"));
 pruefe("ein längerer nicht", !gleicherToken("geheim-123-mehr", "geheim-123"));
 pruefe("kein Token ist kein Zutritt", !gleicherToken(undefined, "geheim-123"));
 pruefe("und ein leerer erst recht nicht", !gleicherToken("", ""));
+
+/*
+ * Und jetzt das eigentliche Versprechen — das die sechs Zeilen darüber NICHT
+ * prüfen.
+ *
+ * Aufgefallen bei einer Mutationsprobe: ersetzt man den ganzen Rumpf durch
+ * `return a === b`, bleiben alle Fälle oben grün. Kein Wunder — sie prüfen das
+ * ERGEBNIS, und das ist bei beiden Fassungen dasselbe. Die Eigenschaft, um die
+ * es hier geht, ist aber nicht das Ergebnis, sondern die DAUER: `a !== b`
+ * bricht beim ersten falschen Zeichen ab, und über viele Versuche lässt sich
+ * daraus ein Token Zeichen für Zeichen rekonstruieren.
+ *
+ * Diese Eigenschaft lässt sich nicht sinnvoll messen — eine Zeitmessung im
+ * Millisekundenbereich wäre auf einem geteilten CI-Läufer reines Rauschen und
+ * würde mal grün, mal rot. Was bleibt, ist die Bauart selbst: die Funktion muss
+ * timingSafeEqual benutzen und darf die beiden Werte nirgends direkt
+ * vergleichen. Ein struktureller Test ist schwächer als ein Verhaltenstest —
+ * aber unendlich viel besser als der falsche Eindruck, hier sei etwas
+ * abgesichert, das es nicht ist.
+ */
+{
+  const quelle = readFileSync(
+    new URL("../src/middlewares/schutz.ts", import.meta.url),
+    "utf8",
+  );
+  const rumpf = quelle.slice(
+    quelle.indexOf("export function gleicherToken"),
+    quelle.indexOf("export function klientIp"),
+  );
+  pruefe("gleicherToken vergleicht zeitkonstant", /timingSafeEqual\(einA, einB\)/.test(rumpf));
+  pruefe(
+    "und nirgends direkt mit === oder !==",
+    !/\b(a|einA)\s*[!=]==\s*(b|einB)\b/.test(rumpf),
+  );
+}
 
 // ── 3. Limit ──────────────────────────────────────────────────────────────
 process.env.LUKAS_RATE_LIMIT = "5";

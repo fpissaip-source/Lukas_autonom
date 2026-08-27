@@ -241,3 +241,16 @@ keiner. Das ist in dieser Arbeit mehrfach passiert und jedes Mal aufgefallen:
   beim Verbindungsende freigab. Jetzt wird das ausdrückliche
   `pg_advisory_unlock` verlangt — hinter einem Verbindungs-Pooler wird die
   Sitzung nämlich weitergereicht, nicht beendet.
+- Eine Mutationsprobe über die bestehenden Prüfungen fand zwei Stellen, an
+  denen die Absicherung nur scheinbar bestand:
+  - `gleicherToken` durch `a === b` ersetzt — **alle** Fälle blieben grün. Sie
+    prüften das Ergebnis, nicht die Dauer, und die Dauer ist der ganze Zweck.
+    Messen lässt sie sich auf einem geteilten CI-Läufer nicht sinnvoll; jetzt
+    steht dort eine *strukturelle* Zusicherung (benutzt `timingSafeEqual`,
+    vergleicht nirgends direkt) — schwächer als ein Verhaltenstest, aber
+    besser als der falsche Eindruck.
+  - **`checkPolicy()` war nie aufgerufen worden.** Geprüft waren
+    `isAffirmation()` und `riskFor()` — also was das System *sagt*, nicht was
+    es *tut*. Der ganze Freigabepfad hing an Kommentaren. Jetzt geprüft: eine
+    Freigabe gilt genau einmal, nur für exakt diese Argumente, nie im
+    autonomen Lauf — und ein "ja" im Chat gibt niemals R3 frei.

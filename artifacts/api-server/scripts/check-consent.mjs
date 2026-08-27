@@ -158,6 +158,176 @@ try {
 
   setMcpRiskTiers([]);
 
+  /*
+   * ── Der Freigabepfad selbst ────────────────────────────────────────────
+   *
+   * Bis hierher wurde geprüft, was isAffirmation() und riskFor() SAGEN. Was
+   * nicht geprüft war: was checkPolicy() daraus MACHT — und das ist die
+   * Funktion, an der alles hängt.
+   *
+   * Aufgefallen ist die Lücke durch eine Mutationsprobe: nimmt man die Zeile
+   * `tier === "R2"` aus der Zustimmungsbedingung heraus, gäbe ein beiläufiges
+   * "ja" im Chat einen R3-Aufruf frei — Root auf dem Droplet. Kein einziger
+   * Test hat das gemerkt, weil kein Test checkPolicy je aufgerufen hat. Ein
+   * Kommentar ("R3 bleibt IMMER bei der Dashboard-Freigabe") ist keine
+   * Zusicherung. Das hier schon.
+   *
+   * Die Datenbank ist eine Attrappe, die sich wie Drizzle verhält. Wichtig:
+   * das UPDATE gibt nur die Zeilen zurück, die es tatsächlich gedreht hat —
+   * genau darauf beruht, dass eine Freigabe nur EINMAL eingelöst wird.
+   */
+  const dbAttrappe = path.join(dir, "db.mjs");
+  await writeFile(
+    dbAttrappe,
+    `globalThis.__zeilen = [];
+let naechsteId = 1;
+export const approvals = new Proxy({}, { get: (_t, k) => String(k) });
+export const eq = (feld, wert) => (z) => z[feld] === wert;
+export const gt = (feld, wert) => (z) => z[feld] > wert;
+export const and = (...b) => (z) => b.every((f) => f(z));
+export const desc = () => () => true;
+export const db = {
+  update: () => ({
+    set: (werte) => ({
+      where: (b) => ({
+        returning: async () => {
+          const treffer = globalThis.__zeilen.filter(b);
+          for (const z of treffer) Object.assign(z, werte);
+          return treffer;
+        },
+      }),
+    }),
+  }),
+  select: () => ({
+    from: () => ({
+      where: (b) => ({
+        limit: async () => globalThis.__zeilen.filter(b),
+        orderBy: () => ({ limit: async () => globalThis.__zeilen.filter(b) }),
+      }),
+    }),
+  }),
+  insert: () => ({
+    values: (werte) => ({
+      returning: async () => {
+        const zeile = { id: naechsteId++, ...werte };
+        globalThis.__zeilen.push(zeile);
+        return [zeile];
+      },
+    }),
+  }),
+};
+export const logger = { info() {}, warn() {}, error() {}, debug() {} };
+`,
+  );
+
+  const policyOut = path.join(dir, "policy-mit-db.mjs");
+  await build({
+    entryPoints: [path.resolve(here, "..", "src", "lib", "policy.ts")],
+    outfile: policyOut,
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    logLevel: "error",
+    alias: { "@workspace/db": dbAttrappe, "drizzle-orm": dbAttrappe },
+    // Auch das Protokoll: sonst schreibt jeder Prüflauf ein Dutzend
+    // Info-Zeilen in die CI-Ausgabe, und echte Fehler gehen darin unter.
+    plugins: [
+      {
+        name: "leises-protokoll",
+        setup(b) {
+          b.onResolve({ filter: /(^|\/)logger$/ }, () => ({ path: dbAttrappe }));
+        },
+      },
+    ],
+    external: ["pg", "pino", "ssh2", "ffmpeg-static", "imapflow", "mailparser", "nodemailer"],
+    banner: {
+      js: "import { createRequire as __cr } from 'node:module'; globalThis.require = __cr(import.meta.url);",
+    },
+  });
+  const { checkPolicy } = await import(pathToFileURL(policyOut).href);
+
+  const gueltigBis = () => new Date(Date.now() + 30 * 60 * 1000);
+  const mail = { to: "kunde@example.com", subject: "Angebot", body: "Anbei." };
+
+  // R0/R1 laufen ohne jede Anfrage durch — sonst wäre Lukas unbrauchbar.
+  globalThis.__zeilen = [];
+  pruefe("eine Suche braucht keine Freigabe", (await checkPolicy("query_memory", { q: "x" })).allow, true);
+  pruefe("und legt auch keine Anfrage an", globalThis.__zeilen.length, 0);
+
+  // R2 ohne alles: es entsteht eine offene Anfrage, ausgeführt wird nichts.
+  globalThis.__zeilen = [];
+  pruefe(
+    "ein Mailversand läuft nicht einfach los",
+    (await checkPolicy("email_send", mail, 1, "Schreib dem Kunden")).allow,
+    false,
+  );
+  pruefe("sondern landet als Anfrage im Dashboard", globalThis.__zeilen.length, 1);
+  pruefe("und zwar offen", globalThis.__zeilen[0].status, "pending");
+
+  // Dieselben Argumente + ein klares Ja: jetzt geht es raus.
+  globalThis.__zeilen[0].expiresAt = gueltigBis();
+  pruefe(
+    "nach Issas 'ja' geht dieselbe Mail raus",
+    (await checkPolicy("email_send", mail, 1, "Ja, schick ab")).allow,
+    true,
+  );
+  pruefe("die Freigabe ist damit verbraucht", globalThis.__zeilen[0].status, "used");
+  pruefe(
+    "und zählt kein zweites Mal",
+    (await checkPolicy("email_send", mail, 1, "Ja, schick ab")).allow,
+    false,
+  );
+
+  // Ein Nein bleibt ein Nein.
+  globalThis.__zeilen = [];
+  await checkPolicy("email_send", mail, 1, "Zeig mir den Entwurf");
+  globalThis.__zeilen[0].expiresAt = gueltigBis();
+  pruefe(
+    "'Nein, schick das noch nicht' gibt nichts frei",
+    (await checkPolicy("email_send", mail, 1, "Nein, schick das noch nicht")).allow,
+    false,
+  );
+  pruefe(
+    "und eine Zustimmung gilt nicht für einen ANDEREN Text",
+    (await checkPolicy("email_send", { ...mail, body: "Etwas ganz anderes." }, 1, "Ja, schick ab")).allow,
+    false,
+  );
+
+  // Autonomer Lauf: kein Nutzertext, also keine Abkürzung.
+  globalThis.__zeilen = [];
+  await checkPolicy("email_send", mail, undefined, undefined);
+  globalThis.__zeilen[0].expiresAt = gueltigBis();
+  pruefe(
+    "im autonomen Lauf gibt es keine Zustimmung im Chat",
+    (await checkPolicy("email_send", mail, undefined, undefined)).allow,
+    false,
+  );
+
+  /*
+   * DIE STELLE. R3 — Root auf dem Droplet — darf NIE über ein "ja" im Chat
+   * laufen, sondern nur über den Klick im Dashboard, wo der genaue Befehl vor
+   * Augen steht.
+   */
+  process.env.LUKAS_HOST_APPROVAL = "true";
+  const befehl = { command: "rm -rf /var/www" };
+  globalThis.__zeilen = [];
+  await checkPolicy("execute_on_host", befehl, 1, "Räum das mal auf");
+  globalThis.__zeilen[0].expiresAt = gueltigBis();
+  pruefe("ein Host-Befehl landet als R3-Anfrage", globalThis.__zeilen[0].riskTier, "R3");
+  pruefe(
+    "und ein beiläufiges 'ja' im Chat gibt ihn NICHT frei",
+    (await checkPolicy("execute_on_host", befehl, 1, "Ja, mach")).allow,
+    false,
+  );
+  globalThis.__zeilen[0].status = "allowed";
+  pruefe(
+    "über das Dashboard freigegeben läuft er",
+    (await checkPolicy("execute_on_host", befehl, 1, "Ja, mach")).allow,
+    true,
+  );
+  delete process.env.LUKAS_HOST_APPROVAL;
+
+
   if (failures.length > 0) {
     console.error("FEHLER in der Zustimmungserkennung:\n");
     for (const f of failures) {
@@ -167,7 +337,7 @@ try {
     process.exit(1);
   }
 
-  console.log(`OK — Zustimmung + Mail-Link-Sperre: ${CASES.length + 8} Fälle korrekt.`);
+  console.log(`OK — Zustimmung + Mail-Link-Sperre: ${CASES.length + 8} Fälle korrekt, Freigabepfad inklusive.`);
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

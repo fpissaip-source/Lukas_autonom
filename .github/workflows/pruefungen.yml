@@ -55,3 +55,5 @@ jobs:
           node scripts/check-schutz.mjs
           node scripts/check-netzschutz.mjs
           node scripts/check-browser-bedienen.mjs
+          node scripts/check-telefon.mjs
+          node scripts/check-betrieb.mjs

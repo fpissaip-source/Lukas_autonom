@@ -115,19 +115,19 @@ const wirft = async (fn, was, muster) => {
 };
 
 // ── 1. Nummern ────────────────────────────────────────────────────────────
-pruefe("internationale Nummer bleibt", normalisiereNummer("+4915259559707") === "+4915259559707");
+pruefe("internationale Nummer bleibt", normalisiereNummer("+4915100000042") === "+4915100000042");
 pruefe(
   "Leerzeichen und Bindestriche stören nicht",
-  normalisiereNummer("+49 152 / 5955-9707") === "+4915259559707",
+  normalisiereNummer("+49 151 / 0000-0042") === "+4915100000042",
 );
-pruefe("ohne Vorwahl wird NICHT geraten", normalisiereNummer("015259559707") === null);
+pruefe("ohne Vorwahl wird NICHT geraten", normalisiereNummer("015100000042") === null);
 pruefe("Unsinn wird abgelehnt", normalisiereNummer("ruf mal an") === null);
 pruefe("und Leeres auch", normalisiereNummer("") === null);
 
 process.env.LUKAS_LAENDERVORWAHL = "+49";
 pruefe(
   "mit ausdrücklicher Ländervorwahl geht die führende Null",
-  normalisiereNummer("015259559707") === "+4915259559707",
+  normalisiereNummer("015100000042") === "+4915100000042",
 );
 delete process.env.LUKAS_LAENDERVORWAHL;
 
@@ -161,7 +161,7 @@ globalThis.fetch = async (url, init) => {
 };
 
 {
-  const e = await sendeSms({ an: "+4915259559707", text: "Bin um 15 Uhr da." });
+  const e = await sendeSms({ an: "+4915100000042", text: "Bin um 15 Uhr da." });
   pruefe("die SMS geht raus", e.ok === true);
   pruefe("mit Status vom Anbieter", e.status === "SUCCESS");
   pruefe("und dem Preis", e.preis === "0.0784");
@@ -169,7 +169,7 @@ globalThis.fetch = async (url, init) => {
   pruefe("an den richtigen Endpunkt", letzterAufruf.url === "https://rest.clicksend.com/v3/sms/send");
   const koerper = JSON.parse(letzterAufruf.init.body);
   pruefe("mit genau einer Nachricht", koerper.messages.length === 1);
-  pruefe("an die normalisierte Nummer", koerper.messages[0].to === "+4915259559707");
+  pruefe("an die normalisierte Nummer", koerper.messages[0].to === "+4915100000042");
   pruefe("mit dem Text", koerper.messages[0].body === "Bin um 15 Uhr da.");
   pruefe(
     "und Basic-Auth im Kopf",
@@ -185,19 +185,19 @@ globalThis.fetch = async (url, init) => {
 
 // Was Lukas schreibt, ist als seins erkennbar.
 {
-  await sendeSms({ an: "+4915259559707", text: "Termin bestätigt.", quelle: "lukas" });
+  await sendeSms({ an: "+4915100000042", text: "Termin bestätigt.", quelle: "lukas" });
   pruefe("von Lukas geschriebene SMS sind erkennbar", globalThis.__sms.at(-1)?.quelle === "lukas");
 }
 
 // ── 4. Was NICHT rausgehen darf ───────────────────────────────────────────
 await wirft(
-  () => sendeSms({ an: "015259559707", text: "Hallo" }),
+  () => sendeSms({ an: "015100000042", text: "Hallo" }),
   "ohne Ländervorwahl geht nichts raus",
   /internationale/i,
 );
-await wirft(() => sendeSms({ an: "+4915259559707", text: "   " }), "ohne Text auch nicht");
+await wirft(() => sendeSms({ an: "+4915100000042", text: "   " }), "ohne Text auch nicht");
 await wirft(
-  () => sendeSms({ an: "+4915259559707", text: "a".repeat(1300) }),
+  () => sendeSms({ an: "+4915100000042", text: "a".repeat(1300) }),
   "und ein Roman wird abgelehnt statt in zehn Teile zerlegt",
   /kürzer|Mail/i,
 );
@@ -237,7 +237,7 @@ delete process.env.CLICKSEND_USERNAME;
 delete process.env.CLICKSEND_API_KEY;
 pruefe("ohne Zugangsdaten ist er nicht bereit", !zugangVorhanden());
 await wirft(
-  () => sendeSms({ an: "+4915259559707", text: "Test" }),
+  () => sendeSms({ an: "+4915100000042", text: "Test" }),
   "und sagt, was fehlt",
   /CLICKSEND_USERNAME/,
 );

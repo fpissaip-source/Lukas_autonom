@@ -50,7 +50,7 @@ await build({
   ],
 });
 
-const { normalisiere, nummerAusSip } = await import(out);
+const { normalisiere, nummerAusSip, tatsaechlicheStufe } = await import(out);
 
 let fehler = 0;
 const pruefe = (bedingung, text) => {
@@ -115,6 +115,42 @@ for (const murks of ["", "anonymous", "<sip:anonymous@anonymous.invalid>"]) {
     `Ohne Nummer muss leer herauskommen: "${murks}" ergab "${nummerAusSip(murks)}"`,
   );
 }
+
+// ── 5. Die Rufnummernanzeige als Ausweis — und der strenge Schalter ──────
+/*
+ * Die eigentliche Schwachstelle des Telefonwegs: die Nummer im From-Header
+ * behauptet das anrufende Netz. Mit einem VoIP-Anschluss ist sie frei setzbar.
+ * Wer Issas Nummer und Lukas' Nummer kennt, laesst sich sonst ansagen, was
+ * Lukas ueber Issa weiss.
+ *
+ * Geprueft wird beides — dass der strenge Schalter wirkt, UND dass er Issa
+ * nicht aussperrt, wenn LUKAS SELBST angerufen hat. Ein Schalter, der auch
+ * die eigenen Rueckrufe abwuergt, wuerde als Erstes wieder abgeschaltet.
+ */
+delete process.env.LUKAS_TELEFON_STRENG;
+pruefe(
+  tatsaechlicheStufe("privat", false, "4915112345678") === "privat",
+  "ohne strengen Schalter bleibt es beim heutigen Verhalten",
+);
+
+process.env.LUKAS_TELEFON_STRENG = "true";
+pruefe(
+  tatsaechlicheStufe("privat", false, "4915112345678") === "oeffentlich",
+  "streng: ein EINGEHENDER Anruf bekommt nie den privaten Prompt",
+);
+pruefe(
+  tatsaechlicheStufe("privat", true, "4915112345678") === "privat",
+  "streng: ein Anruf, den LUKAS gewählt hat, schon — sonst wäre der Rückruf wertlos",
+);
+pruefe(
+  tatsaechlicheStufe("gesperrt", true, "4915112345678") === "gesperrt",
+  "gesperrt bleibt gesperrt, auch wenn Lukas selbst gewählt hat",
+);
+pruefe(
+  tatsaechlicheStufe("oeffentlich", false, "4930999999") === "oeffentlich",
+  "und öffentlich wird durch den Schalter nicht privater",
+);
+delete process.env.LUKAS_TELEFON_STRENG;
 
 rmSync(dir, { recursive: true, force: true });
 

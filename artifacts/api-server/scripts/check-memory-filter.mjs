@@ -77,7 +77,7 @@ const drin = [
   "Merge",
   "Nein.",
   "Nein, mach das anders",
-  "+4915259559707",
+  "+4915100000042",
   "Seedance 2.5",
   "Push auf main",
   "Kein Branch mehr",

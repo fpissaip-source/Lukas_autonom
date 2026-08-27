@@ -141,6 +141,70 @@ async function anweisungen(stufe: Stufe, name: string, anlass: string | null): P
   return `${SPRACH_REGEL}\n\n${amTelefon}${grund}\n\n${basis}`;
 }
 
+/*
+ * DIE RUFNUMMERNANZEIGE IST KEIN AUSWEIS.
+ *
+ * Das ist die unangenehmste Stelle im ganzen System, und sie steht hier
+ * ausgeschrieben, statt in einer Doku zu verschwinden.
+ *
+ * stufeFuer() entscheidet anhand der Nummer im SIP-From-Header, ob der Anrufer
+ * Issas VOLLEN privaten Prompt bekommt — Erinnerungen, Ziele, Tagebuch. Diese
+ * Nummer behauptet das anrufende Netz, nicht der Anrufer und nicht wir. Im
+ * Telefonnetz ist sie mit einem VoIP-Anschluss frei setzbar; genau darauf
+ * beruht jeder zweite Telefonbetrug. Wer Issas Nummer kennt — sie stand in
+ * diesem oeffentlichen Repository — und Lukas' Nummer kennt, kann sich
+ * ansagen lassen, was Lukas ueber Issa weiss.
+ *
+ * Was das NICHT ist: ein Weg, etwas auszuloesen. Die Sprachsitzung bekommt
+ * ausschliesslich instructions und Audio, keine Werkzeuge. Es geht um
+ * Preisgabe, nicht um Handlungen.
+ *
+ * Warum das nicht einfach hier zugenagelt wird: eine Bestaetigung IM Gespraech
+ * (eine gesprochene Geheimzahl) braeuchte ein Werkzeug in der Sprachsitzung,
+ * das es nicht gibt — und ein Modell, das selbst entscheidet, ob die Zahl
+ * stimmte, waere keine Pruefung, sondern eine Bitte. Die Anweisungen stehen
+ * fest, sobald der Anruf angenommen ist.
+ *
+ * Bleiben drei Moeglichkeiten, und die Wahl gehoert Issa:
+ *
+ *  1. SO LASSEN. Bequem, und das Risiko ist Preisgabe an jemanden, der bereits
+ *     beide Nummern kennt und Rufnummern faelschen kann. Das ist der Stand
+ *     ohne LUKAS_TELEFON_STRENG.
+ *  2. STRENG (LUKAS_TELEFON_STRENG=true). Eingehende Anrufe bekommen NIE den
+ *     privaten Prompt — nur Anrufe, die Lukas selbst gewaehlt hat. Ruft Issa
+ *     an, spricht er mit dem oeffentlichen Lukas, der ihn beim Namen kennt;
+ *     will er den privaten, laesst er sich zurueckrufen.
+ *  3. RUECKRUF ALS REGEL. Technisch dasselbe wie 2, nur als Gewohnheit.
+ *
+ * Voreinstellung ist 1, weil 2 Issa den Zugang zu seinem eigenen Lukas
+ * verengt und diese Entscheidung nicht nebenbei getroffen wird. Solange 1
+ * gilt, steht bei jedem solchen Anruf eine Warnung im Protokoll — ein
+ * Restrisiko, das niemand sieht, ist keins, das jemand abwaegt.
+ */
+export function tatsaechlicheStufe(
+  eingetragen: Stufe,
+  vonLukasGewaehlt: boolean,
+  nummer: string,
+): Stufe {
+  if (eingetragen !== "privat" || vonLukasGewaehlt) return eingetragen;
+
+  const streng = (process.env.LUKAS_TELEFON_STRENG ?? "false").trim().toLowerCase() === "true";
+  if (streng) {
+    logger.info(
+      { nummer },
+      "Eingehender Anruf mit privater Nummer — streng: öffentlicher Lukas, weil die Rufnummernanzeige kein Ausweis ist",
+    );
+    return "oeffentlich";
+  }
+
+  logger.warn(
+    { nummer },
+    "Eingehender Anruf bekommt den PRIVATEN Prompt allein aufgrund der Rufnummernanzeige. " +
+      "Die ist fälschbar. Mit LUKAS_TELEFON_STRENG=true gilt das nur noch für Anrufe, die Lukas selbst gewählt hat.",
+  );
+  return eingetragen;
+}
+
 /**
  * Den Anruf annehmen.
  *
@@ -148,8 +212,9 @@ async function anweisungen(stufe: Stufe, name: string, anlass: string | null): P
  * passiert hier nichts, was warten kann.
  */
 export async function nimmAn(callId: string, vonNummer: string): Promise<Stufe> {
-  const { stufe, name } = await stufeFuer(vonNummer);
+  const { stufe: eingetragen, name } = await stufeFuer(vonNummer);
   const anlass = holeAnlass(vonNummer);
+  const stufe = tatsaechlicheStufe(eingetragen, anlass !== null, vonNummer);
 
   if (stufe === "gesperrt") {
     await weiseAb(callId, "Gesperrte Nummer");

@@ -252,6 +252,8 @@ export type BedienErgebnis = {
   schritte?: Array<{ nummer: number; art: string; ok: boolean; info: string }>;
   felder?: string[];
   text?: string;
+  /** Ein JPEG des sichtbaren Bereichs, base64 — damit Lukas die Seite SIEHT. */
+  bild?: string | null;
 };
 
 /**

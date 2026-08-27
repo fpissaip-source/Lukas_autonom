@@ -1,6 +1,6 @@
 # Was hier laeuft, lief vorher nur, wenn jemand daran dachte.
 #
-# Im Repo stehen zweiundzwanzig check-*.mjs — jede einzelne haelt einen Fehler
+# Im Repo stehen vierundzwanzig check-*.mjs — jede einzelne haelt einen Fehler
 # fest, der schon einmal passiert ist: die verschluckte Antwort nach
 # Werkzeugen, der Chat-Stream, der grosse Bloecke verlor, die Freigabe, die
 # Lukas versprochen bekam und nicht hatte. Ohne CI schuetzt das nur den, der
@@ -54,3 +54,4 @@ jobs:
           node scripts/check-consent.mjs
           node scripts/check-schutz.mjs
           node scripts/check-netzschutz.mjs
+          node scripts/check-browser-bedienen.mjs

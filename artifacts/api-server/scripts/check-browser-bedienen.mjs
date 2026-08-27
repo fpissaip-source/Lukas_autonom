@@ -52,6 +52,7 @@ export async function sshExec(befehl, _timeout, eingabe) {
         ],
         felder: ['button Neues Projekt', 'input:text Suche'],
         text: 'Willkommen zurück, Issa',
+        bild: 'BILDSCHIRMFOTO-BASE64',
       }),
       stderr: '',
     };
@@ -113,6 +114,12 @@ pruefe(
   "die bedienbaren Elemente kommen mit — damit er den nächsten Schritt planen kann",
   (ergebnis.felder ?? []).some((f) => f.includes("Neues Projekt")),
 );
+
+/*
+ * Das Bildschirmfoto muss durchgereicht werden — sonst arbeitet er blind.
+ * Der Text einer Seite verraet nicht, ob ein Banner ueber dem Knopf liegt.
+ */
+pruefe("das Bildschirmfoto kommt mit", ergebnis.bild === "BILDSCHIRMFOTO-BASE64");
 
 // ── 2. Der Plan geht vollständig hinüber ─────────────────────────────────
 const planEingabe = globalThis.__ssh.find((a) => a.befehl.includes("plan.json"))?.eingabe ?? "";

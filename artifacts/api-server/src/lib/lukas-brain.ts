@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import type OpenAI from "openai";
 import { allLukasTools, executeLukasTool } from "./lukas-tools";
+import { nimmBilder, entwerteAlteBilder, BILD_MARKE } from "./bildablage";
 import { buildSystemPrompt } from "./system-prompt";
 import { recordEmotion } from "./emotion-engine";
 import { logger } from "./logger";
@@ -90,7 +91,7 @@ export async function runLukasTurn(opts: {
 
   const textPieces: string[] = [];
   const usedTools: string[] = [];
-  const hasAttachments = historyHasMultimodal(opts.history);
+  let hasAttachments = historyHasMultimodal(opts.history);
 
   /*
    * Keine feste Rundenzahl mehr. Er arbeitet, solange er vorankommt; wenn er
@@ -190,6 +191,31 @@ export async function runLukasTurn(opts: {
           }).catch(() => {});
         }
       }
+    }
+
+    /*
+     * Bildschirmfotos aus dieser Runde als echte Bildnachricht nachreichen.
+     *
+     * Sie muessen NACH allen Werkzeugergebnissen kommen: zwischen einer
+     * Assistenten-Nachricht mit tool_calls und den zugehoerigen Ergebnissen
+     * darf nichts stehen, sonst weist die API den ganzen Aufruf zurueck.
+     *
+     * Und hasAttachments wird gesetzt, nicht nur einmal am Anfang gelesen: ab
+     * jetzt braucht dieser Zug ein Modell, das Bilder sehen kann. Ohne das
+     * schickt der Router die naechste Runde womoeglich an ein reines
+     * Textmodell — und dann ist das Bild bestenfalls verschwendet.
+     */
+    const neueBilder = nimmBilder(conversationId);
+    if (neueBilder.length) entwerteAlteBilder(convo);
+    for (const bild of neueBilder) {
+      hasAttachments = true;
+      convo.push({
+        role: "user",
+        content: [
+          { type: "text", text: `${bild.quelle} — so sieht die Seite gerade aus.${BILD_MARKE}` },
+          { type: "image_url", image_url: { url: bild.datenUrl } },
+        ],
+      } as OpenAI.Chat.Completions.ChatCompletionMessageParam);
     }
 
     convo.push(...hinweise);

@@ -46,8 +46,13 @@ writeFileSync(
   "abbild.example": ["::ffff:127.0.0.1"],
   "eigener-dienst.intern": ["10.0.0.9"],
 };
+globalThis.__aufrufe = [];
 export async function lookup(name, _opts) {
-  const treffer = globalThis.__dns[name];
+  globalThis.__aufrufe.push(name);
+  // Rebinding: derselbe Name antwortet beim zweiten Mal anders.
+  const wechsel = globalThis.__rebind?.[name];
+  const wieOft = globalThis.__aufrufe.filter((n) => n === name).length - 1;
+  const treffer = wechsel ? [wechsel[Math.min(wieOft, wechsel.length - 1)]] : globalThis.__dns[name];
   if (!treffer) throw new Error("ENOTFOUND");
   return treffer.map((address) => ({ address, family: address.includes(":") ? 6 : 4 }));
 }
@@ -62,6 +67,8 @@ await build({
   platform: "node",
   outfile: out,
   alias: { "node:dns/promises": dnsAttrappe },
+  // Wie im Produktivbau: undici bleibt extern (dynamische requires).
+  external: ["undici"],
   logLevel: "silent",
 });
 
@@ -69,6 +76,9 @@ const { pruefeZiel, sicherFetch, istInterneAdresse, ZielAbgelehnt } = await impo
   `file://${out}`
 );
 rmSync(dir, { recursive: true, force: true });
+
+// Den echten fetch sichern, bevor die Attrappen ihn ersetzen.
+const echterFetch = globalThis.fetch;
 
 let fehler = 0;
 const pruefe = (was, bedingung) => {
@@ -178,6 +188,56 @@ globalThis.fetch = async (url) => {
   const antwort = await sicherFetch("https://harmlos.example/artikel");
   pruefe("eine normale Seite kommt durch", antwort.status === 200);
   pruefe("und liefert ihren Inhalt", (await antwort.text()) === "Inhalt");
+}
+
+// ── 6. DNS-Rebinding: Prüfung sagt ja, Verbindung geht nach innen ─────────
+/*
+ * Der Angriff, gegen den das Anheften der geprüften Adresse steht — und der
+ * Grund, warum "erst auflösen, dann fetch(name)" nichts taugt: zwischen der
+ * Prüfung und dem Verbindungsaufbau liegt eine ZWEITE Auflösung, und die kann
+ * anders ausfallen.
+ *
+ * Nachgestellt wird das mit "localhost": die Attrappe (die der Netzschutz
+ * benutzt) meldet eine öffentliche Adresse, die Prüfung sagt also ja. Der
+ * echte Verbindungsaufbau geht dagegen über den System-Resolver — und der
+ * kennt localhost als 127.0.0.1. Genau diese Lücke.
+ *
+ * Erster Versuch war hier ein erfundener Name; der Test lief grün, bewies aber
+ * nichts: der Name existierte auch für den System-Resolver nicht, die
+ * Verbindung scheiterte ohnehin. Ein Test, dessen Gegenprobe nicht anschlägt,
+ * ist kein Test.
+ */
+{
+  const { createServer } = await import("node:http");
+  let getroffen = 0;
+  const server = createServer((_req, res) => {
+    getroffen++;
+    res.end("INTERN — hier hätte niemand hindurchdürfen");
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+
+  globalThis.fetch = echterFetch;
+  // Was die PRÜFUNG sieht: harmlos und öffentlich.
+  globalThis.__dns["localhost"] = ["93.184.216.34"];
+
+  let ausgang = "kein Versuch";
+  try {
+    const antwort = await sicherFetch(`http://localhost:${port}/`, {
+      signal: AbortSignal.timeout(2500),
+    });
+    ausgang = `verbunden (${antwort.status})`;
+  } catch (err) {
+    ausgang = String(err?.message ?? err).slice(0, 60);
+  }
+
+  await new Promise((r) => server.close(r));
+  delete globalThis.__dns["localhost"];
+
+  pruefe(
+    `der lokale Server wurde NIE erreicht (Treffer: ${getroffen}, Ausgang: ${ausgang})`,
+    getroffen === 0,
+  );
 }
 
 if (fehler > 0) process.exit(1);

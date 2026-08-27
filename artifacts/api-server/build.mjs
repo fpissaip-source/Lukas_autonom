@@ -40,6 +40,13 @@ async function buildAll() {
       // ein stiller ENOENT: Videos wurden nie in Frames zerlegt, und Lukas
       // konnte nur noch raten, warum. Muss extern bleiben.
       "ffmpeg-static",
+      /*
+       * undici benutzt intern dynamische require-Aufrufe (node:assert und
+       * Verwandte). Gebundelt in ein ESM-Modul wirft das beim ersten Aufruf
+       * "Dynamic require ... is not supported" — und zwar erst zur Laufzeit,
+       * im Netzschutz, also genau dort, wo ein Ausfall am teuersten ist.
+       */
+      "undici",
       "canvas",
       "bcrypt",
       "argon2",

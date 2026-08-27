@@ -158,8 +158,25 @@ async function ziel(page, wahl) {
     return { titel: document.title, text, felder };
   });
 
+  /*
+   * Und ein Bild. Ohne das arbeitet Lukas blind: der Text einer Seite sagt
+   * nichts darueber, ob der Knopf ueberhaupt sichtbar war, ob ein Overlay
+   * davorliegt oder ob nach dem Absenden ein Fehler in Rot dasteht. JPEG mit
+   * mittlerer Qualitaet, weil ein PNG dieser Groesse den Kontext sprengt.
+   */
+  let bild = null;
+  if (plan.some((s) => s.art === 'oeffne' || s.art === 'klicke' || s.art === 'tippe') || plan.length === 0) {
+    try {
+      const puffer = await page.screenshot({ type: 'jpeg', quality: 55, fullPage: false });
+      bild = puffer.toString('base64');
+    } catch (err) {
+      bild = null;
+    }
+  }
+
   console.log(JSON.stringify({
     ok: !abgebrochen,
+    bild,
     url: page.url(),
     titel: daten.titel,
     schritte: bericht,

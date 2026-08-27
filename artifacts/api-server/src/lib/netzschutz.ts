@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import net from "node:net";
+import { Agent } from "undici";
 
 /*
  * Wohin Lukas ins Netz greifen darf — und wohin nicht.
@@ -86,7 +87,9 @@ export class ZielAbgelehnt extends Error {}
  *
  * Aufloesung inklusive: der Name allein sagt nichts.
  */
-export async function pruefeZiel(rohUrl: string): Promise<URL> {
+export type GeprueftesZiel = { url: URL; adresse: string; familie: 4 | 6 };
+
+export async function pruefeZiel(rohUrl: string): Promise<GeprueftesZiel> {
   let url: URL;
   try {
     url = new URL(rohUrl);
@@ -101,7 +104,12 @@ export async function pruefeZiel(rohUrl: string): Promise<URL> {
   }
 
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (allowlist().includes(host)) return url;
+  if (allowlist().includes(host)) {
+    // Ausdruecklich erlaubt: hier wird nichts angeheftet, weil der Dienst
+    // hinter dem Namen bewusst intern sein darf.
+    const eigen = net.isIP(host);
+    return { url, adresse: eigen ? host : "", familie: eigen === 6 ? 6 : 4 };
+  }
 
   const adressen: string[] = [];
   if (net.isIP(host)) {
@@ -129,7 +137,16 @@ export async function pruefeZiel(rohUrl: string): Promise<URL> {
     }
   }
 
-  return url;
+  /*
+   * Die erste geprüfte Adresse wird zurueckgegeben und spaeter fuer die
+   * Verbindung ANGEHEFTET. Ohne das waere die ganze Pruefung wertlos: zwischen
+   * ihr und dem Verbindungsaufbau liegt eine zweite DNS-Abfrage, und die kann
+   * eine andere Antwort liefern (DNS-Rebinding). Der Angreifer laesst den
+   * ersten Aufruf auf eine oeffentliche Adresse zeigen und den zweiten auf
+   * 127.0.0.1 — die Pruefung sagt ja, die Verbindung geht nach innen.
+   */
+  const erste = adressen[0];
+  return { url, adresse: erste, familie: net.isIP(erste) === 6 ? 6 : 4 };
 }
 
 /**
@@ -138,20 +155,72 @@ export async function pruefeZiel(rohUrl: string): Promise<URL> {
  * `redirect: "manual"` ist der Kern: liesse man fetch selbst umleiten, waere
  * die Pruefung des ersten Ziels wertlos.
  */
+/**
+ * fetch mit Prüfung — und mit der Verbindung an die geprüfte Adresse geheftet.
+ *
+ * Drei Dinge müssen dabei gleichzeitig stimmen, sonst tauscht man ein Loch
+ * gegen ein anderes:
+ *
+ *  1. Verbunden wird zur geprüften IP, nicht zum Namen. Der Name würde erneut
+ *     aufgelöst — und genau dort sitzt DNS-Rebinding.
+ *  2. TLS läuft weiter gegen den NAMEN: die Adresse steckt nur im
+ *     Verbindungsaufbau (undici `connect.lookup`), Host-Header, SNI und
+ *     Zertifikatsprüfung bleiben unverändert. Ein selbstgebautes
+ *     "IP statt Host in die URL schreiben" würde jedes HTTPS-Zertifikat
+ *     ungültig machen — oder, schlimmer, dazu verleiten, die Prüfung
+ *     abzuschalten.
+ *  3. Jede Weiterleitung wird einzeln geprüft UND einzeln angeheftet.
+ */
 export async function sicherFetch(
   rohUrl: string,
   init: RequestInit & { maxWeiterleitungen?: number } = {},
 ): Promise<Response> {
   const { maxWeiterleitungen = 5, ...rest } = init;
-  let ziel = (await pruefeZiel(rohUrl)).toString();
+  let ziel = rohUrl;
 
   for (let sprung = 0; sprung <= maxWeiterleitungen; sprung++) {
-    const antwort = await fetch(ziel, { ...rest, redirect: "manual" });
+    const { url, adresse } = await pruefeZiel(ziel);
+
+    const optionen: RequestInit & { dispatcher?: unknown } = {
+      ...rest,
+      redirect: "manual",
+    };
+    if (adresse) {
+      /*
+       * Das `as any` ist kein Schlendrian: Node bringt eigene undici-Typen mit
+       * (undici-types), das Paket bringt seine eigenen. Beide beschreiben
+       * dieselbe Klasse, TypeScript sieht zwei verschiedene. Die Zuweisung ist
+       * zur Laufzeit korrekt.
+       */
+      optionen.dispatcher = new Agent({
+        connect: {
+          /*
+           * Node ruft lookup je nach Aufrufer in zwei Formen auf. Beide
+           * bedienen, sonst haengt die Verbindung still.
+           */
+          lookup: (
+            _host: string,
+            opts: { all?: boolean; family?: number },
+            cb: (
+              err: NodeJS.ErrnoException | null,
+              adr: string | Array<{ address: string; family: number }>,
+              familie?: number,
+            ) => void,
+          ) => {
+            const familie = net.isIP(adresse) === 6 ? 6 : 4;
+            if (opts?.all) cb(null, [{ address: adresse, family: familie }]);
+            else cb(null, adresse, familie);
+          },
+        },
+      }) as any;
+    }
+
+    const antwort = await fetch(url.toString(), optionen as RequestInit);
     if (antwort.status < 300 || antwort.status >= 400) return antwort;
 
     const weiter = antwort.headers.get("location");
     if (!weiter) return antwort;
-    ziel = (await pruefeZiel(new URL(weiter, ziel).toString())).toString();
+    ziel = new URL(weiter, url).toString();
   }
 
   throw new ZielAbgelehnt("Zu viele Weiterleitungen.");

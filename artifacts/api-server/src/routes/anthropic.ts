@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { conversations, messages, attachments as attachmentsTable } from "@workspace/db";
 import { eq, desc, asc, and, isNull } from "drizzle-orm";
 import { allLukasTools, executeLukasTool } from "../lib/lukas-tools";
+import { nimmBilder, entwerteAlteBilder, BILD_MARKE } from "../lib/bildablage";
 import { recordEmotion } from "../lib/emotion-engine";
 import { maybeReflect } from "../lib/reflection";
 import { buildSystemPrompt } from "../lib/system-prompt";
@@ -377,12 +378,16 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
      * keine Bremse — siehe lib/arbeitsschleife.ts.
      */
     let nochAmArbeiten = true;
+    // Wird wahr, sobald ein Werkzeug ein Bild geliefert hat — ab dann muss der
+    // Router ein Modell mit Augen waehlen, auch wenn Issa selbst nichts
+    // angehaengt hat.
+    let bilderGesehen = false;
     const schleife = new Arbeitsschleife();
     while (schleife.darfWeiter() && !gestoppt()) {
       const iteration = schleife.naechsteRunde();
       const route = routeLukasModel({
         userText: String(content),
-        hasAttachments: pendingAttachments.length > 0,
+        hasAttachments: pendingAttachments.length > 0 || bilderGesehen,
         attachmentKinds,
         usedTools,
         iteration,
@@ -476,6 +481,25 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         }
       }
 
+      /*
+       * Bildschirmfotos aus dieser Runde nachreichen — erst NACH allen
+       * Werkzeugergebnissen, sonst weist die API den Aufruf zurueck. Ab jetzt
+       * gilt dieser Zug als bildhaltig, damit der Router auf ein Modell mit
+       * Augen umschaltet statt das Bild an ein Textmodell zu schicken.
+       */
+      const neueBilder = nimmBilder(convId);
+      if (neueBilder.length) entwerteAlteBilder(convo);
+      for (const bild of neueBilder) {
+        bilderGesehen = true;
+        convo.push({
+          role: "user",
+          content: [
+            { type: "text", text: `${bild.quelle} — so sieht die Seite gerade aus.${BILD_MARKE}` },
+            { type: "image_url", image_url: { url: bild.datenUrl } },
+          ],
+        } as OpenAI.Chat.Completions.ChatCompletionMessageParam);
+      }
+
       convo.push(...hinweise);
 
       if (
@@ -529,7 +553,7 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
         cacheKey: `lukas-${convId}`,
           route: routeLukasModel({
             userText: String(content),
-            hasAttachments: pendingAttachments.length > 0,
+            hasAttachments: pendingAttachments.length > 0 || bilderGesehen,
             attachmentKinds,
             usedTools,
             iteration: schleife.rundenZahl,

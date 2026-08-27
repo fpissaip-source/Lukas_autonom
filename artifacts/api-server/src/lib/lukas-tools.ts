@@ -22,6 +22,7 @@ import { checkPolicy, setMcpRiskTiers, policyHinweis } from "./policy";
 import { sicherFetch, pruefeZiel } from "./netzschutz";
 import { sendeSms } from "./sms";
 import { bedienePage, type Schritt } from "./browser";
+import { merkeBild } from "./bildablage";
 
 export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -607,7 +608,7 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "browser_do",
       description:
-        "Eine Webseite BEDIENEN statt nur lesen: klicken, in Felder tippen, absenden, hochladen. Läuft in einer dauerhaften Browser-Sitzung — einmal angemeldet, bleibst du angemeldet, auch beim nächsten Aufruf. Nach den Schritten bekommst du zurück, was auf der Seite steht und welche Felder/Knöpfe es gibt; damit planst du den nächsten Schritt. Für Zugangsdaten NIEMALS echte Werte eintippen: schreib {{BENUTZER}} bzw. {{PASSWORT}}, den echten Wert setzt der Server aus seiner Konfiguration ein. Wenn du nur lesen willst, nimm browse_page — das ist schneller.",
+        "Eine Webseite BEDIENEN statt nur lesen: klicken, in Felder tippen, absenden, hochladen. Läuft in einer dauerhaften Browser-Sitzung — einmal angemeldet, bleibst du angemeldet, auch beim nächsten Aufruf. Nach den Schritten bekommst du zurück, was auf der Seite steht, welche Felder/Knöpfe es gibt — UND ein Bildschirmfoto, das du direkt anschaust. Nimm das Bild ernst: es zeigt Overlays, Cookie-Banner, rote Fehlermeldungen und ob ein Knopf überhaupt sichtbar war. Wenn ein Schritt scheitert, sieh zuerst auf das Bild, bevor du eine andere Auswahl rätst. Für Zugangsdaten NIEMALS echte Werte eintippen: schreib {{BENUTZER}} bzw. {{PASSWORT}}, den echten Wert setzt der Server aus seiner Konfiguration ein. Wenn du nur lesen willst, nimm browse_page — das ist schneller.",
       parameters: {
         type: "object",
         properties: {
@@ -1457,6 +1458,15 @@ export async function executeLukasTool(
 
       const e = await bedienePage(sitzung, schritte, zugang);
       if (!e.ok && e.fehler) return `Die Seite liess sich nicht bedienen: ${e.fehler}`;
+
+      /*
+       * Das Bildschirmfoto in die Ablage — die Schleife macht daraus gleich
+       * eine Bildnachricht. Auch bei einem ABGEBROCHENEN Plan: gerade dann ist
+       * das Bild das Wertvollste, was er hat. "Knopf nicht gefunden" plus ein
+       * Bild mit einem Cookie-Banner quer ueber der Seite ist eine Diagnose;
+       * "Knopf nicht gefunden" allein ist Raten.
+       */
+      if (e.bild) merkeBild(ctx.conversationId, `Bildschirmfoto von ${e.url ?? sitzung}`, e.bild);
 
       const protokoll = (e.schritte ?? [])
         .map((s) => `${s.ok ? "✓" : "✗"} ${s.nummer}. ${s.art}: ${s.info}`)

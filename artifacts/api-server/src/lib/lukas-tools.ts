@@ -21,6 +21,7 @@ import { logger } from "./logger";
 import { checkPolicy, setMcpRiskTiers, policyHinweis } from "./policy";
 import { sicherFetch, pruefeZiel } from "./netzschutz";
 import { sendeSms } from "./sms";
+import { bedienePage, type Schritt } from "./browser";
 
 export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -598,6 +599,51 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           timeoutSeconds: { type: "integer", description: "Timeout in Sekunden, Standard 60, max 280" },
         },
         required: ["command"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "browser_do",
+      description:
+        "Eine Webseite BEDIENEN statt nur lesen: klicken, in Felder tippen, absenden, hochladen. Läuft in einer dauerhaften Browser-Sitzung — einmal angemeldet, bleibst du angemeldet, auch beim nächsten Aufruf. Nach den Schritten bekommst du zurück, was auf der Seite steht und welche Felder/Knöpfe es gibt; damit planst du den nächsten Schritt. Für Zugangsdaten NIEMALS echte Werte eintippen: schreib {{BENUTZER}} bzw. {{PASSWORT}}, den echten Wert setzt der Server aus seiner Konfiguration ein. Wenn du nur lesen willst, nimm browse_page — das ist schneller.",
+      parameters: {
+        type: "object",
+        properties: {
+          sitzung: {
+            type: "string",
+            description:
+              "Name der Browser-Sitzung, z.B. der Dienst: \"higgsfield\". Gleiche Sitzung = gleiche Anmeldung.",
+          },
+          schritte: {
+            type: "array",
+            description: "Die Schritte der Reihe nach. Höchstens 40.",
+            items: {
+              type: "object",
+              properties: {
+                art: {
+                  type: "string",
+                  enum: ["oeffne", "klicke", "tippe", "taste", "waehle", "lade_hoch", "scrolle", "warte"],
+                },
+                url: { type: "string", description: "bei oeffne" },
+                wahl: {
+                  type: "string",
+                  description:
+                    "Was gemeint ist: CSS-Auswahl (input[name=email]) oder einfach der sichtbare Text (Anmelden)",
+                },
+                text: { type: "string", description: "bei tippe — {{BENUTZER}}/{{PASSWORT}} für Zugangsdaten" },
+                wert: { type: "string", description: "bei waehle" },
+                taste: { type: "string", description: "bei taste, Standard Enter" },
+                datei: { type: "string", description: "bei lade_hoch: Pfad im Browser-Container" },
+                anzahl: { type: "number", description: "bei scrolle" },
+                ms: { type: "number", description: "bei warte ohne wahl" },
+              },
+              required: ["art"],
+            },
+          },
+        },
+        required: ["sitzung", "schritte"],
       },
     },
   },
@@ -1380,6 +1426,48 @@ export async function executeLukasTool(
         ctx.conversationId,
         String(input.command),
         typeof input.timeoutSeconds === "number" ? input.timeoutSeconds : 60,
+      );
+    }
+    case "browser_do": {
+      const sitzung = String(input.sitzung ?? "standard");
+      const schritte = Array.isArray(input.schritte) ? (input.schritte as Schritt[]) : [];
+
+      /*
+       * Die Zugangsdaten dieser Sitzung, falls es welche gibt. Sie kommen aus
+       * der Umgebung des Servers und gehen direkt in den Container — Lukas
+       * sieht sie nie, und was er nicht kennt, kann ihm auch keine fremde
+       * Webseite entlocken.
+       */
+      const schluessel = sitzung.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+      const zugang: Record<string, string> = {};
+      const benutzer = process.env[`LUKAS_WEB_${schluessel}_USER`]?.trim();
+      const passwort = process.env[`LUKAS_WEB_${schluessel}_PASS`]?.trim();
+      if (benutzer) zugang.BENUTZER = benutzer;
+      if (passwort) zugang.PASSWORT = passwort;
+
+      const braucht = JSON.stringify(schritte).includes("{{PASSWORT}}");
+      if (braucht && !passwort) {
+        return (
+          `Für die Sitzung "${sitzung}" ist kein Passwort hinterlegt. Issa muss ` +
+          `LUKAS_WEB_${schluessel}_USER und LUKAS_WEB_${schluessel}_PASS setzen — dann meldest du ` +
+          `dich mit {{BENUTZER}}/{{PASSWORT}} an, ohne die Werte je zu sehen. Sag ihm das über ` +
+          `melde_dich_bei_issa, statt es hier zu versuchen.`
+        );
+      }
+
+      const e = await bedienePage(sitzung, schritte, zugang);
+      if (!e.ok && e.fehler) return `Die Seite liess sich nicht bedienen: ${e.fehler}`;
+
+      const protokoll = (e.schritte ?? [])
+        .map((s) => `${s.ok ? "✓" : "✗"} ${s.nummer}. ${s.art}: ${s.info}`)
+        .join("\n");
+      const felder = e.felder?.length
+        ? `\n\nBedienbar auf dieser Seite:\n${e.felder.slice(0, 30).join("\n")}`
+        : "";
+
+      return (
+        `${e.ok ? "Alle Schritte durch" : "Abgebrochen"} — jetzt auf: ${e.titel ?? ""} (${e.url ?? "?"})\n\n` +
+        `${protokoll}${felder}\n\nSeiteninhalt:\n${(e.text ?? "").slice(0, 6000)}`
       );
     }
     case "send_sms": {

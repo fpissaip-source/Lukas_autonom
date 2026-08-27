@@ -35,6 +35,14 @@ export const TOOL_RISK: Record<string, RiskTier> = {
   // Eine Seite anzuschauen bleibt lesend, auch wenn ein Browser dazwischen
   // steht. Er laeuft in einem eigenen Container ohne Zugriff auf den Host.
   browse_page: "R0",
+
+  /*
+   * Eine Seite BEDIENEN ist kein Lesen mehr: es klickt, tippt und sendet ab —
+   * in einer angemeldeten Sitzung. R1, damit Lukas arbeiten kann, ohne fuer
+   * jeden Klick zu fragen; die Sitzung selbst ist die Grenze, und sie entsteht
+   * nur mit Zugangsdaten, die Issa hinterlegt hat.
+   */
+  browser_do: "R1",
   web_search: "R0",
   get_trading_stats: "R0",
   get_moltbook_activity: "R0",

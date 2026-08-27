@@ -1,5 +1,6 @@
 import { sshExec, shQuote } from "./code-sandbox";
 import { BROWSER_SCRIPT } from "./browser-script";
+import { BROWSER_OPERATOR_SCRIPT } from "./browser-operator-script";
 import { logger } from "./logger";
 
 /*
@@ -90,6 +91,15 @@ async function starteContainer(): Promise<void> {
       "--memory 3g --memory-swap 3g --cpus 2 --pids-limit 2048",
       "--security-opt no-new-privileges:true",
       "--workdir /browser",
+      /*
+       * Ein benanntes Volume fuer die Browser-Profile.
+       *
+       * Ohne das ist jede Anmeldung beim naechsten Containerstart weg — und
+       * genau die soll halten: Issa meldet sich einmal an (bzw. Lukas mit
+       * hinterlegten Zugangsdaten), danach bleibt die Sitzung bestehen wie in
+       * einem echten Browser.
+       */
+      "-v lukas-browser-profile:/browser/profile",
       IMAGE,
       "sleep infinity",
     ].join(" "),
@@ -209,6 +219,101 @@ export async function renderPage(url: string, scrolls = 12): Promise<BrowseErgeb
   const zeile = lauf.stdout.trim().split("\n").filter(Boolean).pop() ?? "";
   try {
     return JSON.parse(zeile) as BrowseErgebnis;
+  } catch {
+    return {
+      ok: false,
+      fehler:
+        `Der Browser hat nichts Lesbares zurueckgegeben (Exit ${lauf.code}).\n` +
+        `${lauf.stderr.slice(0, 500)}`,
+    };
+  }
+}
+
+// ── BEDIENEN ────────────────────────────────────────────────────────────────
+
+export type Schritt = {
+  art: "oeffne" | "klicke" | "tippe" | "taste" | "waehle" | "lade_hoch" | "scrolle" | "warte";
+  wahl?: string;
+  url?: string;
+  text?: string;
+  wert?: string;
+  taste?: string;
+  datei?: string;
+  anzahl?: number;
+  ms?: number;
+  timeout?: number;
+};
+
+export type BedienErgebnis = {
+  ok: boolean;
+  fehler?: string;
+  url?: string;
+  titel?: string;
+  schritte?: Array<{ nummer: number; art: string; ok: boolean; info: string }>;
+  felder?: string[];
+  text?: string;
+};
+
+/**
+ * Eine Seite bedienen: klicken, tippen, absenden — in einer Sitzung, die
+ * bestehen bleibt.
+ *
+ * `zugang` traegt die Zugangsdaten in die Umgebung DES CONTAINERS. Sie stehen
+ * damit weder im Schrittplan noch im Gespraech; im Plan steht nur {{BENUTZER}}
+ * bzw. {{PASSWORT}}.
+ */
+export async function bedienePage(
+  sitzung: string,
+  schritte: Schritt[],
+  zugang?: Record<string, string>,
+): Promise<BedienErgebnis> {
+  if (!Array.isArray(schritte) || schritte.length === 0) {
+    return { ok: false, fehler: "Kein Schritt angegeben." };
+  }
+  if (schritte.length > 40) {
+    return { ok: false, fehler: "Mehr als 40 Schritte auf einmal — teil das in mehrere Aufrufe." };
+  }
+  await ensureBrowser();
+
+  const ablegen = await sshExec(
+    `docker exec -i ${CONTAINER} sh -lc ${shQuote("cat > /browser/bedienen.cjs")}`,
+    60000,
+    BROWSER_OPERATOR_SCRIPT,
+  );
+  if (ablegen.code !== 0) {
+    return { ok: false, fehler: `Skript liess sich nicht ablegen: ${ablegen.stderr.slice(0, 300)}` };
+  }
+
+  const planAblegen = await sshExec(
+    `docker exec -i ${CONTAINER} sh -lc ${shQuote("cat > /browser/plan.json")}`,
+    30000,
+    JSON.stringify(schritte),
+  );
+  if (planAblegen.code !== 0) {
+    return { ok: false, fehler: `Plan liess sich nicht ablegen: ${planAblegen.stderr.slice(0, 300)}` };
+  }
+
+  /*
+   * Die Zugangsdaten gehen als -e an docker exec. Sie stehen damit kurz in der
+   * Kommandozeile auf dem Droplet — das ist Issas eigener Server, und der
+   * Alternativweg (Datei schreiben) waere nicht besser. Was zaehlt: sie gehen
+   * NICHT durch das Modell und stehen in keinem Protokoll.
+   */
+  const umgebung = Object.entries(zugang ?? {})
+    .filter(([name]) => /^[A-Z_]+$/.test(name))
+    .map(([name, wert]) => `-e LUKAS_WEB_${name}=${shQuote(wert)}`)
+    .join(" ");
+
+  const lauf = await sshExec(
+    `docker exec ${umgebung} ${CONTAINER} sh -lc ${shQuote(
+      `cd /browser && node bedienen.cjs ${shQuote(sitzung)} plan.json`,
+    )}`,
+    240000,
+  );
+
+  const zeile = lauf.stdout.trim().split("\n").filter(Boolean).pop() ?? "";
+  try {
+    return JSON.parse(zeile) as BedienErgebnis;
   } catch {
     return {
       ok: false,

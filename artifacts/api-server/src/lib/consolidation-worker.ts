@@ -13,6 +13,7 @@ import { sql } from "drizzle-orm";
 import { syncObsidianVault } from "./obsidian-sync";
 import { embedNewRows } from "./memory-retrieval";
 import { logger } from "./logger";
+import { mitSperre } from "./lauf-sperre";
 
 const CYCLE_MS = 24 * 60 * 60 * 1000;
 
@@ -97,7 +98,13 @@ export async function runConsolidation(): Promise<void> {
 let timer: ReturnType<typeof setInterval> | null = null;
 
 export function startConsolidationWorker(): void {
-  const safeRun = () => runConsolidation().catch((err) => logger.warn({ err }, "Konsolidierung fehlgeschlagen"));
+  // Unter Sperre: die Konsolidierung fasst Erinnerungen zusammen und loescht
+  // dabei. Zwei Laeufe gleichzeitig wuerden dieselbe Zusammenfassung doppelt
+  // anlegen.
+  const safeRun = () =>
+    mitSperre("konsolidierung", runConsolidation).catch((err) =>
+      logger.warn({ err }, "Konsolidierung fehlgeschlagen"),
+    );
   // Erster Lauf 5 min nach Boot, danach täglich
   setTimeout(safeRun, 5 * 60 * 1000);
   timer = setInterval(safeRun, CYCLE_MS);

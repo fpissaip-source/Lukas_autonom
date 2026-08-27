@@ -1,10 +1,11 @@
 import app from "./app";
-import { startMoltbookWorker } from "./lib/moltbook-worker";
-import { startAutonomy } from "./lib/autonomy";
-import { startSelbstheilung } from "./lib/selbstheilung";
-import { startSandboxCleanup } from "./lib/code-sandbox";
-import { startConsolidationWorker } from "./lib/consolidation-worker";
+import { startMoltbookWorker, stopMoltbookWorker } from "./lib/moltbook-worker";
+import { startAutonomy, stopAutonomy } from "./lib/autonomy";
+import { startSelbstheilung, stopSelbstheilung } from "./lib/selbstheilung";
+import { startSandboxCleanup, stopSandboxCleanup } from "./lib/code-sandbox";
+import { startConsolidationWorker, stopConsolidationWorker } from "./lib/consolidation-worker";
 import { seedPublicFactsOnce } from "./lib/seed-public-facts";
+import { richteAbschiedEin } from "./lib/abschied";
 import { logger } from "./lib/logger";
 
 const rawPort = process.env["PORT"];
@@ -21,7 +22,7 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, (err) => {
+const server = app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
@@ -59,4 +60,17 @@ app.listen(port, (err) => {
   startConsolidationWorker();
   startSandboxCleanup();
   seedPublicFactsOnce();
+
+  /*
+   * Erst jetzt, wo die Taktgeber laufen, ist bekannt, was beim Herunterfahren
+   * gestoppt werden muss. Railway schickt bei jedem Deployment ein SIGTERM —
+   * ohne das hier wird mitten in einer Antwort abgeschnitten.
+   */
+  richteAbschiedEin(server, () => {
+    stopAutonomy();
+    stopMoltbookWorker();
+    stopSelbstheilung();
+    stopConsolidationWorker();
+    stopSandboxCleanup();
+  });
 });

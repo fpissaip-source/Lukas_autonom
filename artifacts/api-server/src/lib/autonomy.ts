@@ -6,6 +6,7 @@ import { openEpisode, closeEpisode } from "./memory-writer";
 import { logger } from "./logger";
 import { neueAntworten } from "./melden";
 import { anlass, laufNotiert } from "./autonomie-anlass";
+import { mitSperre } from "./lauf-sperre";
 
 /*
  * Lukas arbeitet an Issas Zielen.
@@ -217,8 +218,16 @@ export function startAutonomy(): void {
     logger.info("Autonomie deaktiviert (LUKAS_AUTONOMY_ENABLED=false)");
     return;
   }
+  /*
+   * Unter Sperre. Ein Lauf darf bis zu 25 Minuten dauern, der Takt betraegt
+   * 30 — das reicht nicht als Abstand. Ueberholt ein Lauf seinen Takt, wird
+   * der naechste ausgelassen statt danebengestellt: zwei Laeufe an denselben
+   * Zielen schreiben sich gegenseitig den Fortschritt um.
+   */
   const safeRun = () => {
-    runAutonomyCycle().catch((err) => logger.warn({ err }, "Autonomie-Zyklus abgestürzt"));
+    mitSperre("autonomie", runAutonomyCycle).catch((err) =>
+      logger.warn({ err }, "Autonomie-Zyklus abgestürzt"),
+    );
   };
   // Nicht sofort beim Start: erst soll das Deployment stehen.
   setTimeout(safeRun, 3 * 60 * 1000).unref?.();

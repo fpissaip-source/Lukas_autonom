@@ -2,6 +2,7 @@ import { fehlerGruppen, recordDebugEvent, type Fehlergruppe } from "./debug-log"
 import { fixError } from "./subagents";
 import { runLukasTurn } from "./lukas-brain";
 import { logger } from "./logger";
+import { mitSperre } from "./lauf-sperre";
 
 /*
  * Fehler finden, ohne dass jemand sie meldet.
@@ -142,8 +143,12 @@ export function startSelbstheilung(): void {
   }
   if (timer) return;
 
+  // Unter Sperre: die Selbstheilung legt Vorschlaege an. Zwei Laeufe zu
+  // demselben Fehler heissen zwei Vorschlaege fuer dieselbe Zeile.
   const lauf = () => {
-    runSelbstheilung().catch((err) => logger.warn({ err }, "Selbstheilung abgestürzt"));
+    mitSperre("selbstheilung", runSelbstheilung).catch((err) =>
+      logger.warn({ err }, "Selbstheilung abgestürzt"),
+    );
   };
 
   // Nicht sofort beim Start: erst soll etwas Betrieb stattgefunden haben, sonst
@@ -151,4 +156,9 @@ export function startSelbstheilung(): void {
   setTimeout(lauf, 10 * 60 * 1000);
   timer = setInterval(lauf, ZYKLUS_MS);
   logger.info({ alleMinuten: ZYKLUS_MS / 60000, schwelle: SCHWELLE }, "Selbstheilung aktiv");
+}
+
+export function stopSelbstheilung(): void {
+  if (timer) clearInterval(timer);
+  timer = null;
 }

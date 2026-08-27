@@ -39,6 +39,7 @@ import {
 } from "./moltbook";
 import { logger } from "./logger";
 import { directModel } from "./ai/model-router";
+import { mitSperre } from "./lauf-sperre";
 
 /*
  * Moltbook lief alle 45 Minuten und war lange der einzige autonome Ablauf --
@@ -396,8 +397,12 @@ export function startMoltbookWorker(): void {
     logger.info("Moltbook-Worker: MOLTBOOK_API_KEY nicht gesetzt — Worker bleibt aus");
     return;
   }
+  // Unter Sperre: ein Zyklus schreibt Beitraege. Zwei gleichzeitig heisst
+  // derselbe Beitrag zweimal — sichtbar, und nicht zurueckzunehmen.
   const safeRun = () =>
-    runMoltbookCycle().catch((err) => logger.warn({ err }, "Moltbook-Zyklus fehlgeschlagen"));
+    mitSperre("moltbook", runMoltbookCycle).catch((err) =>
+      logger.warn({ err }, "Moltbook-Zyklus fehlgeschlagen"),
+    );
 
   // Erster Lauf kurz nach dem Boot, danach im Takt
   setTimeout(safeRun, 2 * 60 * 1000);

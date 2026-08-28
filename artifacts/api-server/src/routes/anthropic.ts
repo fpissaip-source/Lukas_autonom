@@ -5,7 +5,8 @@ import { conversations, messages, attachments as attachmentsTable } from "@works
 import { eq, desc, asc, and, isNull } from "drizzle-orm";
 import { allLukasTools, executeLukasTool } from "../lib/lukas-tools";
 import { nimmBilder, entwerteAlteBilder, BILD_MARKE } from "../lib/bildablage";
-import { recordEmotion } from "../lib/emotion-engine";
+import { merkeErfahrung } from "../lib/lernen";
+import { fuehleWerkzeug } from "../lib/emotion-engine";
 import { maybeReflect } from "../lib/reflection";
 import { buildSystemPrompt } from "../lib/system-prompt";
 import { logger } from "../lib/logger";
@@ -444,6 +445,20 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
             conversationId: convId,
           });
           convo.push({ role: "tool", tool_call_id: toolCall.id, content: toolResult });
+          // Ausgang merken — siehe lib/lernen.ts. Kein Modellaufruf, keine
+          // Deutung, nur was passiert ist.
+          void merkeErfahrung({
+            werkzeug: toolCall.name,
+            eingabe: input,
+            ergebnis: toolResult,
+            conversationId: convId,
+          });
+          void fuehleWerkzeug({
+            werkzeug: toolCall.name,
+            eingabe: input,
+            gelungen: true,
+            runde: iteration,
+          });
           schritte.push(
             zeigeSchritt(toolCall.name, input, toolResult, true, Date.now() - begonnen, sende),
           );
@@ -464,19 +479,25 @@ router.post("/anthropic/conversations/:id/messages", async (req, res) => {
             tool_call_id: toolCall.id,
             content: grund,
           });
+          void merkeErfahrung({
+            werkzeug: toolCall.name,
+            eingabe: input,
+            ergebnis: kuerzeGrund(grund),
+            gelungen: false,
+            conversationId: convId,
+          });
           schritte.push(
             zeigeSchritt(toolCall.name, input, grund, false, Date.now() - begonnen, sende),
           );
           if (toolCall.name !== "feel") {
-            recordEmotion({
-              emotion: "frustration",
-              valence: -0.3,
-              intensity: 0.3,
-              // Ohne den Grund ist die Gefuehlsliste nur Rauschen — siehe
-              // dieselbe Stelle in lukas-brain.ts.
-              cause: `Tool ${toolCall.name} ist fehlgeschlagen: ${kuerzeGrund(grund)}`,
-              source: "tool",
-            }).catch(() => {});
+            // Die Lage entscheidet, was daraus wird — siehe lib/bewertung.ts.
+            void fuehleWerkzeug({
+              werkzeug: toolCall.name,
+              eingabe: input,
+              gelungen: false,
+              grund: kuerzeGrund(grund),
+              runde: iteration,
+            });
           }
         }
       }

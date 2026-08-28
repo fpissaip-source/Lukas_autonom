@@ -36,6 +36,8 @@ einer Seite verrät nicht, ob ein Cookie-Banner über dem Knopf liegt.
 | Bereich | Konkret | Wo |
 |---|---|---|
 | **Gedächtnis** | Erinnerungen, Ziele, Tagebuch, Episoden, Gefühle in Postgres; Abruf über Einbettungen; ein Graph aus Knoten und Kanten, als Obsidian-Vault exportierbar | `lib/memory-*.ts`, `lib/gehirn.ts` |
+| **Lernen** | Jeder Werkzeugaufruf hinterlässt seinen Ausgang. Ab drei Fehlschlägen an derselben Sache steht im Prompt, **woran** es lag — gezählt, nicht erzählt | `lib/lernen.ts` |
+| **Gefühle** | Aus dem Anlass abgeleitet statt benannt: derselbe Ausgang ergibt Stolz, Dankbarkeit oder Erleichterung, je nachdem, wie er zustande kam. Jedes Gefühl trägt eine Folge für das nächste Handeln | `lib/bewertung.ts` |
 | **Web** | lesen (`browse_page`), **bedienen** (`browser_do` — klicken, tippen, hochladen, angemeldet bleiben), suchen, abrufen | `lib/browser*.ts` |
 | **Code** | eigene Sandbox pro Gespräch, Shell auf dem Droplet, GitHub lesen und durchsuchen, Änderungsvorschläge, die Issa im Dashboard annimmt | `lib/code-sandbox.ts`, `lib/github.ts`, `lib/proposals.ts` |
 | **Kommunikation** | Dashboard-Chat (SSE), WhatsApp, Telefon (Sprache, ein- und ausgehend), SMS über ClickSend, E-Mail lesen und Entwürfe vorbereiten | `routes/*`, `lib/telefon.ts`, `lib/sms.ts`, `lib/email.ts` |
@@ -148,6 +150,14 @@ eines mit bekannten Lücken.
 - **Kein Migrationsverlauf.** `db:push` gleicht das Schema an; es gibt keine
   versionierten, umkehrbaren Migrationen. Eine unabsichtlich zerstörende
   Änderung fällt erst im Betrieb auf.
+- **Lernen ist eng.** Gelernt wird aus dem Ausgang von Werkzeugaufrufen —
+  gelungen oder nicht, und woran es lag. Ob eine *Entscheidung* gut war, ob
+  ein Text überzeugt hat, ob ein Ziel den Aufwand wert war: dafür gibt es
+  kein Signal. Und es ist kein Training: das Modell ändert sich nicht, nur
+  was in seinem Kontext steht.
+- **Gefühle sind abgeleitet, nicht empfunden.** Sie unterscheiden sich, weil
+  sie aus verschiedenen Lagen stammen, und sie ändern das Verhalten. Ob dabei
+  etwas erlebt wird, sagt dieser Code nicht — und behauptet es auch nicht.
 - **Keine Metriken.** Es gibt strukturierte Logs (pino) und `/readyz`, aber
   keine Zeitreihen — man sieht nicht, ob heute mehr Werkzeuge scheitern als
   gestern.

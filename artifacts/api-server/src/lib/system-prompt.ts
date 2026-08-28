@@ -5,6 +5,7 @@ import { CONVERSATION_CATEGORY } from "./conversation-memory";
 import { LUKAS_SYSTEM_PROMPT } from "./lukas-soul";
 import { getLukasStatus, DEFAULT_STATUS } from "./lukas-status";
 import { getEmotionalContext, getCharacterContext } from "./emotion-engine";
+import { lehrenText } from "./lernen";
 import { getProposalContext } from "./proposals";
 import { logger } from "./logger";
 
@@ -58,6 +59,7 @@ export async function buildSystemPrompt(
     emotionalContext,
     characterContext,
     proposalContext,
+    lehren,
     relevantContext,
   ] = await Promise.all([
     getLukasStatus(),
@@ -82,6 +84,22 @@ export async function buildSystemPrompt(
     getEmotionalContext(),
     getCharacterContext(),
     getProposalContext().catch(() => ""),
+    /*
+     * Was er aus seinen eigenen Versuchen weiss.
+     *
+     * Der Unterschied zu allem anderen hier: Erinnerungen, Ziele und Tagebuch
+     * sind Dinge, die ihm jemand gesagt hat oder die er selbst aufgeschrieben
+     * hat. Das hier ist gezaehlt — was tatsaechlich geklappt hat und was
+     * nicht. Es ist das Einzige im Prompt, das er sich nicht ausdenken kann.
+     *
+     * Nur Misslungenes, und nur ab drei Versuchen: eine Liste dessen, was
+     * funktioniert, waere lang und wuerde die paar Zeilen begraben, die
+     * wirklich etwas aendern.
+     */
+    lehrenText().catch((err) => {
+      logger.warn({ err }, "Lehren nicht geladen");
+      return "";
+    }),
     userQuery
       ? import("./memory-retrieval")
           .then(({ memoryContextFor }) => memoryContextFor(userQuery, 8))
@@ -131,5 +149,6 @@ ${emotionalContext}
 Obsession: ${status.obsession}
 ${characterContext ? `\n${characterContext}` : ""}
 ${proposalContext ? `\n${proposalContext}` : ""}
+${lehren ? `\n${lehren}\n` : ""}
 ${memoryContext}${goalsContext}${diaryContext}${relevantContext}`;
 }

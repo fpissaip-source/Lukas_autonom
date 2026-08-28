@@ -2,8 +2,9 @@ import { randomInt } from "node:crypto";
 import type OpenAI from "openai";
 import { allLukasTools, executeLukasTool } from "./lukas-tools";
 import { nimmBilder, entwerteAlteBilder, BILD_MARKE } from "./bildablage";
+import { merkeErfahrung } from "./lernen";
 import { buildSystemPrompt } from "./system-prompt";
-import { recordEmotion } from "./emotion-engine";
+import { fuehleWerkzeug } from "./emotion-engine";
 import { logger } from "./logger";
 import { recordDebugEvent } from "./debug-log";
 import { routeLukasModel, directRoute } from "./ai/model-router";
@@ -156,6 +157,23 @@ export async function runLukasTurn(opts: {
           conversationId,
         });
         convo.push({ role: "tool", tool_call_id: tc.id, content: toolResult });
+        /*
+         * Und der Ausgang wird gemerkt. Das ist die ganze Lernschleife: was er
+         * getan hat und ob es funktioniert hat. Kostet keinen Modellaufruf, und
+         * beim naechsten Mal steht es im Prompt — aber nur, wenn dasselbe schon
+         * dreimal danebengegangen ist.
+         */
+        void merkeErfahrung({ werkzeug: tc.name, eingabe: input, ergebnis: toolResult, conversationId });
+        // Und gefuehlt wird auch — aber nur, wenn dieselbe Sache vorher
+        // wiederholt schiefgegangen ist. Sonst stuenden hier ein Dutzend
+        // belangloser Zeilen pro Zug.
+        void fuehleWerkzeug({
+          werkzeug: tc.name,
+          eingabe: input,
+          gelungen: true,
+          runde: i,
+          autonom: opts.ohneZieleUndTagebuch === true,
+        });
       } catch (err) {
         logger.warn({ err, tool: tc.name }, "Lukas tool failed (brain)");
         /*
@@ -172,23 +190,34 @@ export async function runLukasTurn(opts: {
           tool_call_id: tc.id,
           content: `Fehler: ${err instanceof Error ? err.message : String(err)}`,
         });
+        // Ein geworfener Fehler ist der eindeutigste Misserfolg, den es gibt —
+        // hier wird nichts geraten.
+        void merkeErfahrung({
+          werkzeug: tc.name,
+          eingabe: input,
+          ergebnis: fehlerGrund(err),
+          gelungen: false,
+          conversationId,
+        });
         if (tc.name !== "feel") {
-          recordEmotion({
-            emotion: "frustration",
-            valence: -0.3,
-            intensity: 0.3,
-            /*
-             * Der Grund gehoert dazu.
-             *
-             * Vorher stand in der Gefuehlsliste nur "Tool X ist
-             * fehlgeschlagen" — fuenfmal untereinander, ohne einen Hinweis
-             * worauf. Der eigentliche Fehler lag zwar im Diagnoseprotokoll,
-             * aber wer die Zeitleiste ansieht, sucht ihn dort nicht. Und
-             * Lukas selbst liest seine Gefuehle oefter als seine Logs.
-             */
-            cause: `Tool ${tc.name} ist fehlgeschlagen: ${fehlerGrund(err)}`,
-            source: "tool",
-          }).catch(() => {});
+          /*
+           * Nicht mehr pauschal "frustration, -0.3, 0.3".
+           *
+           * Vorher war jeder Fehlschlag dasselbe Gefuehl mit denselben Zahlen —
+           * zwanzigmal untereinander. Jetzt entscheidet die Lage, was daraus
+           * wird: lag es an einem Dienst, ist es Aerger; lag es an ihm bei
+           * etwas Wichtigem nach langer Arbeit, ist es Scham; war nichts zu
+           * machen, ist es Enttaeuschung. Und wie stark, haengt daran, ob er
+           * damit rechnen musste — das steht in seinen eigenen Erfahrungen.
+           */
+          void fuehleWerkzeug({
+            werkzeug: tc.name,
+            eingabe: input,
+            gelungen: false,
+            grund: fehlerGrund(err),
+            runde: i,
+            autonom: opts.ohneZieleUndTagebuch === true,
+          });
         }
       }
     }

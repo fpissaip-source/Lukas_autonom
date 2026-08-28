@@ -51,6 +51,8 @@ export async function executeLukasTool(name, input, ctx) {
 }
 export async function buildSystemPrompt() { return 'System'; }
 export async function recordEmotion() {}
+export async function fuehleWerkzeug() {}
+export async function merkeErfahrung() {}
 export function recordDebugEvent() {}
 export const logger = { info() {}, warn() {}, error() {}, debug() {} };
 export async function renderLukasVoice({ draft }) { return draft; }
@@ -88,7 +90,7 @@ await build({
       setup(b) {
         // Router und Bildablage bleiben ECHT — sie sind der Gegenstand der Prüfung.
         b.onResolve(
-          { filter: /(^|\/)(lukas-tools|system-prompt|emotion-engine|logger|debug-log|model-client|voice-renderer)$/ },
+          { filter: /(^|\/)(lukas-tools|system-prompt|emotion-engine|logger|debug-log|model-client|voice-renderer|lernen)$/ },
           () => ({ path: attrappen }),
         );
       },

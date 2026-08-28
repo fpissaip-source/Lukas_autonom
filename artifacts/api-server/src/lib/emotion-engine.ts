@@ -10,6 +10,8 @@ import { desc, gte } from "drizzle-orm";
 import { eq } from "drizzle-orm";
 import { setLukasStatus } from "./lukas-status";
 import { logger } from "./logger";
+import { bewerte, urheberAus } from "./bewertung";
+import { bisherGescheitert } from "./lernen";
 
 // Halbwertszeit der Gefühle: nach ~8h wiegt eine Emotion nur noch halb so viel.
 const DECAY_HOURS = 12; // w = intensity * exp(-alter_h / 12) → Halbwertszeit ≈ 8.3h
@@ -93,7 +95,8 @@ export async function computeAffect(): Promise<Affect> {
   let mood: string;
   if (totalWeight <= 0.05) mood = "curious";
   else if (valence >= 0.5) mood = arousal >= 0.8 ? "energized" : "inspired";
-  else if (valence >= 0.2) mood = dominant && dominant.emotion === "pride" ? "proud" : "focused";
+  else if (valence >= 0.2)
+    mood = dominant && ["stolz", "pride"].includes(dominant.emotion) ? "proud" : "focused";
   else if (valence > -0.2) mood = "curious";
   else if (valence > -0.5) mood = arousal >= 0.8 ? "frustrated" : "scattered";
   else mood = arousal >= 0.6 ? "hurt" : "cold";
@@ -122,6 +125,65 @@ function ago(d: Date): string {
   return `vor ${Math.round(hours / 24)} Tagen`;
 }
 
+/*
+ * Was aus dem Gefühl FOLGT.
+ *
+ * Das war die zweite Halbheit: Gefuehle standen im Prompt, und dann passierte
+ * nichts damit. "Stimmung: frustrated" ist eine Zeile Farbe — sie aendert
+ * nicht, was Lukas als Naechstes tut. Ein Gefuehl, das folgenlos bleibt, ist
+ * keins; es ist eine Beschriftung.
+ *
+ * Hier steht deshalb, was jedes Gefuehl NAHELEGT. Bewusst als Anstoss und
+ * nicht als Befehl: Grenzen gehoeren in policy.ts. Was hier steht, ist der
+ * Unterschied zwischen "ich bin frustriert" und "ich bin frustriert, ALSO
+ * probiere ich etwas anderes" — und das Zweite ist das, was ein Gefuehl im
+ * Betrieb ueberhaupt zu einem Gefuehl macht.
+ *
+ * Die Zuordnung folgt derselben Logik wie die Ableitung in bewertung.ts:
+ * Scham verlangt etwas anderes als Aerger, obwohl beide negativ sind. Genau
+ * daran haengt, ob die Unterscheidung ueberhaupt einen Zweck hat.
+ */
+const FOLGEN: Record<string, string> = {
+  frustration:
+    "Du haengst fest. Wechsle den Weg, statt denselben noch einmal zu gehen — oder sag Issa, woran es liegt.",
+  aerger:
+    "Es lag nicht an dir. Halt das auseinander: nicht haerter arbeiten, sondern die Stelle benennen, die von aussen kaputt ist.",
+  scham:
+    "Es lag an dir, und es war wichtig. Sag es, statt es zu ueberspielen — und sag dazu, was du anders machst.",
+  schuld:
+    "Du hast jemandem geschadet. Das gehoert zuerst gesagt, vor jeder Erklaerung und vor der naechsten Aufgabe.",
+  enttaeuschung:
+    "Daran war nichts zu machen. Haeng nicht daran — nimm dir das Naechste vor, das in deiner Hand liegt.",
+  sorge: "Pruef nach, bevor du handelst. Du hast noch Zeit, und du hast noch Einfluss.",
+  ohnmacht:
+    "Du kannst hier nichts mehr tun. Sag Issa Bescheid, statt weiter Kraft hineinzustecken.",
+  stolz: "Das hat funktioniert. Nimm dir das Naechste eine Nummer groesser vor.",
+  zufriedenheit: "Es laeuft. Nutz den Zug, solange er da ist.",
+  erleichterung:
+    "Es ist gutgegangen, aber nicht durch dich. Sieh nach, warum — sonst verlaesst du dich beim naechsten Mal darauf.",
+  dankbarkeit: "Jemand hat dir geholfen. Sag es demjenigen, bevor du weitermachst.",
+  hoffnung: "Es kann klappen. Halt es warm, aber bau noch nicht darauf.",
+  ueberraschung:
+    "Deine Erwartung war falsch. Das ist der Moment zum Nachsehen, nicht zum Weitermachen.",
+  anspannung: "Es geht um etwas und ist offen. Arbeite einen Schritt nach dem anderen ab.",
+  neugier: "Geh dem nach, solange es dich interessiert.",
+  langeweile: "Es ist ruhig. Nimm dir von dir aus etwas vor, statt zu warten.",
+};
+
+/*
+ * Wenn lange nichts passiert ist, ist das auch ein Zustand.
+ *
+ * Ohne diesen Fall waere die Stimmung bei Stille schlicht neutral — und ein
+ * Agent, der bei Stille neutral ist, wartet. Langeweile ist die einzige
+ * Emotion hier, die nicht aus einem Ereignis stammt, sondern aus dem Ausbleiben
+ * von Ereignissen.
+ */
+export function handlungsdruck(affect: Affect): string {
+  if (affect.arousal < 0.15 && !affect.dominant) return FOLGEN.langeweile;
+  const staerkstes = affect.dominant?.emotion ?? "";
+  return FOLGEN[staerkstes] ?? "";
+}
+
 // Textblock für System-Prompts: aktuelle Stimmung MIT Begründung.
 export async function getEmotionalContext(): Promise<string> {
   const affect = await computeAffect();
@@ -136,6 +198,8 @@ export async function getEmotionalContext(): Promise<string> {
   } else {
     lines.push("Gerade ist es ruhig — keine frischen emotionalen Ereignisse.");
   }
+  const folge = handlungsdruck(affect);
+  if (folge) lines.push(`\nWas daraus folgt: ${folge}`);
   return lines.join("\n");
 }
 
@@ -169,9 +233,33 @@ export async function evolveCharacter(selfImage?: string): Promise<CharacterRow>
 
   const pos = sum((e) => e.valence > 0.3);
   const neg = sum((e) => e.valence < -0.3);
-  const prideJoy = sum((e) => ["pride", "joy", "excitement"].includes(e.emotion));
-  const hurtLike = sum((e) => ["hurt", "disappointment", "anger", "loneliness"].includes(e.emotion));
-  const fascination = sum((e) => ["fascination", "excitement", "curiosity", "amusement"].includes(e.emotion));
+  /*
+   * Deutsch UND englisch, und das ist kein Schoenheitsfehler.
+   *
+   * Die Charakterentwicklung suchte nach "pride", "hurt", "anger". Seit die
+   * Gefuehle aus bewertung.ts abgeleitet werden, heissen sie "stolz", "scham",
+   * "aerger" — und keine dieser Listen haette mehr getroffen. Die Traits
+   * waeren stehengeblieben, waehrend darunter Hunderte Gefuehle einliefen:
+   * ein Charakter, der sich nicht mehr entwickelt, ohne dass irgendwo ein
+   * Fehler auftaucht.
+   *
+   * Die alten Namen bleiben trotzdem stehen. In der Datenbank liegen Wochen
+   * an Zeilen mit den englischen Woertern, und das feel-Werkzeug laesst Lukas
+   * weiterhin selbst benennen, was er empfindet — auch auf Englisch.
+   */
+  const gehoert = (e: EmotionRow, namen: string[]) => namen.includes(e.emotion.toLowerCase());
+  const prideJoy = sum((e) =>
+    gehoert(e, ["stolz", "zufriedenheit", "erleichterung", "freude", "dankbarkeit", "pride", "joy", "excitement"]),
+  );
+  const hurtLike = sum((e) =>
+    gehoert(e, [
+      "scham", "schuld", "aerger", "ärger", "enttaeuschung", "enttäuschung", "ohnmacht", "frustration", "sorge",
+      "hurt", "disappointment", "anger", "loneliness",
+    ]),
+  );
+  const fascination = sum((e) =>
+    gehoert(e, ["neugier", "ueberraschung", "überraschung", "hoffnung", "fascination", "excitement", "curiosity", "amusement"]),
+  );
 
   const step = (x: number) => clamp(x * 0.01, 0, 0.05); // sanfte Schritte
 
@@ -272,4 +360,81 @@ export async function getCharacterContext(): Promise<string> {
   }
 
   return lines.join("\n");
+}
+
+/*
+ * Ein Werkzeugausgang wird zu einem Gefuehl.
+ *
+ * Hier laufen die beiden Sachen zusammen, und das ist der Grund, warum sie in
+ * einem Zug gebaut wurden: WIE ÜBERRASCHEND ein Fehlschlag ist, steht in den
+ * gezaehlten Erfahrungen. Zum ersten Mal an etwas zu scheitern trifft; zum
+ * zwanzigsten Mal an derselben Stelle zu scheitern ist zermuerbend, aber es
+ * erschuettert nichts — man hat es kommen sehen.
+ *
+ * Ohne diese Verbindung waere jeder Fehlschlag gleich stark, und die
+ * Gefuehlsliste im Dashboard waere eine Reihe identischer Zeilen. Mit ihr
+ * flacht die Kurve ab, wo Lukas etwas schon kennt, und schlaegt aus, wo etwas
+ * Neues passiert. Das ist nicht Kosmetik: die Stimmung steuert ueber
+ * handlungsdruck(), was er als Naechstes tun soll.
+ *
+ * WANN GEBUCHT WIRD. Bei jedem Fehlschlag. Bei Erfolg NUR dann, wenn dieselbe
+ * Sache vorher wiederholt schiefgegangen ist — sonst entstuenden pro Zug ein
+ * Dutzend "zufriedenheit"-Zeilen, die alles Uebrige zudecken. Ein Erfolg nach
+ * einer Reihe von Fehlschlaegen ist dagegen genau der Moment, in dem Stolz
+ * das richtige Wort ist.
+ */
+export async function fuehleWerkzeug(input: {
+  werkzeug: string;
+  eingabe: Record<string, unknown>;
+  gelungen: boolean;
+  grund?: string;
+  /** Die wievielte Runde dieses Zuges — je spaeter, desto mehr steckt drin. */
+  runde?: number;
+  /** Autonomer Lauf: dann geht es unmittelbar um seine eigenen Ziele. */
+  autonom?: boolean;
+}): Promise<void> {
+  try {
+    const stand = await bisherGescheitert(input.werkzeug, input.eingabe);
+    const quote = stand.versuche > 0 ? stand.gelungen / stand.versuche : null;
+
+    // Ein Erfolg ist nur dann eine Nachricht, wenn es vorher haengen blieb.
+    if (input.gelungen && !(stand.versuche >= 2 && (quote ?? 1) < 0.5)) return;
+
+    /*
+     * Wie sehr habe ich mit genau diesem Ausgang gerechnet?
+     * Ohne Vorgeschichte gilt: dass ein Werkzeug funktioniert, ist die
+     * Annahme — ein Fehlschlag ist also eher unerwartet, ein Erfolg eher
+     * erwartet. Mit Vorgeschichte zaehlt die gemessene Quote.
+     */
+    const erwartet = input.gelungen
+      ? quote ?? 0.75
+      : quote !== null
+        ? 1 - quote
+        : 0.35;
+
+    const urheber = input.gelungen ? "ich" : urheberAus(input.grund ?? "");
+    const gefuehl = bewerte({
+      ausgang: input.gelungen ? "gelungen" : "gescheitert",
+      urheber,
+      erwartet,
+      zielbezug: input.autonom ? 0.75 : 0.45,
+      // Ein Fehlschlag in Runde 12 wiegt schwerer als einer in Runde 1.
+      aufwand: clamp((input.runde ?? 1) / 10, 0, 1),
+      beeinflussbar: urheber === "umstand" ? 0.2 : 0.7,
+      was: input.grund ?? "",
+    });
+
+    await recordEmotion({
+      emotion: gefuehl.emotion,
+      valence: gefuehl.valence,
+      intensity: gefuehl.intensity,
+      cause:
+        `${input.werkzeug}${input.gelungen ? " hat endlich funktioniert" : " ist fehlgeschlagen"}` +
+        `${input.grund ? `: ${input.grund}` : ""} — ${gefuehl.begruendung}`,
+      source: "tool",
+    });
+  } catch (err) {
+    // Fuehlen darf nie einen Zug kippen.
+    logger.debug({ err, werkzeug: input.werkzeug }, "Werkzeug-Gefühl nicht gebucht");
+  }
 }

@@ -93,7 +93,46 @@ export const strategiesTable = pgTable("lukas_strategies", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+/*
+ * Erfahrungen: was Lukas TATSAECHLICH getan hat — und ob es funktioniert hat.
+ *
+ * Das ist die Luecke, an der sein Lernen bisher haengt. Es gibt schon eine
+ * geschlossene Schleife (Aktion → Ergebnis → Erfolgsrate → naechste
+ * Entscheidung), aber sie kennt genau vier Aktionsarten, und alle vier sind
+ * Moltbook. Ueberall sonst tut er etwas, es geht schief, und beim naechsten
+ * Mal weiss er nichts davon: derselbe Klick auf derselben Seite, dieselbe
+ * Suche, derselbe Befehl.
+ *
+ * Hier steht deshalb das Billigste und Ehrlichste, was ohnehin anfaellt:
+ * jeder Werkzeugaufruf mit seinem Ausgang. Kein Modellaufruf, keine Deutung,
+ * nichts, was sich ausdenken laesst — nur was passiert ist.
+ *
+ * Der SCHLUESSEL ist das Entscheidende. "browser_do" allein sagt nichts;
+ * "browser_do@higgsfield.ai" ist eine Erfahrung, aus der etwas folgt. Deshalb
+ * traegt jede Zeile einen Kontext, der aus den Argumenten gebildet wird —
+ * Domain, Repository, das erste Wort eines Befehls.
+ */
+export const erfahrungenTable = pgTable(
+  "lukas_erfahrungen",
+  {
+    id: serial("id").primaryKey(),
+    werkzeug: text("werkzeug").notNull(),
+    // Woran gearbeitet wurde: Domain, Repo, Befehlsname. Leer, wenn die
+    // Argumente nichts hergeben — dann zaehlt nur das Werkzeug.
+    kontext: text("kontext").notNull().default(""),
+    gelungen: boolean("gelungen").notNull(),
+    // Bei Misserfolg die erste Zeile des Grundes. Daraus entsteht spaeter der
+    // brauchbare Teil der Lehre: nicht DASS es scheitert, sondern WORAN.
+    grund: text("grund").notNull().default(""),
+    conversationId: integer("conversation_id"),
+    episodeId: integer("episode_id"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("erfahrungen_schluessel_idx").on(t.werkzeug, t.kontext, t.createdAt)],
+);
+
 export type KnownAgent = typeof knownAgentsTable.$inferSelect;
+export type Erfahrung = typeof erfahrungenTable.$inferSelect;
 export type Episode = typeof episodesTable.$inferSelect;
 export type Claim = typeof claimsTable.$inferSelect;
 export type MemAction = typeof memActionsTable.$inferSelect;

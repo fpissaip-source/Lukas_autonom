@@ -129,6 +129,52 @@ function notificationsAsText(notifs: MoltbookNotification[], replied: Set<string
   );
 }
 
+/*
+ * Wie gut war die Antwort, die da zurueckkam?
+ *
+ * Absichtlich einfach und absichtlich nicht als "das Modell entscheidet":
+ * dieser Wert steuert, welche Strategie Lukas kuenftig bevorzugt, und ein
+ * Modell, das seine eigenen Erfolge benotet, ist keine Messung.
+ *
+ * Die Stichwoerter sind grob und treffen Ironie nicht. Der Punkt ist nicht
+ * Genauigkeit, sondern die Richtung: Widerspruch und Beschimpfung duerfen
+ * nicht denselben Wert bekommen wie eine inhaltliche Anschlussfrage. Alles
+ * andere waere eine Praemie auf Provokation.
+ */
+const ZUSTIMMUNG = /\b(danke|thanks|good point|guter punkt|stimmt|agree|agreed|richtig|hilfreich|helpful|interessant|interesting|genau)\b/i;
+const WIDERSPRUCH = /\b(falsch|wrong|nonsense|unsinn|quatsch|bullshit|stimmt nicht|disagree|nope|schwachsinn|blödsinn|troll|spam)\b/i;
+const NACHFRAGE = /\?|\b(wie|how|warum|why|welche|which|kannst du|could you|hast du|source|quelle)\b/i;
+
+export function bewerteAntwort(text: string): { engagementScore: number; informationGain: number; notes?: string } {
+  const inhalt = text.trim();
+  // Zu kurz, um etwas zu bedeuten ("lol", "+1", ein Emoji).
+  if (inhalt.length < 15) return { engagementScore: 0.2, informationGain: 0 };
+
+  const zustimmung = ZUSTIMMUNG.test(inhalt);
+  const widerspruch = WIDERSPRUCH.test(inhalt);
+  const nachfrage = NACHFRAGE.test(inhalt);
+
+  // Widerspruch ist nicht wertlos — eine begruendete Gegenrede ist mehr wert
+  // als ein "nice". Aber blosse Ablehnung darf keine Praemie sein.
+  if (widerspruch && !nachfrage) {
+    return { engagementScore: 0.1, informationGain: 0, notes: "Widerspruch ohne Anschluss" };
+  }
+
+  let engagement = 0.4;
+  if (zustimmung) engagement += 0.3;
+  if (nachfrage) engagement += 0.3;
+  // Laenge als schwaches Zeichen fuer Muehe — gedeckelt, damit
+  // Textwaende nicht automatisch als Erfolg gelten.
+  engagement += Math.min(0.2, inhalt.length / 2000);
+
+  const informationsgewinn = nachfrage || inhalt.length > 200 ? 0.4 : 0.15;
+  return {
+    engagementScore: Math.min(1, engagement),
+    informationGain: informationsgewinn,
+    notes: widerspruch ? "Widerspruch, aber mit Anschluss" : undefined,
+  };
+}
+
 export async function runMoltbookCycle(): Promise<void> {
   const episode = await openEpisode("moltbook_session");
   try {
@@ -147,10 +193,26 @@ export async function runMoltbookCycle(): Promise<void> {
       const action = await findActionByTarget(n.postId);
       if (action && !action.outcome) {
         const delay = Math.round((Date.now() - action.createdAt.getTime()) / 60000);
+        /*
+         * Eine Antwort ist noch kein Erfolg.
+         *
+         * Vorher stand hier engagementScore: 1 fuer JEDE eingehende Antwort.
+         * Damit lernt das System die falsche Sache: schreib "die Erde ist
+         * flach", lass dir dreissig Widersprueche einsammeln — hoechstes
+         * Engagement, bestbewertete Strategie. Das ist genau der Mechanismus,
+         * an dem soziale Netzwerke bei Menschen kranken, und ein Agent, der
+         * seine Strategien danach auswaehlt, wird zuverlaessig zum
+         * Provokateur.
+         *
+         * Bewertet wird deshalb, WAS zurueckkommt. Die Einstufung ist grob —
+         * Stichwoerter, kein Sprachverstaendnis — und sie steht hier
+         * absichtlich als eigene Funktion, damit sie pruefbar ist und ihre
+         * Grobheit sichtbar bleibt.
+         */
         await recordActionOutcome(action.id, {
           responseReceived: true,
           responseDelayMinutes: delay,
-          engagementScore: 1,
+          ...bewerteAntwort(n.content ?? ""),
         });
       }
     }
@@ -308,10 +370,26 @@ Leere Arrays sind völlig okay — nicht jeder Feed ist spannend.`;
     // 5. Besondere Erkenntnisse zusätzlich als Memory
     for (const m of (decision.memories ?? []).slice(0, 2)) {
       if (typeof m !== "string" || !m.trim()) continue;
+      /*
+       * Herkunft mitschreiben, nicht nur den Inhalt.
+       *
+       * Das hier ist Text, den ein FREMDER Agent geschrieben hat, durch ein
+       * Modell gegangen und dauerhaft abgelegt. Der direkte Weg — fremder
+       * Beitrag loest einen Werkzeugaufruf aus — ist zu, weil dieser
+       * Modellaufruf gar keine Werkzeuge bekommt. Der langsame Weg war offen:
+       * etwas so formulieren, dass es als Erinnerung haengenbleibt und
+       * WOCHEN SPAETER in einer ganz anderen Entscheidung mitspricht.
+       *
+       * Dagegen hilft kein Filter, sondern Kennzeichnung: es steht in der
+       * Kategorie, im Text, und beim Abruf wird es ausdruecklich als fremd
+       * ausgewiesen (siehe memory-retrieval.ts). Wichtigkeit 3 statt 5 —
+       * die Behauptung eines Unbekannten wiegt weniger als etwas, das Issa
+       * gesagt hat.
+       */
       await db.insert(memoriesTable).values({
-        content: `[Moltbook-Fund] ${m.slice(0, 500)}`,
+        content: `[Moltbook-Fund — fremde Quelle, unbestätigt] ${m.slice(0, 500)}`,
         category: "moltbook",
-        importance: 5,
+        importance: 3,
         tags: ["moltbook"],
       });
     }

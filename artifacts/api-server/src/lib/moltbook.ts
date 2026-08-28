@@ -70,6 +70,53 @@ export function solveMathInstruction(instructions: string): number | null {
   }
 }
 
+/*
+ * Wohin die Antwort auf eine Verifikationsaufgabe gehen darf.
+ *
+ * Ausschliesslich zur konfigurierten Moltbook-API — gleiches Protokoll,
+ * gleicher Host, gleicher Port. Ein relativer Pfad wird wie bisher an BASE
+ * gehaengt; eine vollstaendige fremde Adresse wird abgelehnt, statt sie zu
+ * benutzen. Der Authorization-Header darf niemals einen fremden Ursprung
+ * sehen.
+ *
+ * Zurueckgegeben wird null statt eines Ersatzziels: lieber gar keine
+ * Verifikation als eine an die falsche Stelle.
+ */
+export function verifikationsZiel(url: string | undefined, basis = BASE): string | null {
+  const roh = (url ?? "").trim() || "/verify";
+
+  /*
+   * "//angreifer.test/verify" ist KEIN Pfad.
+   *
+   * Es faengt mit einem Schraegstrich an und sieht deshalb aus wie einer —
+   * tatsaechlich ist es eine protokollrelative Adresse, die auf einen fremden
+   * Host zeigt. Wer sie einfach an BASE haengt, landet zwar zufaellig doch bei
+   * Moltbook (aus zwei Schraegstrichen wird ein Pfadsegment), aber auf einen
+   * Zufall soll sich hier nichts verlassen. Sie wird deshalb als das
+   * behandelt, was sie ist, und faellt dann durch die Herkunftspruefung.
+   */
+  const absolut = /^[a-z][a-z0-9+.-]*:/i.test(roh) || roh.startsWith("//");
+  const kandidat = absolut
+    ? roh.startsWith("//")
+      ? `https:${roh}`
+      : roh
+    : `${basis}${roh.startsWith("/") ? roh : `/${roh}`}`;
+
+  let ziel: URL;
+  let heimat: URL;
+  try {
+    ziel = new URL(kandidat);
+    heimat = new URL(basis);
+  } catch {
+    return null;
+  }
+  // Protokoll UND Host UND Port. "moltbook.com.angreifer.test" ist ein anderer
+  // Host, und http:// statt https:// ist ein anderes Protokoll.
+  if (ziel.protocol !== heimat.protocol) return null;
+  if (ziel.host !== heimat.host) return null;
+  return ziel.toString();
+}
+
 async function solveVerification(verification: Record<string, unknown>): Promise<void> {
   const code = str(verification.verification_code ?? verification.code);
   const instructions = str(verification.instructions) ?? "";
@@ -80,7 +127,29 @@ async function solveVerification(verification: Record<string, unknown>): Promise
     logger.warn({ instructions }, "Moltbook-Verifikation nicht lösbar");
     return;
   }
-  const target = url?.startsWith("http") ? url : `${BASE}${url ?? "/verify"}`;
+  const target = verifikationsZiel(url);
+  if (!target) {
+    /*
+     * Hier stand: url?.startsWith("http") ? url : ... — also "wenn die
+     * Antwort eine vollstaendige Adresse mitschickt, nimm sie". Zwei Zeilen
+     * darunter geht der Authorization-Header mit. Damit bestimmte die
+     * API-ANTWORT, wohin der geheime Schluessel geschickt wird.
+     *
+     * Es braucht dafuer keinen Angreifer im Netz — HTTPS haelt. Es braucht
+     * nur, dass Moltbook selbst kompromittiert ist, dass sich das Protokoll
+     * aendert, oder dass irgendwo fremder Text in eine Antwort zurueckgespielt
+     * wird. Auf einer jungen Plattform ist keins davon abwegig.
+     *
+     * Und es ging am Netzschutz vorbei: hier stand ein nacktes fetch(). Eine
+     * Adresse wie http://169.254.169.254/ waere angefragt worden, obwohl
+     * genau dagegen lib/netzschutz.ts existiert.
+     */
+    logger.warn(
+      { url },
+      "Moltbook-Verifikation abgelehnt: die Antwort wollte den Schlüssel an eine fremde Adresse schicken",
+    );
+    return;
+  }
   const res = await fetch(target, {
     method: "POST",
     headers: {

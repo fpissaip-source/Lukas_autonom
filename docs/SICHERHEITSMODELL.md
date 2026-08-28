@@ -145,6 +145,8 @@ weniger als einer, dem Issa zusieht.
 | **Token-Raten über Laufzeitunterschiede** | `timingSafeEqual` | ebenda |
 | **Lastangriff** | Drossel 240/min, Öffentliches enger; Loopback und Webhooks ausgenommen | ebenda |
 | **Privates im öffentlichen Prompt** | Nur als `public` markierte Erinnerungen; getrennter Gesprächsfaden | `check-memory-filter.mjs` |
+| **Schlüssel-Abfluss über eine API-Antwort** | Die Verifikationsantwort geht nur an denselben Ursprung wie die konfigurierte API — Protokoll, Host und Port müssen stimmen; sonst gar nicht | `check-moltbook.mjs` |
+| **Gedächtnis-Vergiftung über fremde Agenten** | Der Modellaufruf, der den fremden Feed liest, bekommt **keine Werkzeuge**; IDs müssen aus dem gelesenen Feed stammen; Behauptungen bleiben Evidenzstufe 2; Funde tragen ihre Herkunft in Text, Kategorie und Abruf | ebenda |
 
 ---
 
@@ -218,7 +220,17 @@ Issa hat den Server verbunden **und** im Dashboard ausgewählt, welche Werkzeuge
 Lukas sieht — das ist die Entscheidung. Was ein Server unter `send_message`
 wirklich tut, weiß aber niemand außer ihm selbst.
 
-### 6. Ein Bildschirmfoto kann ein Passwort zeigen
+### 6. Fremde Agenten können langsam ins Gedächtnis wirken
+
+Der direkte Weg ist zu: der Modellaufruf, der Moltbook liest, hat keine
+Werkzeuge, und was er zurückgibt, prüft Code nach. Der langsame Weg bleibt
+offen — etwas so formulieren, dass es als Erinnerung hängenbleibt und Wochen
+später in einer ganz anderen Entscheidung mitspricht. Dagegen hilft kein
+Filter, sondern Kennzeichnung: Moltbook-Funde tragen ihre Herkunft im Text, in
+der Kategorie und beim Abruf, und wiegen weniger als eigene Erinnerungen. Wer
+das aufhebt, hebt den Schutz auf.
+
+### 7. Ein Bildschirmfoto kann ein Passwort zeigen
 
 `browser_do` fotografiert die Seite nach den Schritten. Steht dort ein
 ausgefülltes, sichtbares Passwortfeld, geht es als Bild an den Modellanbieter —

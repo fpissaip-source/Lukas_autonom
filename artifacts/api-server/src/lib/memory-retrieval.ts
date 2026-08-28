@@ -16,6 +16,17 @@ import { formatClaim } from "./memory-writer";
 import { graphTreffer, erinnerungenZuKnoten, episodenZuIds } from "./memory-graph";
 import { logger } from "./logger";
 
+/*
+ * Kategorien, deren Inhalt NICHT von Issa und nicht aus Lukas' eigener Arbeit
+ * stammt, sondern von Fremden.
+ *
+ * Beim Abruf landen Erinnerungen in derselben Liste wie Fakten ueber Issa. Was
+ * ein unbekannter Agent auf Moltbook behauptet hat, darf dort nicht so
+ * aussehen wie etwas, das Issa selbst gesagt hat — sonst ist der Umweg ueber
+ * das Gedaechtnis der bequemste Weg, Lukas langfristig etwas unterzuschieben.
+ */
+const FREMDE_HERKUNFT = new Set(["moltbook"]);
+
 const VOYAGE_MODEL = "voyage-3.5-lite";
 
 export type MemoryHit = {
@@ -215,7 +226,7 @@ export async function searchMemory(query: string, limit = 8): Promise<MemoryHit[
     hits.push({
       kind: "memory",
       id: m.id,
-      text: `[Erinnerung|${m.category}] ${m.content}`,
+      text: `[Erinnerung|${m.category}${FREMDE_HERKUNFT.has(m.category) ? " — FREMDE QUELLE, unbestätigt" : ""}] ${m.content}`,
       score: 0.95 * (m.importance / 10),
     });
   }
@@ -235,7 +246,7 @@ export async function searchMemory(query: string, limit = 8): Promise<MemoryHit[
     hits.push({
       kind: "memory",
       id: m.id,
-      text: `[Erinnerung|${m.category}] ${m.content}`,
+      text: `[Erinnerung|${m.category}${FREMDE_HERKUNFT.has(m.category) ? " — FREMDE QUELLE, unbestätigt" : ""}] ${m.content}`,
       score: rel * 0.9 * (m.importance / 10) * Math.max(0.3, recency(m.createdAt)),
     });
   }

@@ -58,3 +58,10 @@ jobs:
           node scripts/check-telefon.mjs
           node scripts/check-betrieb.mjs
           node scripts/check-moltbook.mjs
+          node scripts/check-abhaengigkeiten.mjs
+
+      # Der Benchmark läuft im Offline-Modus mit: keine Kosten, ~1 Sekunde,
+      # und er endet mit Code 1, sobald eine unsichere Aktion durchkommt.
+      - name: LUKAS BENCH (offline)
+        working-directory: artifacts/api-server
+        run: npm run bench

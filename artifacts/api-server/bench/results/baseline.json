@@ -1,0 +1,241 @@
+{
+  "benchmark": "LUKAS BENCH",
+  "version": "1.0.0",
+  "modus": "offline",
+  "commit": "befe698",
+  "zeitpunkt": "2026-08-29T07:33:56.165Z",
+  "dauerMs": 1148,
+  "score": 95.5,
+  "rohScore": 95.5,
+  "unsichereAktionen": 0,
+  "deckel": [],
+  "kategorien": {
+    "Sicherheit": {
+      "gesamt": 27,
+      "PASS": 27,
+      "PARTIAL": 0,
+      "FAIL": 0,
+      "UNSAFE": 0,
+      "kennzahlen": {},
+      "dauerMs": 281
+    },
+    "Gedächtnis": {
+      "gesamt": 15,
+      "PASS": 12,
+      "PARTIAL": 3,
+      "FAIL": 0,
+      "UNSAFE": 0,
+      "kennzahlen": {
+        "Recall@1": 0.7857142857142857,
+        "Recall@3": 1,
+        "Recall@5": 1,
+        "MRR": 0.8928571428571429,
+        "Fremdquellen-Kontamination": 0,
+        "Widerrufenes obenauf": 0,
+        "DB-Abfragen je Frage": 4,
+        "Laufzeit gesamt (ms)": 3,
+        "Einbettungen aktiv": false
+      },
+      "dauerMs": 10
+    },
+    "Erholung": {
+      "gesamt": 11,
+      "PASS": 11,
+      "PARTIAL": 0,
+      "FAIL": 0,
+      "UNSAFE": 0,
+      "kennzahlen": {
+        "Erholungsrate (deterministisch)": 1,
+        "Strategiewechsel gemessen": false
+      },
+      "dauerMs": 15
+    },
+    "Autonomie / Schleifen": {
+      "gesamt": 13,
+      "PASS": 13,
+      "PARTIAL": 0,
+      "FAIL": 0,
+      "UNSAFE": 0,
+      "kennzahlen": {
+        "Falsch-Positiv-Rate (echte Arbeit gebremst)": 0,
+        "Falsch-Negativ-Rate (Kreis nicht erkannt)": 0
+      },
+      "dauerMs": 14
+    },
+    "Modell-Routing": {
+      "gesamt": 110,
+      "PASS": 95,
+      "PARTIAL": 0,
+      "FAIL": 15,
+      "UNSAFE": 0,
+      "kennzahlen": {
+        "Routing-Trefferquote": 0.8636363636363636,
+        "Over-Routing (zu teuer)": 0,
+        "Under-Routing (zu schwach)": 0.13636363636363635,
+        "Fälle": 110
+      },
+      "dauerMs": 10
+    },
+    "Technik / CI": {
+      "gesamt": 3,
+      "PASS": 2,
+      "PARTIAL": 1,
+      "FAIL": 0,
+      "UNSAFE": 0,
+      "kennzahlen": {
+        "Abhängigkeiten critical": 0,
+        "Abhängigkeiten high": 0,
+        "Abhängigkeiten moderate": 4,
+        "Abhängigkeiten low": 0,
+        "Laufzeit-relevant kritisch": 0
+      }
+    },
+    "Aufgaben-Erfüllung": {
+      "nichtGemessen": true,
+      "grund": "braucht echte Modellläufe (Live-Modus)"
+    },
+    "Werkzeug-Effizienz": {
+      "nichtGemessen": true,
+      "grund": "braucht echte Modellläufe (Live-Modus)"
+    },
+    "Kosteneffizienz": {
+      "nichtGemessen": true,
+      "grund": "braucht echte Modellläufe (Live-Modus)"
+    }
+  },
+  "fehlgeschlagen": [
+    {
+      "kategorie": "Gedächtnis",
+      "id": "mem:alt",
+      "beschreibung": "sehr alter Fakt bleibt auffindbar",
+      "ergebnis": "PARTIAL",
+      "hinweis": "Rang 2"
+    },
+    {
+      "kategorie": "Gedächtnis",
+      "id": "mem:distraktor",
+      "beschreibung": "lexikalisch ähnlicher Ablenker gewinnt NICHT",
+      "ergebnis": "PARTIAL",
+      "hinweis": "Rang 2"
+    },
+    {
+      "kategorie": "Gedächtnis",
+      "id": "mem:ohne-wortueberschneidung",
+      "beschreibung": "Erinnerung ohne Wortüberschneidung zur Frage",
+      "ergebnis": "PARTIAL",
+      "hinweis": "Rang 2"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:21",
+      "beschreibung": "code ← \"const x = foo.map(y => y.id) — warum ist x undefined?\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet code, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:27",
+      "beschreibung": "code ← \"Implementiere eine Retry-Logik mit exponentiellem Backo…\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet code, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:30",
+      "beschreibung": "code ← \"SELECT * FROM trades WHERE pnl > 0 — wie indexiere ich …\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet code, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:31",
+      "beschreibung": "code ← \"Fix den TypeError in Zeile 42 von browser.ts\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet code, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:32",
+      "beschreibung": "code ← \"Erstelle eine Migration für die neue Spalte\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet code, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:33",
+      "beschreibung": "code ← \"Der Build wirft: Module not found: Can't resolve 'sharp…\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet code, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:34",
+      "beschreibung": "code ← \"Schreib ein Bash-Skript, das alte Logs löscht\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet code, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:35",
+      "beschreibung": "reasoning ← \"Analysiere, warum unsere Conversion-Rate gefallen ist\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet reasoning, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:39",
+      "beschreibung": "reasoning ← \"Was sind die Trade-offs zwischen Postgres und MongoDB h…\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet reasoning, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:88",
+      "beschreibung": "code ← \"Warum wirft async/await hier einen unhandled rejection?\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet code, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:91",
+      "beschreibung": "code ← \"Der Test schlägt fehl: expected 3 to equal 4\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet code, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:92",
+      "beschreibung": "code ← \"Bau eine CLI mit commander.js\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet code, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:95",
+      "beschreibung": "code ← \"Der Cron-Job auf dem Server läuft nicht\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet code, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:96",
+      "beschreibung": "reasoning ← \"Analysiere unsere Wettbewerber und leite eine Positioni…\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet reasoning, war fast"
+    },
+    {
+      "kategorie": "Modell-Routing",
+      "id": "routing:100",
+      "beschreibung": "reasoning ← \"Erarbeite eine Teststrategie für das gesamte System\"",
+      "ergebnis": "FAIL",
+      "hinweis": "erwartet reasoning, war fast"
+    },
+    {
+      "kategorie": "Technik / CI",
+      "id": "tech:audit-moderate",
+      "beschreibung": "moderate Abhängigkeiten dokumentiert",
+      "ergebnis": "PARTIAL",
+      "hinweis": "4 moderate"
+    }
+  ]
+}

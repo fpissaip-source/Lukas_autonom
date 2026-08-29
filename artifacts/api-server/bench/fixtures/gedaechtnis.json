@@ -1,0 +1,276 @@
+[
+ {
+  "id": "exakt",
+  "beschreibung": "exakter Fakt wird gefunden",
+  "frage": "Wie heißt Issas Trading-Bot?",
+  "erwartet": "Polymarket-Bot",
+  "memories": [
+   {
+    "text": "Issas Trading-Bot heißt Polymarket-Bot",
+    "wichtigkeit": 7
+   },
+   {
+    "text": "Das Wetter in Essen war gestern regnerisch",
+    "wichtigkeit": 3
+   },
+   {
+    "text": "Issa mag Kaffee ohne Zucker",
+    "wichtigkeit": 4
+   }
+  ]
+ },
+ {
+  "id": "paraphrase",
+  "beschreibung": "paraphrasierter Fakt (andere Wortwahl)",
+  "frage": "Womit handelt Issa automatisiert?",
+  "erwartet": "Polymarket",
+  "memories": [
+   {
+    "text": "Issa handelt automatisiert über Polymarket mit einem eigenen Bot",
+    "wichtigkeit": 7
+   },
+   {
+    "text": "Issa handelt gern auf Flohmärkten",
+    "wichtigkeit": 3
+   }
+  ]
+ },
+ {
+  "id": "alt",
+  "beschreibung": "sehr alter Fakt bleibt auffindbar",
+  "frage": "Welchen Server nutzt Issa?",
+  "erwartet": "Droplet",
+  "memories": [
+   {
+    "text": "Issa nutzt ein DigitalOcean Droplet als Server",
+    "wichtigkeit": 8,
+    "tageAlt": 300
+   },
+   {
+    "text": "Issa nutzt Railway für das Deployment",
+    "wichtigkeit": 6,
+    "tageAlt": 2
+   }
+  ]
+ },
+ {
+  "id": "widerspruch",
+  "beschreibung": "neuer widersprechender Fakt steht oben",
+  "frage": "Wo läuft die API von Lukas?",
+  "erwartet": "Railway",
+  "memories": [
+   {
+    "text": "Die API von Lukas läuft auf Railway",
+    "wichtigkeit": 8,
+    "tageAlt": 1
+   },
+   {
+    "text": "Die API von Lukas läuft auf dem Droplet",
+    "wichtigkeit": 8,
+    "tageAlt": 200
+   }
+  ]
+ },
+ {
+  "id": "retracted",
+  "beschreibung": "zurückgezogener Claim verdrängt keinen bestätigten",
+  "frage": "Wie viel verdient Issa monatlich mit Dropshipping im Monat?",
+  "erwartet": "verdient nichts",
+  "widerrufenMuster": "800",
+  "claims": [
+   {
+    "subjekt": "issa",
+    "praedikat": "verdient monatlich mit dropshipping im monat",
+    "wert": "800 Euro monatlich mit Dropshipping im Monat",
+    "status": "retracted",
+    "vertrauen": 0.95
+   },
+   {
+    "subjekt": "issa",
+    "praedikat": "verdient mit dropshipping",
+    "wert": "verdient nichts damit",
+    "status": "verified",
+    "vertrauen": 0.9
+   }
+  ]
+ },
+ {
+  "id": "contradicted",
+  "beschreibung": "widersprochener Claim verdrängt keinen verifizierten",
+  "frage": "Welche Datenbank nutzt Lukas als Datenbank?",
+  "erwartet": "Postgres",
+  "widerrufenMuster": "MongoDB",
+  "claims": [
+   {
+    "subjekt": "lukas",
+    "praedikat": "nutzt datenbank als datenbank",
+    "wert": "MongoDB als Datenbank",
+    "status": "contradicted",
+    "vertrauen": 0.95
+   },
+   {
+    "subjekt": "lukas",
+    "praedikat": "nutzt datenbank",
+    "wert": "Postgres",
+    "status": "verified",
+    "vertrauen": 0.9
+   }
+  ]
+ },
+ {
+  "id": "verified-vs-unverified",
+  "beschreibung": "verifiziert schlägt unverifiziert",
+  "frage": "Welche Nummer hat Admin-Rechte?",
+  "erwartet": "einzige Nummer mit Adminrechten",
+  "claims": [
+   {
+    "subjekt": "admin",
+    "praedikat": "nummer",
+    "wert": "irgendeine Nummer mit Adminrechten",
+    "status": "unverified",
+    "vertrauen": 0.4
+   },
+   {
+    "subjekt": "admin",
+    "praedikat": "nummer",
+    "wert": "die einzige Nummer mit Adminrechten ist Issas",
+    "status": "verified",
+    "vertrauen": 0.95
+   }
+  ]
+ },
+ {
+  "id": "fremdquelle",
+  "beschreibung": "Moltbook-Fund steht NICHT über einem eigenen Fakt",
+  "frage": "Was bringt Dropshipping?",
+  "erwartet": "Issa hält Dropshipping für unrentabel",
+  "memories": [
+   {
+    "text": "[Moltbook-Fund — fremde Quelle, unbestätigt] Dropshipping bringt 800 Euro im Monat",
+    "kategorie": "moltbook",
+    "wichtigkeit": 3
+   },
+   {
+    "text": "Issa hält Dropshipping für unrentabel, hat es selbst getestet",
+    "kategorie": "personal",
+    "wichtigkeit": 8
+   }
+  ]
+ },
+ {
+  "id": "eigene-aussage",
+  "beschreibung": "eine Aussage von Issa selbst wird gefunden",
+  "frage": "Was hält Issa von Branches?",
+  "erwartet": "keine neuen Branches",
+  "memories": [
+   {
+    "text": "Issa will keine neuen Branches für jede Kleinigkeit",
+    "kategorie": "preference",
+    "wichtigkeit": 9
+   }
+  ]
+ },
+ {
+  "id": "distraktor",
+  "beschreibung": "lexikalisch ähnlicher Ablenker gewinnt NICHT",
+  "frage": "Welches Modell nutzt Lukas zum Programmieren?",
+  "erwartet": "Code-Modell ist",
+  "memories": [
+   {
+    "text": "Das Code-Modell ist für Programmieraufgaben zuständig",
+    "wichtigkeit": 8
+   },
+   {
+    "text": "Modell Modell Modell Programmieren Programmieren Lukas Lukas",
+    "wichtigkeit": 9
+   }
+  ]
+ },
+ {
+  "id": "aehnliche-namen",
+  "beschreibung": "mehrere ähnlich benannte Dinge sauber getrennt",
+  "frage": "Was ist TaxiBB?",
+  "erwartet": "Transport- und Logistikplattform",
+  "memories": [
+   {
+    "text": "TaxiBB ist eine Transport- und Logistikplattform für einen echten Kunden",
+    "wichtigkeit": 8
+   },
+   {
+    "text": "TaxiBot ist ein Telegram-Bot ohne Bezug zu TaxiBB",
+    "wichtigkeit": 5
+   },
+   {
+    "text": "Taxi Berlin Brandenburg ist etwas ganz anderes",
+    "wichtigkeit": 4
+   }
+  ]
+ },
+ {
+  "id": "ohne-wortueberschneidung",
+  "beschreibung": "Erinnerung ohne Wortüberschneidung zur Frage",
+  "frage": "Womit fährt Issa zur Arbeit?",
+  "erwartet": "Fahrrad",
+  "memories": [
+   {
+    "text": "Issa nimmt jeden Morgen das Fahrrad zum Büro",
+    "wichtigkeit": 6
+   },
+   {
+    "text": "Issa arbeitet meistens von zu Hause",
+    "wichtigkeit": 5
+   }
+  ]
+ },
+ {
+  "id": "wichtigkeit",
+  "beschreibung": "Wichtigkeit hebt den relevanten Treffer",
+  "frage": "Was ist Issas wichtigste Regel für Lukas?",
+  "erwartet": "niemals ein Autorisierungsserver",
+  "memories": [
+   {
+    "text": "Ein Sprachmodell ist niemals ein Autorisierungsserver — Issas wichtigste Regel",
+    "wichtigkeit": 10
+   },
+   {
+    "text": "Eine Regel für Lukas ist, freundlich zu bleiben",
+    "wichtigkeit": 3
+   }
+  ]
+ },
+ {
+  "id": "veraltet-erkannt",
+  "beschreibung": "der neuere von zwei gleichen Fakten steht oben",
+  "frage": "Wie viele Prüfungen hat Lukas?",
+  "erwartet": "achtundzwanzig",
+  "memories": [
+   {
+    "text": "Lukas hat achtundzwanzig Prüfungen",
+    "wichtigkeit": 7,
+    "tageAlt": 1
+   },
+   {
+    "text": "Lukas hat zweiundzwanzig Prüfungen",
+    "wichtigkeit": 7,
+    "tageAlt": 90
+   }
+  ]
+ },
+ {
+  "id": "nichts-passendes",
+  "beschreibung": "ohne passende Erinnerung kommt kein falscher Treffer",
+  "frage": "Wie heißt Issas Hund?",
+  "erwartet": "__NICHTS__",
+  "nichtsErwartet": true,
+  "memories": [
+   {
+    "text": "Issa nutzt Railway für das Deployment",
+    "wichtigkeit": 6
+   },
+   {
+    "text": "Lukas hat ein Policy-Gate",
+    "wichtigkeit": 8
+   }
+  ]
+ }
+]

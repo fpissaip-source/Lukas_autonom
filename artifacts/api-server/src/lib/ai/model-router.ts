@@ -145,26 +145,58 @@ function fallback(route: ModelRoute): ModelRoute {
  * "die Datei" ist Alltag, "die Datei debuggen" ist Arbeit.
  */
 const CODE_EINDEUTIG =
-  /\b(typescript|javascript|python|react|npm|pnpm|github|repository|docker|stacktrace|nginx|caddy|systemd|ssh|sql|commit|pull request|merge|refactor|regex|json|yaml)\b/i;
+  /\b(typescript|javascript|python|react|npm|pnpm|github|repository|docker|stacktrace|nginx|caddy|systemd|ssh|sql|commit|pull request|merge|refactor|regex|json|yaml|bash|shell|cli|migration|cron|async|await|webpack|vite|eslint|tsc)\b/i;
+
+/*
+ * Syntax und Dateinamen sind der eindeutigste Hinweis ueberhaupt — und der
+ * fehlte.
+ *
+ * Der Benchmark (bench/faelle/routing.mjs) hat es gemessen: elf von fuenfzehn
+ * Code-Aufgaben landeten auf dem schnellen Modell, darunter
+ * "const x = foo.map(y => y.id) — warum ist x undefined?" und
+ * "Fix den TypeError in Zeile 42 von browser.ts". Beides ist unuebersehbar
+ * Code, aber keines der Fachwoerter oben kommt darin vor. Wer Quelltext
+ * einfuegt, bekommt so das schwaechste Modell — genau verkehrt herum.
+ */
+const CODE_SYNTAX =
+  /(=>|;\s*$|\{\s*$|\bconst\b|\blet\b|\bfunction\b|\bimport\b|\bexport\b|\breturn\b|`{3}|\bSELECT\b.*\bFROM\b|\.(ts|tsx|js|jsx|mjs|py|sh|sql|go|rs|java|css|html)\b|[A-Za-z]+Error\b|\bexit code\b|\bmodule not found\b)/im;
 
 const CODE_ALLTAG =
-  /\b(code|api|endpoint|bug|fehler|build|deploy|server|vps|funktion|klasse|datei|branch|repo|git|node)\b/i;
+  /\b(code|api|endpoint|bug|fehler|build|deploy|server|vps|funktion|klasse|datei|branch|repo|git|node|test|tests|skript|script|logik|spalte|tabelle|container|job)\b/i;
 
 const CODE_TAETIGKEIT =
   /\b(schreib|baue?|bauen|implementier|programmier|debugg?e?|fix|behebe?|beheben|analysier|prüf|pruef|teste?n?|ändere?|aendere?|refactor|deploye?|installier)\w*/i;
 
 function looksLikeCode(text: string): boolean {
   if (CODE_EINDEUTIG.test(text)) return true;
+  if (CODE_SYNTAX.test(text)) return true;
   return CODE_ALLTAG.test(text) && CODE_TAETIGKEIT.test(text);
 }
 
+/*
+ * Deutsche Beugung und Komposita — der Grund, warum "Analysiere ..." bisher
+ * auf dem schnellen Modell landete.
+ *
+ * Die alte Fassung stand in \b...\b. Damit traf "Analyse", aber nicht
+ * "Analysiere", "analysieren" oder "analysiert" — also ausgerechnet die
+ * Formen, in denen man einen Auftrag formuliert. Dasselbe bei Komposita:
+ * "Teststrategie" und "Systemarchitektur" fielen durch, weil vor "strategie"
+ * ein Buchstabe steht und die Wortgrenze deshalb fehlt. Und "Trade-offs"
+ * scheiterte am Plural-s.
+ *
+ * CODE_TAETIGKEIT machte es nebenan schon richtig (\w* am Ende) — die beiden
+ * Regeln waren schlicht uneinheitlich. Gemessen hat das der Benchmark:
+ * vier von zwoelf Analyse-Aufgaben gingen ans schnelle Modell.
+ *
+ * VORNE offen nur bei den Nomen, die typisch in Komposita stehen. Bei den
+ * Verben waere es riskant (aus "Plan" wuerde jedes "...plan"), deshalb dort
+ * nur hinten offen.
+ */
+const KOMPLEX =
+  /(\b(analysier|analyse|begründ|begruend|vergleich|plan|beweis|research|reason|debug|ursach)\w*|\w*(strategie|architektur|konzept|analyse)\b|\btrade-?offs?\b|\bkomplex\w*|\bwarum genau\b|\bzerlege\b|\babwäg\w*)/i;
+
 function looksComplex(text: string): boolean {
-  return (
-    text.length > 1200 ||
-    /\b(analysier|analyse|begründe|vergleiche|strategie|architektur|konzept|plane|planen|komplex|beweise|research|reason|trade-?off|debug|ursache|warum genau)\b/i.test(
-      text,
-    )
-  );
+  return text.length > 1200 || KOMPLEX.test(text);
 }
 
 function looksSimple(text: string): boolean {

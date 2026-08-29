@@ -151,9 +151,26 @@ export const TOOL_RISK: Record<string, RiskTier> = {
   // Zwei Verhalten fuer einen Schalter sind eins zu viel.
 };
 
-/** Host-Ebene: R1, solange Issa es so will — mit Schalter zurueck auf R3. */
+/*
+ * Host-Ebene: Freigabe ist jetzt der STANDARD, nicht die Ausnahme.
+ *
+ * Vorher war es umgekehrt: R1, ausser jemand setzte LUKAS_HOST_APPROVAL=true.
+ * Die Begruendung dafuer war Issas — der Droplet gehoert ihm, Lukas hat dort
+ * ohnehin root, und ein Assistent, der fuer jedes `apt install` fragt, ist
+ * keiner. Das Argument stimmt weiterhin.
+ *
+ * Was dagegen steht: root auf dem Host ist der groesste Wirkungskreis, den
+ * dieses System hat, und ein unsicherer STANDARD ist etwas anderes als eine
+ * bewusste Entscheidung. Wer den Code frisch aufsetzt — oder wem eine
+ * Variable beim Umzug verlorengeht — bekommt sonst stillschweigend die
+ * gefaehrlichere Einstellung.
+ *
+ * Deshalb umgedreht, ohne Issa etwas wegzunehmen: LUKAS_HOST_APPROVAL=false
+ * stellt exakt das alte Verhalten wieder her. Eine Variable, eine bewusste
+ * Entscheidung, und sie steht dann dort, wo man sie sieht.
+ */
 function hostStufe(): RiskTier {
-  return (process.env.LUKAS_HOST_APPROVAL ?? "").trim().toLowerCase() === "true" ? "R3" : "R1";
+  return (process.env.LUKAS_HOST_APPROVAL ?? "").trim().toLowerCase() === "false" ? "R1" : "R3";
 }
 
 /*
@@ -214,7 +231,29 @@ export function riskFor(tool: string): RiskTier {
     const rest = tool.slice("mcp__".length);
     const sep = rest.indexOf("__");
     const slug = sep > 0 ? rest.slice(0, sep) : "";
-    return mcpRiskBySlug.get(slug) ?? "R1";
+    const bekannt = mcpRiskBySlug.get(slug);
+    if (bekannt) return bekannt;
+
+    /*
+     * Ein Server, den wir NICHT im Cache haben, ist der gefaehrlichere Fall —
+     * nicht der harmlosere.
+     *
+     * Hier stand `?? "R1"`, mit der Begruendung: Issa hat den Server selbst
+     * verbunden und im Dashboard ausgewaehlt, das IST die Entscheidung. Das
+     * gilt aber nur fuer Server, die tatsaechlich im Cache stehen. Fehlt der
+     * Eintrag, ist genau das Gegenteil der Fall: der Cache wird von
+     * allLukasTools() gefuellt, ein fehlender Slug heisst also, dass dieser
+     * Server gerade NICHT unter den ausgewaehlten war — neu aufgetaucht,
+     * umbenannt, oder der Aufruf kam auf einem anderen Weg herein.
+     *
+     * Ein unbekanntes eigenes Werkzeug bekommt DEFAULT_RISK (R2, fail closed).
+     * Dass ausgerechnet ein unbekannter FREMDER Server weniger Schutz bekam
+     * als ein unbekanntes eigenes Werkzeug, war die Sache verkehrt herum —
+     * und der Kommentar oben sagte bereits "im Zweifel R2", waehrend der Code
+     * R1 tat. Genau die Art Widerspruch, gegen die check-policy-wahrheit.mjs
+     * angetreten ist; sie prueft bisher nur die Werkzeugbeschreibungen.
+     */
+    return DEFAULT_RISK;
   }
 
   /*
@@ -296,13 +335,49 @@ const NEGATION =
 /**
  * Ist das eine echte, eindeutige Zustimmung? Im Zweifel nein.
  */
-export function isAffirmation(message: string): boolean {
+/*
+ * Wie lang eine Zustimmung hoechstens sein darf.
+ *
+ * Der Rest der Pruefung ist eng: es muss eine offene Anfrage fuer GENAU diese
+ * Argumente geben, sie gilt einmal, und R3 ist ausgeschlossen. Was blieb, war
+ * die Breite der Nachricht selbst — "Ja, und schreib bitte noch Herrn Meier
+ * wegen des Termins" enthaelt "ja" und "schreib" und wuerde als Freigabe fuer
+ * die offene Mail gelten, obwohl Issa gerade von etwas ganz anderem redet.
+ *
+ * Eine echte Bestaetigung ist kurz. "Ja, schick ab" sind zwoelf Zeichen; wer
+ * einen Absatz schreibt, beauftragt etwas Neues und bestaetigt nicht das
+ * Alte. 120 Zeichen lassen jede natuerliche Zustimmung durch und schneiden
+ * die Absaetze ab.
+ */
+const ZUSTIMMUNG_HOECHSTLAENGE = 120;
+
+/**
+ * Ist das eine echte, eindeutige Zustimmung? Im Zweifel nein.
+ *
+ * Die Freigabe-Nummer ist der zuverlaessige Weg: steht sie in der Nachricht,
+ * ist die Sache eindeutig, unabhaengig davon, wie der Satz formuliert ist.
+ * Der Weg ueber Woerter bleibt daneben bestehen — er ist der bequeme, und
+ * ihn zu streichen hiesse, die Bequemlichkeit gegen eine Gefahr einzutauschen,
+ * die durch Hash und Einmaligkeit ohnehin schon eng ist.
+ */
+export function isAffirmation(message: string, approvalId?: number): boolean {
   const text = message.trim();
   if (!text) return false;
   if (NEGATION.test(text)) return false;
   // Eine Frage ist keine Zustimmung: "Kannst du das senden?" fragt danach,
   // ob es ginge — es beauftragt es nicht.
   if (text.endsWith("?")) return false;
+
+  /*
+   * Die ausdrueckliche Nummer schlaegt alles. "Freigabe 42" oder "#42" ist
+   * eine Aussage ueber GENAU diese Anfrage und nicht ueber irgendetwas, das
+   * zufaellig danebensteht — deshalb gilt hier auch die Laengengrenze nicht.
+   */
+  if (approvalId !== undefined && new RegExp(`(^|[^0-9])#?${approvalId}([^0-9]|$)`).test(text)) {
+    return true;
+  }
+
+  if (text.length > ZUSTIMMUNG_HOECHSTLAENGE) return false;
   return AFFIRMATION.test(text);
 }
 
@@ -489,7 +564,7 @@ export async function checkPolicy(
     tier === "R2" &&
     CONSENT_TOOLS.has(tool) &&
     rawUserMessage &&
-    isAffirmation(rawUserMessage)
+    isAffirmation(rawUserMessage, pending.id)
   ) {
     const [confirmed] = await db
       .update(approvals)

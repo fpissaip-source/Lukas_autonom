@@ -272,5 +272,74 @@
     "wichtigkeit": 8
    }
   ]
+ },
+ {
+  "id": "graph-eine-kante",
+  "beschreibung": "Graph über EINE Kante: Frage nennt die Entität, Antwort hängt direkt daran",
+  "frage": "Was ist mit taxibb?",
+  "erwartet": "logistikplattform",
+  "nurIntegration": true,
+  "claims": [
+   {
+    "subjekt": "taxibb",
+    "praedikat": "ist",
+    "wert": "logistikplattform",
+    "status": "verified",
+    "vertrauen": 0.9
+   },
+   {
+    "subjekt": "wetter",
+    "praedikat": "war",
+    "wert": "regnerisch",
+    "status": "unverified",
+    "vertrauen": 0.3
+   }
+  ]
+ },
+ {
+  "id": "graph-zwei-kanten",
+  "beschreibung": "Graph über ZWEI Kanten: die Antwort hängt am Nachbarn des Nachbarn",
+  "frage": "Was weißt du über taxibb?",
+  "erwartet": "taxiunternehmen",
+  "nurIntegration": true,
+  "claims": [
+   {
+    "subjekt": "taxibb",
+    "praedikat": "gehoert",
+    "wert": "kunde_essen",
+    "status": "verified",
+    "vertrauen": 0.9
+   },
+   {
+    "subjekt": "kunde_essen",
+    "praedikat": "ist",
+    "wert": "taxiunternehmen",
+    "status": "verified",
+    "vertrauen": 0.9
+   },
+   {
+    "subjekt": "unbeteiligtes",
+    "praedikat": "ist",
+    "wert": "belanglos",
+    "status": "unverified",
+    "vertrauen": 0.2
+   }
+  ]
+ },
+ {
+  "id": "graph-kein-einstieg",
+  "beschreibung": "ohne Graph-Einstieg wird nichts erfunden",
+  "frage": "Wie heißt die Hauptstadt von Peru?",
+  "erwartet": "__NICHTS__",
+  "nichtsErwartet": true,
+  "claims": [
+   {
+    "subjekt": "taxibb",
+    "praedikat": "ist",
+    "wert": "logistikplattform",
+    "status": "verified",
+    "vertrauen": 0.9
+   }
+  ]
  }
 ]

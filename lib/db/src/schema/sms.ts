@@ -28,10 +28,28 @@ export const smsNachrichten = pgTable(
     anbieterId: text("anbieter_id"),
     /** Preis laut Anbieter, als Text — Waehrung steht daneben. */
     preis: text("preis"),
+    /*
+     * Der Fingerabdruck genau dieser Nachricht.
+     *
+     * Das Problem, gegen das er steht: die SMS geht raus, danach bricht das
+     * Netz weg, der Agent haelt den Aufruf fuer gescheitert und versucht es
+     * noch einmal. Der Empfaenger bekommt sie zweimal, und beim Anbieter
+     * steht sie zweimal auf der Rechnung.
+     *
+     * Zusammengesetzt aus Nummer, Text und Quelle, mit einem Zeitfenster —
+     * dieselbe Nachricht an dieselbe Nummer innerhalb weniger Minuten ist mit
+     * grosser Wahrscheinlichkeit ein Wiederholungsversuch und keine Absicht.
+     * Nach dem Fenster geht sie wieder durch: "Bin da" zweimal am Tag zu
+     * schicken muss moeglich bleiben.
+     */
+    fingerabdruck: text("fingerabdruck"),
     fehler: text("fehler"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [index("lukas_sms_nummer_idx").on(t.nummer)],
+  (t) => [
+    index("lukas_sms_nummer_idx").on(t.nummer),
+    index("lukas_sms_fingerabdruck_idx").on(t.fingerabdruck, t.createdAt),
+  ],
 );
 
 export type SmsNachricht = typeof smsNachrichten.$inferSelect;

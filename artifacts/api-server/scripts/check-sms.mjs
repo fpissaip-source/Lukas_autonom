@@ -26,10 +26,18 @@ const attrappe = join(dir, "attrappe.mjs");
 
 writeFileSync(
   attrappe,
-  `const t = (name) => ({ __name: name });
+  `/*
+ * Die Tabellen geben jetzt FELDNAMEN zurueck statt nur ihren eigenen Namen.
+ * Ohne das liesse sich die Idempotenz-Abfrage nicht nachstellen: sie fragt
+ * nach fingerabdruck UND Zeitfenster, und ein eq(), das blind auf nummer oder
+ * id vergleicht, wuerde jede Zeile treffen.
+ */
+const t = (name) => new Proxy({ __name: name }, { get: (o, k) => (k === "__name" ? name : String(k)) });
 export const smsNachrichten = t("sms");
 export const telefonNummern = t("nummern");
-export const eq = (feld, wert) => (z) => z.nummer === wert || z.id === wert;
+export const eq = (feld, wert) => (z) => z[feld] === wert;
+export const gte = (feld, wert) => (z) => z[feld] >= wert;
+export const and = (...bed) => (z) => bed.filter(Boolean).every((b) => b(z));
 export const desc = () => ({});
 export const logger = {
   info(daten) { (globalThis.__protokoll ??= []).push(JSON.stringify(daten)); },
@@ -39,6 +47,7 @@ export const logger = {
 
 globalThis.__nummern = [];
 globalThis.__sms = [];
+globalThis.__gesendet = 0;
 let naechsteId = 0;
 
 export const db = {
@@ -146,6 +155,7 @@ pruefe("mit Zugangsdaten ist er bereit", zugangVorhanden());
 let letzterAufruf = null;
 globalThis.fetch = async (url, init) => {
   letzterAufruf = { url: String(url), init };
+  globalThis.__gesendet++;
   return new Response(
     JSON.stringify({
       http_code: 200,
@@ -181,6 +191,27 @@ globalThis.fetch = async (url, init) => {
   pruefe("die Nachricht wird protokolliert", zeile?.text === "Bin um 15 Uhr da.");
   pruefe("mit der Kennung des Anbieters", zeile?.anbieterId === "ABC-123");
   pruefe("und der Quelle", zeile?.quelle === "dashboard");
+}
+
+// ── Idempotenz: derselbe Retry darf nicht zweimal senden ─────────────────
+/*
+ * Der Ablauf, gegen den das steht: die SMS geht raus, das Netz bricht weg,
+ * der Aufruf sieht aus wie gescheitert, der Agent versucht es erneut. Der
+ * Empfänger bekommt sie doppelt — und zurückholen lässt sich nichts.
+ */
+{
+  globalThis.__sms = [];
+  globalThis.__gesendet = 0;
+  const eins = await sendeSms({ an: "+4915100000042", text: "Bin um 15 Uhr da.", quelle: "lukas" });
+  const zwei = await sendeSms({ an: "+4915100000042", text: "Bin um 15 Uhr da.", quelle: "lukas" });
+  pruefe("die erste SMS geht raus", eins.ok === true && eins.wiederholung !== true);
+  pruefe("die zweite wird als Wiederholung erkannt", zwei.wiederholung === true);
+  pruefe("und der Anbieter wird kein zweites Mal angefragt", globalThis.__gesendet === 1);
+
+  // Eine ANDERE Nachricht an dieselbe Nummer muss weiterhin durchgehen —
+  // sonst wäre der Schutz eine Sperre.
+  const drei = await sendeSms({ an: "+4915100000042", text: "Doch erst um 16 Uhr.", quelle: "lukas" });
+  pruefe("eine andere Nachricht geht trotzdem raus", drei.wiederholung !== true && globalThis.__gesendet === 2);
 }
 
 // Was Lukas schreibt, ist als seins erkennbar.

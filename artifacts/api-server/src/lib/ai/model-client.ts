@@ -341,7 +341,7 @@ function cacheTreffer(usage: any): { gelesen: number; geschrieben: number; imEin
   };
 }
 
-function merkeVerbrauch(model: string, usage: any): { rein: number; raus: number } {
+function merkeVerbrauch(model: string, usage: any, provider = "unbekannt"): { rein: number; raus: number } {
   if (!usage) return { rein: 0, raus: 0 };
   const eintrag = verbrauch.get(model) ?? { aufrufe: 0, rein: 0, raus: 0, ausCache: 0, inCache: 0 };
   const cache = cacheTreffer(usage);
@@ -367,6 +367,36 @@ function merkeVerbrauch(model: string, usage: any): { rein: number; raus: number
       aufrufe: eintrag.aufrufe,
     },
     "Modellverbrauch",
+  );
+
+  /*
+   * Zusaetzlich dauerhaft, pro Tag. Die Map oben ist nach jedem Neustart leer
+   * — und Railway startet bei jeder Variablenaenderung neu. Ohne die Zeile
+   * hier faengt jedes Tagesbudget staendig wieder bei null an.
+   *
+   * Bewusst ohne await: die Buchhaltung darf den Zug nicht aufhalten und
+   * schon gar nicht kippen.
+   */
+  /*
+   * Spaeter Import, mit Absicht.
+   *
+   * Ein statisches `import { verbucheTag } from "../tagesbudget"` zieht ueber
+   * @workspace/db den Postgres-Treiber in JEDEN, der model-client benutzt —
+   * und damit in ein halbes Dutzend Pruefungen, die mit einer Datenbank
+   * nichts zu tun haben. Zwei davon sind daran sofort gescheitert.
+   *
+   * Die Buchhaltung ist ohnehin nebenlaeufig ("void"), also kostet der spaete
+   * Import nichts: er passiert einmal beim ersten Modellaufruf.
+   */
+  void import("../tagesbudget").then(({ verbucheTag }) =>
+    verbucheTag({
+    provider,
+    model,
+    rein: cache.imEingang ? Math.max(0, gemeldet - cache.gelesen) : gemeldet,
+    raus: Number(usage.output_tokens ?? usage.completion_tokens ?? 0),
+      ausCache: cache.gelesen,
+      inCache: cache.geschrieben,
+    }),
   );
 
   // Fuer das Budget zaehlt der ganze Eingang, auch der gecachte Teil: guenstiger
@@ -442,7 +472,7 @@ async function callOpenAI(input: CallInput): Promise<LukasModelResult> {
    *
    * Die Zahlen kommen ohnehin in jeder Antwort mit, sie wurden nur weggeworfen.
    */
-  const verbraucht = merkeVerbrauch(input.route.model, response.usage);
+  const verbraucht = merkeVerbrauch(input.route.model, response.usage, input.route.provider);
 
   const content = String(response.output_text ?? "");
 
@@ -521,7 +551,7 @@ async function callAnthropic(input: CallInput): Promise<LukasModelResult> {
   const raw = await response.text();
   if (!response.ok) throw new Error(`Anthropic ${response.status}: ${raw.slice(0, 1000)}`);
   const data = JSON.parse(raw) as any;
-  const verbraucht = merkeVerbrauch(input.route.model, data.usage);
+  const verbraucht = merkeVerbrauch(input.route.model, data.usage, input.route.provider);
   const text: string[] = [];
   const toolCalls: LukasToolCall[] = [];
   for (const block of data.content ?? []) {
@@ -597,7 +627,7 @@ async function callLocal(input: CallInput): Promise<LukasModelResult> {
     throw new Error(`Lokales Modell hat kein JSON geliefert: ${raw.slice(0, 300)}`);
   }
 
-  const verbraucht = merkeVerbrauch(input.route.model, data.usage);
+  const verbraucht = merkeVerbrauch(input.route.model, data.usage, input.route.provider);
   const choice = data.choices?.[0];
   const toolCalls: LukasToolCall[] = [];
   for (const tc of choice?.message?.tool_calls ?? []) {
@@ -642,7 +672,7 @@ async function callGoogle(input: CallInput): Promise<LukasModelResult> {
   const raw = await response.text();
   if (!response.ok) throw new Error(`Gemini ${response.status}: ${raw.slice(0, 1000)}`);
   const data = JSON.parse(raw) as any;
-  const verbraucht = merkeVerbrauch(input.route.model, data.usage);
+  const verbraucht = merkeVerbrauch(input.route.model, data.usage, input.route.provider);
   const choice = data.choices?.[0];
   const toolCalls: LukasToolCall[] = [];
   for (const tc of choice?.message?.tool_calls ?? []) {

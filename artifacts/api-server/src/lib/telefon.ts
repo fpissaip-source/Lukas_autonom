@@ -188,7 +188,15 @@ export function tatsaechlicheStufe(
 ): Stufe {
   if (eingetragen !== "privat" || vonLukasGewaehlt) return eingetragen;
 
-  const streng = (process.env.LUKAS_TELEFON_STRENG ?? "false").trim().toLowerCase() === "true";
+  /*
+   * Streng ist jetzt der Standard. Vorher war es aus, mit der Begruendung,
+   * dass es Issa den Zugang zu seinem eigenen Lukas verengt — das stimmt, und
+   * LUKAS_TELEFON_STRENG=false holt es zurueck. Aber eine faelschbare
+   * Rufnummer, die den vollen privaten Prompt oeffnet, darf nicht die
+   * Voreinstellung sein: wer nichts konfiguriert, bekommt sonst die
+   * durchlaessige Variante, ohne davon zu wissen.
+   */
+  const streng = (process.env.LUKAS_TELEFON_STRENG ?? "true").trim().toLowerCase() !== "false";
   if (streng) {
     logger.info(
       { nummer },

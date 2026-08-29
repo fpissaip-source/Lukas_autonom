@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { db } from "@workspace/db";
 import { smsNachrichten, telefonNummern } from "@workspace/db";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { logger } from "./logger";
 
 /*
@@ -25,6 +26,15 @@ import { logger } from "./logger";
 
 const BASIS = "https://rest.clicksend.com/v3";
 
+/*
+ * Wie lange dieselbe Nachricht als Wiederholungsversuch gilt.
+ *
+ * Fuenf Minuten: lang genug fuer jeden Retry, den ein Zug erzeugt (Timeout,
+ * Netzabbruch, ein zweiter Anlauf des Modells), kurz genug, dass "Bin gleich
+ * da" spaeter am Tag wieder durchgeht.
+ */
+const IDEMPOTENZ_FENSTER_MS = 5 * 60 * 1000;
+
 export type SmsErgebnis = {
   ok: boolean;
   status: string;
@@ -32,6 +42,8 @@ export type SmsErgebnis = {
   segmente: number;
   preis?: string;
   fehler?: string;
+  /** Wurde nicht erneut gesendet, weil dieselbe Nachricht gerade schon rausging. */
+  wiederholung?: boolean;
 };
 
 export function zugangVorhanden(): boolean {
@@ -108,6 +120,54 @@ export async function sendeSms(opts: {
     );
   }
 
+  /*
+   * Dieselbe Nachricht nicht zweimal.
+   *
+   * Der Ablauf, gegen den das steht: die SMS geht raus, danach bricht die
+   * Verbindung weg, der Aufruf sieht aus wie gescheitert, der Agent versucht
+   * es erneut. Der Empfaenger bekommt sie doppelt, bezahlt ist sie zweimal —
+   * und zurueckholen laesst sich nichts davon.
+   *
+   * Der Fingerabdruck ist bewusst inhaltlich (Nummer + Text + Quelle) und
+   * nicht ein vom Aufrufer mitgegebener Schluessel: der Wiederholungsversuch
+   * kommt aus dem Modell, und das kann keinen stabilen Schluessel fuehren.
+   *
+   * Das Fenster ist die eigentliche Entscheidung. Zu kurz und der Schutz
+   * greift nicht; zu lang und "Bin da" laesst sich am selben Tag nicht
+   * zweimal schicken. Fuenf Minuten decken jeden Wiederholungsversuch ab,
+   * den ein Zug erzeugt.
+   */
+  const fingerabdruck = createHash("sha256")
+    .update(`${nummer}\u0000${text}\u0000${quelle}`)
+    .digest("hex")
+    .slice(0, 32);
+  const fensterBeginn = new Date(Date.now() - IDEMPOTENZ_FENSTER_MS);
+  const [schonRaus] = await db
+    .select()
+    .from(smsNachrichten)
+    .where(
+      and(
+        eq(smsNachrichten.fingerabdruck, fingerabdruck),
+        gte(smsNachrichten.createdAt, fensterBeginn),
+      ),
+    )
+    .limit(1);
+
+  if (schonRaus) {
+    logger.info(
+      { nummer, fingerabdruck, id: schonRaus.id },
+      "Dieselbe SMS ging vor Kurzem schon raus — nicht erneut gesendet",
+    );
+    return {
+      ok: true,
+      nummer,
+      status: schonRaus.status,
+      segmente: 0,
+      preis: schonRaus.preis ?? undefined,
+      wiederholung: true,
+    };
+  }
+
   // Wer am Telefon abgewiesen wird, bekommt auch keine SMS.
   const [eintrag] = await db
     .select()
@@ -131,7 +191,13 @@ export async function sendeSms(opts: {
 
   const [zeile] = await db
     .insert(smsNachrichten)
-    .values({ richtung: "raus", nummer, text, quelle, status: "offen" })
+    /*
+     * Die Zeile entsteht VOR dem Versand, mit Status "offen" — das war schon
+     * so und ist genau richtig: damit wirkt der Fingerabdruck oben wie eine
+     * Reservierung. Ein zweiter Anlauf findet die Zeile auch dann, wenn der
+     * erste Versand noch unterwegs ist.
+     */
+    .values({ richtung: "raus", nummer, text, quelle, status: "offen", fingerabdruck })
     .returning();
 
   try {

@@ -114,3 +114,38 @@ festgelegt. Das ist die Hälfte, die man ohne Geld messen kann.
 Die andere Hälfte — löst er die Aufgabe, mit wie vielen Schritten, zu welchem
 Preis — steht in der Tabelle „Was NICHT gemessen wird", und sie steht dort,
 damit niemand die Note für mehr hält, als sie ist.
+
+---
+
+## Integrationsmodus
+
+```bash
+cd artifacts/api-server
+npm run bench:integration   # ~10 s, startet sich sein eigenes Postgres
+```
+
+Braucht `postgresql-16` (für `initdb`/`pg_ctl`) und, für den Browser-Teil,
+`playwright` mit einem Chromium. Fehlt eines davon, wird der betroffene Teil
+**übersprungen statt rot** — ein Benchmark, der ohne Browser fehlschlägt,
+wird abgeschaltet.
+
+| Was | Was es zeigt, das keine Attrappe zeigen kann |
+|---|---|
+| **Postgres** | Advisory Locks über zwei echte Verbindungen; dass sie an der *Sitzung* hängen und einen COMMIT überleben; dass ein Verbindungsabbruch sie freigibt; dass `ON CONFLICT DO UPDATE` bei gleichzeitigen Buchungen nichts verliert |
+| **Netz** | eine echte 302→302→interne-IP-Kette gegen den echten `undici`-Dispatcher |
+| **Nebenläufigkeit** | zwei echte Node-Prozesse gegen dieselbe Sperre — genau der Fall beim Deployment, wenn kurz zwei Instanzen laufen |
+| **Gedächtnis** | dieselben Fragen gegen echte Tabellen, echtes SQL **und den echten Graphen** (offline ist er stillgelegt) |
+| **Browser** | der echte Bedien-Schrittplan in einem echten Chromium gegen eine echte Seite mit Cookie-Banner, Formular und Fehlermeldung |
+
+Was der Integrationsmodus **nicht** tut: externe Dienste anfassen. Keine
+Modellaufrufe, keine SMS, kein GitHub, kein Moltbook. Das ist der Live-Modus.
+
+### Ein Fund, den erst das echte Postgres gezeigt hat
+
+Advisory Locks sind **pro Sitzung reentrant** — dieselbe Verbindung bekommt
+dieselbe Sperre mehrfach, und Postgres zählt mit. Ein einzelnes
+`pg_advisory_unlock` gibt sie dann *nicht* frei. Für `lauf-sperre.ts` ist das
+folgenlos (jede Sperre nimmt eine eigene, frische Verbindung), aber wer
+`mitSperre()` je verschachtelt, muss es wissen. Die Attrappe hätte das nie
+gezeigt: dort hatte *ich* die Semantik geschrieben, und ich hatte sie nicht
+so geschrieben.

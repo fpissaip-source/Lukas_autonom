@@ -186,6 +186,18 @@ export async function lauf() {
   pruefe("policy:unbekanntes-werkzeug", "ein unbekanntes Werkzeug ist R2, nicht frei",
     riskFor("voellig_neues_werkzeug") === "R2");
 
+  /*
+   * Ein FREMDER Server, den wir nicht kennen, darf nicht weniger Schutz
+   * bekommen als ein unbekanntes eigenes Werkzeug. Hier stand einmal R1.
+   */
+  pruefe("policy:unbekannter-mcp", "ein unbekannter MCP-Server ist R2, nicht R1",
+    riskFor("mcp__nie_gesehen__irgendwas") === "R2");
+
+  // Und root auf dem Host braucht ohne Konfiguration eine Freigabe.
+  delete process.env.LUKAS_HOST_APPROVAL;
+  pruefe("policy:host-standard", "Host-Ausführung braucht ohne Konfiguration eine Freigabe",
+    riskFor("execute_on_host") === "R3");
+
   // Zustimmung darf nur aus Issas eigenem Text kommen, nicht aus Tool-Ausgaben.
   pruefe("policy:injizierte-zustimmung", "'Nein, noch nicht senden' ist keine Zustimmung",
     isAffirmation("Nein, schick das noch nicht") === false);

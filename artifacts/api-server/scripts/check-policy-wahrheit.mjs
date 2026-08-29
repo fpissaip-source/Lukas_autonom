@@ -102,15 +102,24 @@ for (const w of werkzeuge) {
 }
 
 // ── 3. Der Schalter wirkt in beide Richtungen ─────────────────────────────
+/*
+ * Umgedreht: OHNE Konfiguration braucht der Host jetzt eine Freigabe.
+ *
+ * Vorher war es andersherum, mit Issas Begruendung — der Droplet gehoert ihm.
+ * Das Argument bleibt gueltig, und LUKAS_HOST_APPROVAL=false holt genau das
+ * zurueck. Was sich aendert, ist die VOREINSTELLUNG: root auf dem Host ist der
+ * groesste Wirkungskreis des Systems, und wer nichts setzt, soll nicht
+ * stillschweigend die durchlaessigere Variante bekommen.
+ */
 delete process.env.LUKAS_HOST_APPROVAL;
-pruefe("ohne Schalter ist der Host R1 — Issas Entscheidung", riskFor("execute_on_host") === "R1");
-pruefe("und Lukas wird keine Freigabe versprochen", policyHinweis("execute_on_host") === "");
+pruefe("ohne Konfiguration ist der Host R3 — Freigabe ist der Standard", riskFor("execute_on_host") === "R3");
+pruefe("und Lukas erfährt davon", zusage.test(policyHinweis("execute_on_host")));
 
-process.env.LUKAS_HOST_APPROVAL = "true";
-pruefe("mit Schalter ist der Host R3", riskFor("execute_on_host") === "R3");
+process.env.LUKAS_HOST_APPROVAL = "false";
+pruefe("mit LUKAS_HOST_APPROVAL=false ist es wieder R1 — Issas Entscheidung bleibt möglich", riskFor("execute_on_host") === "R1");
 pruefe(
-  "und Lukas erfährt es im selben Moment",
-  zusage.test(policyHinweis("execute_on_host")),
+  "und dann wird ihm auch keine Freigabe versprochen",
+  policyHinweis("execute_on_host") === "",
 );
 delete process.env.LUKAS_HOST_APPROVAL;
 

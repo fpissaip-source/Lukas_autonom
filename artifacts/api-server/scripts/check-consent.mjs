@@ -278,6 +278,52 @@ export const logger = { info() {}, warn() {}, error() {}, debug() {} };
     false,
   );
 
+  /*
+   * Eine Zustimmung muss KURZ sein.
+   *
+   * "Ja, und schreib bitte noch Herrn Meier wegen des Termins" enthält "ja"
+   * und "schreib" — und hätte damit die offene Mail freigegeben, obwohl Issa
+   * gerade von etwas ganz anderem redet. Der Rest der Prüfung (Hash,
+   * Einmaligkeit, kein R3) war eng; die Breite der Nachricht selbst war es
+   * nicht.
+   */
+  globalThis.__zeilen = [];
+  await checkPolicy("email_send", mail, 1, "Zeig mir den Entwurf");
+  globalThis.__zeilen[0].expiresAt = gueltigBis();
+  pruefe(
+    "ein langer Absatz mit einem 'ja' darin ist KEINE Freigabe",
+    (await checkPolicy("email_send", mail, 1,
+      "Ja genau, und schreib bitte noch Herrn Meier wegen des Termins am Donnerstag, " +
+      "außerdem brauche ich später die Zahlen vom letzten Quartal und den Entwurf für die Startseite")).allow,
+    false,
+  );
+  pruefe("die kurze Bestätigung dagegen schon", (await checkPolicy("email_send", mail, 1, "Ja, schick ab")).allow, true);
+
+  /*
+   * Und der zuverlässige Weg: die Nummer der Freigabe. Sie ist eine Aussage
+   * über GENAU diese Anfrage — deshalb gilt dort auch die Längengrenze nicht.
+   */
+  globalThis.__zeilen = [];
+  const offen = await checkPolicy("email_send", mail, 1, "Zeig mir den Entwurf");
+  globalThis.__zeilen[0].expiresAt = gueltigBis();
+  const nummer = globalThis.__zeilen[0].id;
+  pruefe(
+    "die Freigabe-Nummer gibt frei, auch in einem längeren Satz",
+    (await checkPolicy("email_send", mail, 1,
+      `Habe den Entwurf gelesen, sieht gut aus, bitte Freigabe #${nummer} einlösen und danach machen wir mit dem Rest weiter`)).allow,
+    true,
+  );
+
+  // Eine FALSCHE Nummer gibt nichts frei.
+  globalThis.__zeilen = [];
+  await checkPolicy("email_send", mail, 1, "Entwurf?");
+  globalThis.__zeilen[0].expiresAt = gueltigBis();
+  pruefe(
+    "eine fremde Nummer gibt nichts frei",
+    (await checkPolicy("email_send", mail, 1, `Freigabe #${globalThis.__zeilen[0].id + 99} bitte einlösen und weiter geht es mit dem nächsten Punkt`)).allow,
+    false,
+  );
+
   // Ein Nein bleibt ein Nein.
   globalThis.__zeilen = [];
   await checkPolicy("email_send", mail, 1, "Zeig mir den Entwurf");

@@ -6,6 +6,7 @@ import { LUKAS_SYSTEM_PROMPT } from "./lukas-soul";
 import { getLukasStatus, DEFAULT_STATUS } from "./lukas-status";
 import { getEmotionalContext, getCharacterContext } from "./emotion-engine";
 import { lehrenText } from "./lernen";
+import { budgetHinweis } from "./tagesbudget";
 import { getProposalContext } from "./proposals";
 import { logger } from "./logger";
 
@@ -59,6 +60,7 @@ export async function buildSystemPrompt(
     emotionalContext,
     characterContext,
     proposalContext,
+    budget,
     lehren,
     relevantContext,
   ] = await Promise.all([
@@ -96,6 +98,7 @@ export async function buildSystemPrompt(
      * funktioniert, waere lang und wuerde die paar Zeilen begraben, die
      * wirklich etwas aendern.
      */
+    budgetHinweis().catch(() => ""),
     lehrenText().catch((err) => {
       logger.warn({ err }, "Lehren nicht geladen");
       return "";
@@ -149,6 +152,6 @@ ${emotionalContext}
 Obsession: ${status.obsession}
 ${characterContext ? `\n${characterContext}` : ""}
 ${proposalContext ? `\n${proposalContext}` : ""}
-${lehren ? `\n${lehren}\n` : ""}
+${budget ? `\n${budget}\n` : ""}${lehren ? `\n${lehren}\n` : ""}
 ${memoryContext}${goalsContext}${diaryContext}${relevantContext}`;
 }

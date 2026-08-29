@@ -110,6 +110,9 @@ export async function lauf() {
   const begonnen = Date.now();
 
   for (const fall of daten) {
+    // Faelle, die den Graphen brauchen, kann der Offline-Lauf nicht messen —
+    // dort ist er stillgelegt. Sie zaehlen nur im Integrationslauf.
+    if (fall.nurIntegration) continue;
     globalThis.__daten = {
       memories: (fall.memories ?? []).map((m, i) => ({
         id: i + 1, content: m.text, category: m.kategorie ?? "fact",

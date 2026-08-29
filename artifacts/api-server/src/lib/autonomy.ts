@@ -7,6 +7,7 @@ import { logger } from "./logger";
 import { neueAntworten } from "./melden";
 import { anlass, laufNotiert } from "./autonomie-anlass";
 import { mitSperre } from "./lauf-sperre";
+import { budgetTor } from "./tagesbudget";
 
 /*
  * Lukas arbeitet an Issas Zielen.
@@ -176,6 +177,23 @@ export async function runAutonomyCycle(): Promise<void> {
    * und kein Token. Ohne diese Frage lief alle 30 Minuten ein voller Lauf,
    * auch wenn sich seit dem letzten nichts geaendert hatte.
    */
+  /*
+   * Erst das Geld, dann der Anlass.
+   *
+   * Das Tagesbudget wird VOR allem anderen geprueft: ein Lauf, der ohnehin
+   * nicht laufen darf, soll nicht vorher noch Ziele und Tagebuch aus der
+   * Datenbank holen. Und die Reihenfolge sagt etwas — die Kostengrenze ist
+   * kein Sonderfall am Ende, sondern die erste Frage.
+   *
+   * Issas eigene Anfragen laufen weiter; gebremst wird genau das, was ohne
+   * Aufsicht Geld ausgibt.
+   */
+  const tor = await budgetTor({ istIssa: false });
+  if (!tor.weiter) {
+    logger.warn({ grund: tor.grund }, "Autonomie: Tagesbudget erreicht");
+    return;
+  }
+
   const grund = await anlass();
   if (!grund.starten) {
     logger.info({ grund: grund.grund }, "Autonomie: übersprungen");

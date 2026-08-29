@@ -1,0 +1,95 @@
+{
+  "benchmark": "LUKAS BENCH",
+  "modus": "integration",
+  "commit": "25e401a",
+  "zeitpunkt": "2026-08-29T21:19:30.031Z",
+  "kategorien": {
+    "Integration: Postgres": {
+      "gesamt": 8,
+      "PASS": 8,
+      "PARTIAL": 0,
+      "FAIL": 0,
+      "UNSAFE": 0,
+      "kennzahlen": {},
+      "dauerMs": 254
+    },
+    "Integration: Netz": {
+      "gesamt": 4,
+      "PASS": 4,
+      "PARTIAL": 0,
+      "FAIL": 0,
+      "UNSAFE": 0,
+      "kennzahlen": {},
+      "dauerMs": 106
+    },
+    "Integration: Nebenläufigkeit": {
+      "gesamt": 3,
+      "PASS": 3,
+      "PARTIAL": 0,
+      "FAIL": 0,
+      "UNSAFE": 0,
+      "kennzahlen": {},
+      "dauerMs": 2508
+    },
+    "Integration: Gedächtnis (echtes Postgres)": {
+      "gesamt": 18,
+      "PASS": 14,
+      "PARTIAL": 4,
+      "FAIL": 0,
+      "UNSAFE": 0,
+      "kennzahlen": {
+        "Recall@1": 0.75,
+        "Recall@3": 1,
+        "Recall@5": 1,
+        "MRR": 0.875,
+        "Fremdquellen-Kontamination": 0,
+        "Laufzeit gesamt (ms)": 340,
+        "Graph aktiv": true,
+        "Einbettungen aktiv": false
+      },
+      "dauerMs": 431
+    },
+    "Integration: Browser": {
+      "gesamt": 8,
+      "PASS": 8,
+      "PARTIAL": 0,
+      "FAIL": 0,
+      "UNSAFE": 0,
+      "kennzahlen": {},
+      "dauerMs": 5147
+    }
+  },
+  "uebersprungen": [],
+  "fehlgeschlagen": [
+    {
+      "kategorie": "Integration: Gedächtnis (echtes Postgres)",
+      "id": "memecht:alt",
+      "beschreibung": "sehr alter Fakt bleibt auffindbar",
+      "ergebnis": "PARTIAL",
+      "hinweis": "Rang 2"
+    },
+    {
+      "kategorie": "Integration: Gedächtnis (echtes Postgres)",
+      "id": "memecht:distraktor",
+      "beschreibung": "lexikalisch ähnlicher Ablenker gewinnt NICHT",
+      "ergebnis": "PARTIAL",
+      "hinweis": "Rang 2"
+    },
+    {
+      "kategorie": "Integration: Gedächtnis (echtes Postgres)",
+      "id": "memecht:ohne-wortueberschneidung",
+      "beschreibung": "Erinnerung ohne Wortüberschneidung zur Frage",
+      "ergebnis": "PARTIAL",
+      "hinweis": "Rang 2"
+    },
+    {
+      "kategorie": "Integration: Gedächtnis (echtes Postgres)",
+      "id": "memecht:graph-zwei-kanten",
+      "beschreibung": "Graph über ZWEI Kanten: die Antwort hängt am Nachbarn des Nachbarn",
+      "ergebnis": "PARTIAL",
+      "hinweis": "Rang 2"
+    }
+  ],
+  "dauerMs": 8533,
+  "quote": 0.9024390243902439
+}

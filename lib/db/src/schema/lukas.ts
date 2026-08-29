@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, real, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, real, timestamp, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -115,3 +115,36 @@ export type DiaryEntry = typeof diaryTable.$inferSelect;
 export type MediaJob = typeof mediaJobsTable.$inferSelect;
 export type LukasStatusRow = typeof lukasStatusTable.$inferSelect;
 export type DebugLogRow = typeof debugLogTable.$inferSelect;
+
+/*
+ * Modellverbrauch pro Tag.
+ *
+ * Bisher lag der Verbrauch nur im Arbeitsspeicher (model-client.ts) und war
+ * nach jedem Neustart weg — und Railway startet bei jeder Variablenaenderung
+ * neu. Damit liess sich die Frage "wie viel hat heute gekostet" nicht
+ * beantworten, und ein Tagesbudget schon gar nicht: es haette bei jedem
+ * Deployment wieder bei null angefangen.
+ *
+ * Eine Zeile je Tag und Modell. Klein genug, dass niemand sie aufraeumen
+ * muss, und genau die Koernung, in der man spaeter sieht, WELCHES Modell
+ * teuer war.
+ */
+export const tageskostenTable = pgTable(
+  "lukas_tageskosten",
+  {
+    id: serial("id").primaryKey(),
+    /** ISO-Datum in UTC, z.B. "2026-08-29". */
+    tag: text("tag").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    aufrufe: integer("aufrufe").notNull().default(0),
+    rein: integer("rein").notNull().default(0),
+    raus: integer("raus").notNull().default(0),
+    ausCache: integer("aus_cache").notNull().default(0),
+    inCache: integer("in_cache").notNull().default(0),
+    aktualisiert: timestamp("aktualisiert").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("lukas_tageskosten_tag_modell_idx").on(t.tag, t.provider, t.model)],
+);
+
+export type Tageskosten = typeof tageskostenTable.$inferSelect;

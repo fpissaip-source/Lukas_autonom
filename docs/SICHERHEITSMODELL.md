@@ -156,8 +156,15 @@ Diese Liste ist so wichtig wie die davor. Wer sie nicht kennt, hält das System
 für etwas, das es nicht ist.
 
 1. **Lukas hat root auf Issas Droplet — ohne Freigabe.** Ausdrückliche
-   Entscheidung: der Droplet gehört ihm, ein Assistent, der für jedes
-   `apt install` fragt, ist keiner. `LUKAS_HOST_APPROVAL=true` dreht es um.
+   Entscheidung, und sie steht: der Droplet ist **leer**, dort liegt nichts
+   von Issa, und Lukas hat ohnehin root. Ein Assistent, der auf seinem
+   eigenen Rechner für jedes `apt install` fragt, ist keiner.
+   `LUKAS_HOST_APPROVAL=true` dreht es um.
+
+   Diese Voreinstellung wurde einmal auf Empfehlung eines externen Audits
+   umgedreht. Das war ein Fehler: eine fremde Einschätzung sticht keine
+   Entscheidung, die der Eigentümer mit Begründung getroffen hat. Wer sie
+   künftig ändern will, fragt vorher.
 2. **Der Sicherheitscode steht im Repository, und das Repository ist
    öffentlich.** Das ist kein Fehler. Was Sicherheit trägt, sind Secrets und
    Prüfungen, nicht Geheimhaltung des Codes. Was **nicht** im Repository steht:

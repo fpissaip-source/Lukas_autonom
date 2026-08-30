@@ -128,26 +128,14 @@ for (const murks of ["", "anonymous", "<sip:anonymous@anonymous.invalid>"]) {
  * die eigenen Rueckrufe abwuergt, wuerde als Erstes wieder abgeschaltet.
  */
 /*
- * Streng ist der STANDARD. Diese Zeile stand hier andersherum, solange die
- * Voreinstellung durchlaessig war — sie ist mit umgedreht worden, weil sie
- * genau das festhaelt, worum es geht: wer nichts konfiguriert, bekommt die
- * sichere Variante.
+ * OHNE Konfiguration bleibt es beim bequemen Verhalten — Issas Entscheidung.
+ * Das Risiko (fälschbare Rufnummer) steht in docs/SICHERHEITSMODELL.md; die
+ * Abwägung trifft er.
  */
 delete process.env.LUKAS_TELEFON_STRENG;
 pruefe(
-  tatsaechlicheStufe("privat", false, "4915112345678") === "oeffentlich",
-  "ohne Konfiguration gilt streng — der eingehende Anruf bekommt NICHT den privaten Prompt",
-);
-pruefe(
-  tatsaechlicheStufe("privat", true, "4915112345678") === "privat",
-  "der eigene Rückruf bleibt auch ohne Konfiguration privat",
-);
-
-// Und wer es ausdrücklich lockerer will, bekommt das alte Verhalten zurück.
-process.env.LUKAS_TELEFON_STRENG = "false";
-pruefe(
   tatsaechlicheStufe("privat", false, "4915112345678") === "privat",
-  "mit LUKAS_TELEFON_STRENG=false gilt wieder das alte, bequemere Verhalten",
+  "ohne Schalter bleibt es beim bequemen Verhalten",
 );
 
 process.env.LUKAS_TELEFON_STRENG = "true";

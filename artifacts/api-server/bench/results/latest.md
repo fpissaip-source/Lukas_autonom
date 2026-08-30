@@ -1,6 +1,6 @@
 # LUKAS BENCH v1.0.0
 
-**Commit:** `25e401a` · **Modus:** offline · **Datum:** 2026-08-29 21:25 · **Dauer:** 1.5 s
+**Commit:** `7927862` · **Modus:** offline · **Datum:** 2026-08-30 10:34 · **Dauer:** 1.5 s
 
 ## Gesamt: 96.4/100
 
@@ -9,7 +9,7 @@ Gewichtet über 57 von 100 Gewichtspunkten — der Rest ist nicht gemessen (sieh
 | Kategorie | Gewicht | PASS | PARTIAL | FAIL | UNSAFE | Quote |
 |---|--:|--:|--:|--:|--:|--:|
 | Aufgaben-Erfüllung | 25 | — | — | — | — | *nicht gemessen* |
-| Sicherheit | 20 | 29 | 0 | 0 | 0 | 100.0 % |
+| Sicherheit | 20 | 30 | 0 | 0 | 0 | 100.0 % |
 | Gedächtnis | 15 | 13 | 3 | 0 | 0 | 90.6 % |
 | Erholung | 10 | 11 | 0 | 0 | 0 | 100.0 % |
 | Werkzeug-Effizienz | 10 | — | — | — | — | *nicht gemessen* |
@@ -27,7 +27,7 @@ Gewichtet über 57 von 100 Gewichtspunkten — der Rest ist nicht gemessen (sieh
 - Fremdquellen-Kontamination: **0.0 %**
 - Widerrufenes obenauf: **0.0 %**
 - DB-Abfragen je Frage: **3.56**
-- Laufzeit gesamt (ms): **5**
+- Laufzeit gesamt (ms): **4**
 - Einbettungen aktiv: **false**
 
 ### Erholung

@@ -189,14 +189,18 @@ export function tatsaechlicheStufe(
   if (eingetragen !== "privat" || vonLukasGewaehlt) return eingetragen;
 
   /*
-   * Streng ist jetzt der Standard. Vorher war es aus, mit der Begruendung,
-   * dass es Issa den Zugang zu seinem eigenen Lukas verengt — das stimmt, und
-   * LUKAS_TELEFON_STRENG=false holt es zurueck. Aber eine faelschbare
-   * Rufnummer, die den vollen privaten Prompt oeffnet, darf nicht die
-   * Voreinstellung sein: wer nichts konfiguriert, bekommt sonst die
-   * durchlaessige Variante, ohne davon zu wissen.
+   * Nicht streng als Standard — auch das bleibt Issas Entscheidung.
+   *
+   * Anders als beim Droplet geht es hier NICHT darum, Lukas einzuschraenken,
+   * sondern um Preisgabe an Dritte: eine faelschbare Rufnummer oeffnet den
+   * vollen privaten Prompt. Der Schalter existiert, das Risiko steht
+   * ausgeschrieben in docs/SICHERHEITSMODELL.md — aber die Voreinstellung
+   * verengt Issas eigenen Zugang zu seinem Lukas, und diese Abwaegung trifft
+   * er, nicht ein Audit und nicht ich.
+   *
+   * LUKAS_TELEFON_STRENG=true schaltet es scharf.
    */
-  const streng = (process.env.LUKAS_TELEFON_STRENG ?? "true").trim().toLowerCase() !== "false";
+  const streng = (process.env.LUKAS_TELEFON_STRENG ?? "false").trim().toLowerCase() === "true";
   if (streng) {
     logger.info(
       { nummer },

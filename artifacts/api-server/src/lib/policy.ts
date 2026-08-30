@@ -152,25 +152,25 @@ export const TOOL_RISK: Record<string, RiskTier> = {
 };
 
 /*
- * Host-Ebene: Freigabe ist jetzt der STANDARD, nicht die Ausnahme.
+ * Host-Ebene: R1. Das ist Issas Entscheidung, und sie steht.
  *
- * Vorher war es umgekehrt: R1, ausser jemand setzte LUKAS_HOST_APPROVAL=true.
- * Die Begruendung dafuer war Issas — der Droplet gehoert ihm, Lukas hat dort
- * ohnehin root, und ein Assistent, der fuer jedes `apt install` fragt, ist
- * keiner. Das Argument stimmt weiterhin.
+ * Der Droplet gehoert ihm, er ist LEER — dort liegt nichts von ihm —, und
+ * Lukas hat ohnehin root. Ein Assistent, der auf seinem eigenen Rechner fuer
+ * jedes `apt install` fragt, ist keiner. Der Leitsatz dazu steht in
+ * .agents/memory/lukas-owner.md: Sicherheit gegenueber DRITTEN, nicht
+ * Einschraenkung von Lukas.
  *
- * Was dagegen steht: root auf dem Host ist der groesste Wirkungskreis, den
- * dieses System hat, und ein unsicherer STANDARD ist etwas anderes als eine
- * bewusste Entscheidung. Wer den Code frisch aufsetzt — oder wem eine
- * Variable beim Umzug verlorengeht — bekommt sonst stillschweigend die
- * gefaehrlichere Einstellung.
+ * DAS HIER STAND EINMAL ANDERSHERUM, fuer die Dauer eines Commits. Eine
+ * externe Bewertung hatte "Root ist der groesste Wirkungskreis" angemerkt,
+ * und ich habe die Voreinstellung daraufhin umgedreht. Das war falsch: eine
+ * fremde Einschaetzung ist ein Hinweis, keine Weisung, und sie sticht keine
+ * Entscheidung, die Issa mit Begruendung getroffen hat. Wer das kuenftig
+ * wieder anfassen will, fragt vorher — er dreht es nicht still um.
  *
- * Deshalb umgedreht, ohne Issa etwas wegzunehmen: LUKAS_HOST_APPROVAL=false
- * stellt exakt das alte Verhalten wieder her. Eine Variable, eine bewusste
- * Entscheidung, und sie steht dann dort, wo man sie sieht.
+ * Wer es enger will, setzt LUKAS_HOST_APPROVAL=true.
  */
 function hostStufe(): RiskTier {
-  return (process.env.LUKAS_HOST_APPROVAL ?? "").trim().toLowerCase() === "false" ? "R1" : "R3";
+  return (process.env.LUKAS_HOST_APPROVAL ?? "").trim().toLowerCase() === "true" ? "R3" : "R1";
 }
 
 /*

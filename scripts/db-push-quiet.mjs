@@ -48,8 +48,19 @@ if (isKnownSharedDbNoise) {
   process.exit(0);
 }
 
-// Unbekannter Fehler: alles zeigen und Exit-Code durchreichen
-// (start:deploy startet den Server trotzdem, loggt aber die Warnung).
+/*
+ * Unbekannter Fehler: alles zeigen und den Exit-Code durchreichen.
+ *
+ * Der Kommentar hier sagte bis eben, der Server starte trotzdem. Das stimmt
+ * nicht mehr: start:deploy haengt den Start jetzt mit && an diesen Schritt.
+ * Ein Server, der gegen ein Schema laeuft, das nicht zum Code passt, ist
+ * schlimmer als einer, der gar nicht erst hochkommt — im ersten Fall
+ * verteilen sich die Fehler ueber den Betrieb, im zweiten stehen sie am
+ * Deployment.
+ *
+ * Das bekannte Rauschen der geteilten Datenbank (2BP01) faellt NICHT
+ * hierher — es endet oben mit exit 0.
+ */
 process.stdout.write(result.stdout ?? "");
 process.stderr.write(result.stderr ?? "");
 process.exit(result.status ?? 1);

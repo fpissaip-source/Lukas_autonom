@@ -146,6 +146,9 @@ weniger als einer, dem Issa zusieht.
 | **Lastangriff** | Drossel 240/min, Öffentliches enger; Loopback und Webhooks ausgenommen | ebenda |
 | **Privates im öffentlichen Prompt** | Nur als `public` markierte Erinnerungen; getrennter Gesprächsfaden | `check-memory-filter.mjs` |
 | **Schlüssel-Abfluss über eine API-Antwort** | Die Verifikationsantwort geht nur an denselben Ursprung wie die konfigurierte API — Protokoll, Host und Port müssen stimmen; sonst gar nicht | `check-moltbook.mjs` |
+| **Doppelter Versand nach einem Netzabbruch** | Jede SMS trägt einen inhaltlichen Fingerabdruck; dieselbe Nachricht an dieselbe Nummer innerhalb von fünf Minuten wird nicht erneut gesendet | `check-sms.mjs` |
+| **Unbekannter MCP-Server** | Fehlt der Slug im Cache, gilt `DEFAULT_RISK` (R2) — nicht R1 | `check-policy-wahrheit.mjs`, `bench/faelle/sicherheit.mjs` |
+| **Freigabe durch ein beiläufiges Wort** | Eine Zustimmung im Chat gilt nur bis 120 Zeichen; darüber zählt allein die Freigabe-Nummer | `check-consent.mjs` |
 | **Gedächtnis-Vergiftung über fremde Agenten** | Der Modellaufruf, der den fremden Feed liest, bekommt **keine Werkzeuge**; IDs müssen aus dem gelesenen Feed stammen; Behauptungen bleiben Evidenzstufe 2; Funde tragen ihre Herkunft in Text, Kategorie und Abruf | ebenda |
 
 ---
@@ -173,9 +176,13 @@ für etwas, das es nicht ist.
    *gesetzt/FEHLT*).
 3. **Lukas darf mit Fremden reden.** Keine Werkzeuge, kein privater Kontext —
    aber reden. Das ist gewollt.
-4. **Kein Ratenlimit auf Modellkosten pro Tag.** Es gibt ein Budget **pro Zug**
-   (`LUKAS_TURN_TOKEN_BUDGET`), aber keine Tagesobergrenze. Ein Modellanbieter
-   mit hinterlegter Karte ist damit die eigentliche Kostengrenze.
+4. **Die Tagesgrenze ist standardmäßig nur eine Warnung.** Es gibt jetzt
+   beides — ein Budget pro Zug (`LUKAS_TURN_TOKEN_BUDGET`) und einen
+   Tagesverbrauch, der Neustarts übersteht. Die harte Schwelle
+   (`LUKAS_TAGESBUDGET_STOPP`) ist aber absichtlich nicht gesetzt: ein Agent,
+   der mittags aufhört zu arbeiten, weil eine Voreinstellung griff, die
+   niemand gewählt hat, wäre schlimmer als eine hohe Rechnung. Solange sie
+   leer ist, bleibt der Modellanbieter die eigentliche Kostengrenze.
 5. **Bilder aus dem Browser landen im Modellkontext.** Sieht Lukas eine Seite,
    sieht das Modell des Anbieters sie mit. Wer eine Seite mit sensiblen Daten
    bedient, schickt sie dorthin.
@@ -221,11 +228,16 @@ Lukas daran, dreißig davon anzulegen. Sie warten dort — aber die Liste kann
 unübersichtlich werden, und Unübersichtlichkeit ist der Freund des
 versehentlichen Klicks.
 
-### 5. Fremde MCP-Server sind standardmäßig R1
+### 5. Was ein bekannter MCP-Server tut, weiß nur er selbst
 
-Issa hat den Server verbunden **und** im Dashboard ausgewählt, welche Werkzeuge
-Lukas sieht — das ist die Entscheidung. Was ein Server unter `send_message`
-wirklich tut, weiß aber niemand außer ihm selbst.
+Ein Server, den Issa verbunden **und** im Dashboard ausgewählt hat, bekommt die
+Stufe, die er ihm dort gegeben hat (sonst R1) — das ist die Entscheidung. Was
+er unter `send_message` wirklich tut, weiß trotzdem niemand außer ihm.
+
+*Behoben ist der Fall daneben:* ein Server, der **nicht** im Cache steht — neu
+aufgetaucht, umbenannt, oder der Aufruf kam auf einem anderen Weg herein —
+bekam früher ebenfalls R1 und damit weniger Schutz als ein unbekanntes eigenes
+Werkzeug. Er bekommt jetzt `DEFAULT_RISK` (R2), wie alles Unbekannte.
 
 ### 6. Fremde Agenten können langsam ins Gedächtnis wirken
 

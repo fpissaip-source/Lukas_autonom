@@ -43,6 +43,9 @@ Dazu, innerhalb gemessener Kategorien:
   des Systems ist damit ungemessen.
 - **Der Graph ist offline stillgelegt.** Er braucht indizierte Abfragen über
   Kanten; die gegen eine Attrappe zu erfinden hieße, die Attrappe zu messen.
+  Im Integrationslauf ist er dabei — dort zeigt sich, dass er auf den
+  vorhandenen Fällen nichts an der Rangfolge ändert, außer bei den beiden
+  eigens dafür gebauten Kanten-Fällen.
 - **Strategiewechsel nach einem Fehler ist ungemessen.** Ob Lukas nach einem
   Fehlschlag etwas *anderes* versucht, ist eine Modellentscheidung. Gemessen
   wird nur, ob der Fehler richtig eingeordnet wird und ob die
@@ -56,10 +59,9 @@ Dazu, innerhalb gemessener Kategorien:
 Kosten. Läuft in etwa einer Sekunde und ist reproduzierbar: dieselben
 Fixtures, derselbe Code, dieselben Zahlen.
 
-**integration** — noch nicht gebaut. Gedacht für echtes Postgres, echte
-Advisory Locks über zwei Verbindungen, echte Weiterleitungsketten, eine echte
-Browser-Testseite. Erst damit wären Graph-Abfragen und Nebenläufigkeit
-messbar.
+**integration** — gebaut, siehe unten. Echtes Postgres, echte Advisory Locks
+über zwei Verbindungen, echte Weiterleitungsketten, zwei echte Prozesse und
+ein echter Browser. `npm run bench:integration`, rund zehn Sekunden.
 
 **live** — noch nicht gebaut, und **ausdrücklich getrennt**: echte
 Modellläufe kosten Geld. Ein Live-Lauf darf niemals automatisch bei jedem

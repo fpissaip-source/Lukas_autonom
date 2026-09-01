@@ -147,9 +147,12 @@ eines mit bekannten Lücken.
 - **Eine Instanz.** Die Läufe sind über Postgres-Advisory-Locks gegen
   Doppelausführung gesichert, aber der Zustand im Speicher (offene
   SSE-Leitungen, geparkte Anrufanlässe, Stoppwünsche) ist nicht geteilt.
-- **Kein Migrationsverlauf.** `db:push` gleicht das Schema an; es gibt keine
-  versionierten, umkehrbaren Migrationen. Eine unabsichtlich zerstörende
-  Änderung fällt erst im Betrieb auf.
+- **Der Deploy nutzt weiterhin `db:push`.** Versionierte Migrationen gibt es
+  jetzt (`npm run db:generate` / `db:migrate`, Basislinie geprüft), aber der
+  Deploy-Pfad ist noch nicht umgestellt: die erste Migration enthält
+  `CREATE TABLE` ohne `IF NOT EXISTS` und würde auf der bestehenden geteilten
+  Datenbank scheitern. Der Umstieg ist ein bewusster Schritt und in
+  [`lib/db/migrations/README.md`](lib/db/migrations/README.md) beschrieben.
 - **Lernen ist eng.** Gelernt wird aus dem Ausgang von Werkzeugaufrufen —
   gelungen oder nicht, und woran es lag. Ob eine *Entscheidung* gut war, ob
   ein Text überzeugt hat, ob ein Ziel den Aufwand wert war: dafür gibt es
@@ -158,22 +161,24 @@ eines mit bekannten Lücken.
 - **Gefühle sind abgeleitet, nicht empfunden.** Sie unterscheiden sich, weil
   sie aus verschiedenen Lagen stammen, und sie ändern das Verhalten. Ob dabei
   etwas erlebt wird, sagt dieser Code nicht — und behauptet es auch nicht.
-- **Keine Metriken.** Es gibt strukturierte Logs (pino) und `/readyz`, aber
-  keine Zeitreihen — man sieht nicht, ob heute mehr Werkzeuge scheitern als
-  gestern.
-- **Kein Tagesbudget für Modellkosten.** Nur ein Budget pro Zug.
-- **Werkzeugaufrufe sind nicht idempotent.** Bricht ein Zug nach dem Absenden
-  einer SMS ab, wird beim nächsten Versuch erneut gesendet.
+- **Kaum Metriken.** Es gibt strukturierte Logs (pino), `/readyz`, den
+  Tagesverbrauch je Modell und die gezählten Werkzeug-Ausgänge in
+  `lukas_erfahrungen`. Was fehlt, sind Zeitreihen und eine Ansicht darüber —
+  man kann nachrechnen, ob heute mehr Werkzeuge scheitern als gestern, aber
+  niemand bekommt es gesagt.
+- **Idempotenz gibt es nur für SMS.** Dort verhindert ein inhaltlicher
+  Fingerabdruck, dass ein Wiederholungsversuch dieselbe Nachricht zweimal
+  schickt. Für E-Mail-Versand und Werkzeuge fremder MCP-Server gibt es das
+  nicht — bricht ein Zug dort nach dem Absenden ab, läuft es beim nächsten
+  Versuch erneut.
 
 **Prüfungen**
 
-- **Keine Integrationstests gegen echtes Postgres, echtes SSH oder einen echten
-  Browser.** Alle Prüfungen laufen gegen Attrappen. Sie fangen Logikfehler, aber
-  keine Vertragsbrüche mit den echten Systemen — dass ein `docker exec`
-  wirklich so antwortet, wie die Attrappe behauptet, prüft niemand.
-- **Keine Nebenläufigkeitstests** über Prozessgrenzen. Dass zwei Instanzen sich
-  über eine Advisory Lock wirklich einigen, ist gegen eine Attrappe geprüft,
-  nicht gegen Postgres.
+- **SSH und Docker sind weiterhin nur nachgebaut.** `npm run bench:integration`
+  prüft inzwischen gegen echtes Postgres, echte Weiterleitungsketten, zwei
+  echte Prozesse und einen echten Browser. Was fehlt: dass ein `docker exec`
+  auf dem Droplet wirklich so antwortet, wie die Attrappe behauptet — dafür
+  bräuchte es den Droplet selbst.
 - **Das Dashboard ist ungeprüft.** Kein einziger Frontend-Test.
 
 **Fachlich**

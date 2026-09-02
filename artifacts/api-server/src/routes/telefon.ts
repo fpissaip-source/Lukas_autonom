@@ -18,10 +18,53 @@ import {
   twilioStand, twilioEinrichten, starteAnruf,
 } from "../lib/telefon";
 import { logger } from "../lib/logger";
-import { sendeSms, letzteSms, zugangVorhanden } from "../lib/sms";
+import { sendeSms, letzteSms, zugangVorhanden, nimmSmsEntgegen } from "../lib/sms";
+import { meldeDichBeiIssa } from "../lib/melden";
 import { recordDebugEvent } from "../lib/debug-log";
 
 export const telefonWebhookRouter = Router();
+
+/*
+ * Eingehende SMS von ClickSend.
+ *
+ * Oeffentlich erreichbar wie die anderen Webhooks — und deshalb bewusst
+ * WIRKUNGSLOS: die Nachricht wird abgelegt und Issa gemeldet, sie loest kein
+ * Werkzeug aus und gibt nichts frei. Eine SMS ist nicht authentifiziert, die
+ * Absendernummer behauptet das Netz. Wer hier etwas ausloesen koennte, haette
+ * einen Weg, Lukas von aussen zu steuern.
+ *
+ * Wenn LUKAS_CLICKSEND_WEBHOOK_TOKEN gesetzt ist, muss es als ?token=… in der
+ * Adresse stehen — ClickSend kann keine Kopfzeilen mitschicken. Das ist kein
+ * Ersatz fuer eine Signatur, aber es haelt zufaellige Anfragen fern.
+ */
+telefonWebhookRouter.post("/sms/eingehend", async (req, res) => {
+  const erwartet = process.env.LUKAS_CLICKSEND_WEBHOOK_TOKEN?.trim();
+  if (erwartet && String(req.query.token ?? "") !== erwartet) {
+    return void res.status(401).send("nein");
+  }
+
+  // Immer 200: ein Fehler unsererseits soll ClickSend nicht zu endlosen
+  // Wiederholungen derselben Nachricht bringen.
+  res.status(200).send("ok");
+
+  try {
+    const eingang = await nimmSmsEntgegen((req.body ?? {}) as Record<string, unknown>);
+    /*
+     * `angenommen`, nicht `gespeichert`: ob wir die Nachricht ablegen konnten,
+     * ist unser Problem. Angekommen ist sie so oder so, und Issa soll sie
+     * sehen — bei einer Datenbankstoerung erst recht, denn dann ist die
+     * Meldung die einzige Spur.
+     */
+    if (eingang.angenommen && eingang.stufe !== "gesperrt") {
+      await meldeDichBeiIssa({
+        betreff: `SMS von ${eingang.nummer}`,
+        text: eingang.text,
+      }).catch(() => {});
+    }
+  } catch (err) {
+    recordDebugEvent("sms/eingehend", err);
+  }
+});
 
 telefonWebhookRouter.post("/telefon/eingehend", async (req, res) => {
   const rawBody = (req as typeof req & { rawBody?: Buffer }).rawBody;

@@ -270,3 +270,97 @@ export async function sendeSms(opts: {
 export async function letzteSms(grenze = 50) {
   return db.select().from(smsNachrichten).orderBy(desc(smsNachrichten.createdAt)).limit(grenze);
 }
+
+/*
+ * Eingehende SMS.
+ *
+ * Bisher gab es das nicht: antwortete jemand auf eine SMS, kam sie nirgends
+ * an. Fuer einen Agenten, der Nachrichten verschickt, ist das eine halbe
+ * Leitung — er redet, hoert aber nicht.
+ *
+ * ClickSend liefert eingehende Nachrichten per Webhook. Das Format ist je
+ * nach Einstellung unterschiedlich benannt (from/originalsenderid,
+ * body/message), deshalb wird tolerant gelesen statt auf ein Feld bestanden.
+ *
+ * WER SCHREIBT, ENTSCHEIDET NICHTS. Die Nachricht wird abgelegt und Issa
+ * gemeldet — sie loest keine Werkzeuge aus und gibt nichts frei. Eine SMS ist
+ * nicht authentifiziert; die Absendernummer behauptet das Netz. Alles andere
+ * waere ein Weg, Lukas von aussen zu steuern.
+ */
+export type SmsEingang = {
+  /**
+   * Die Nachricht war lesbar — Nummer und Text sind da.
+   *
+   * Bewusst getrennt von `gespeichert`: ob wir sie ablegen konnten, ist eine
+   * Frage an unsere Datenbank, nicht an den Absender. Wer beides in ein Feld
+   * legt, meldet Issa bei einer Stoerung nichts mehr — und die Nachricht ist
+   * dann spurlos weg, obwohl sie angekommen war.
+   */
+  angenommen: boolean;
+  gespeichert: boolean;
+  nummer: string;
+  text: string;
+  stufe: string;
+};
+
+export async function nimmSmsEntgegen(roh: Record<string, unknown>): Promise<SmsEingang> {
+  const wert = (...namen: string[]): string => {
+    for (const n of namen) {
+      const v = roh[n];
+      if (typeof v === "string" && v.trim()) return v.trim();
+      if (typeof v === "number") return String(v);
+    }
+    return "";
+  };
+
+  const rohNummer = wert("from", "originalsenderid", "sender", "msisdn");
+  const text = wert("body", "message", "text").slice(0, 2000);
+  const nummer = normalisiereNummer(rohNummer) ?? rohNummer;
+
+  if (!text || !nummer) {
+    logger.warn({ felder: Object.keys(roh) }, "Eingehende SMS ohne Nummer oder Text — verworfen");
+    return { angenommen: false, gespeichert: false, nummer, text, stufe: "unbekannt" };
+  }
+
+  /*
+   * Dieselbe Sperrliste wie beim Telefon. Wer dort abgewiesen wird, soll
+   * Lukas auch per SMS nicht erreichen — sonst waere die Sperre nur die halbe
+   * Tuer.
+   */
+  let stufe = "oeffentlich";
+  try {
+    const [eintrag] = await db
+      .select()
+      .from(telefonNummern)
+      .where(eq(telefonNummern.nummer, nummer.replace(/[^0-9]/g, "").replace(/^00/, "")))
+      .limit(1);
+    if (eintrag) stufe = eintrag.stufe;
+  } catch (err) {
+    logger.debug({ err }, "Stufe der eingehenden Nummer nicht ermittelbar");
+  }
+
+  if (stufe === "gesperrt") {
+    logger.info({ nummer }, "SMS von gesperrter Nummer — abgelegt, aber nicht gemeldet");
+  }
+
+  /*
+   * Faellt das Ablegen aus, ist die Nachricht trotzdem angekommen.
+   *
+   * Deshalb wird der Fehler hier nur festgehalten und nicht geworfen: Issa
+   * soll sie sehen, gerade dann. Eine Stoerung in unserer Datenbank darf nicht
+   * dazu fuehren, dass die Nachricht eines Kunden lautlos verschwindet — das
+   * waere der teuerste aller stillen Fehler.
+   */
+  let gespeichert = true;
+  try {
+    await db
+      .insert(smsNachrichten)
+      .values({ richtung: "rein", nummer, text, quelle: "antwort", status: "empfangen" });
+  } catch (err) {
+    gespeichert = false;
+    logger.warn({ err, nummer }, "Eingehende SMS nicht gespeichert — wird trotzdem gemeldet");
+  }
+
+  logger.info({ nummer, stufe, laenge: text.length, gespeichert }, "SMS empfangen");
+  return { angenommen: true, gespeichert, nummer, text, stufe };
+}

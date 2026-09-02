@@ -40,7 +40,7 @@ einer Seite verrät nicht, ob ein Cookie-Banner über dem Knopf liegt.
 | **Gefühle** | Aus dem Anlass abgeleitet statt benannt: derselbe Ausgang ergibt Stolz, Dankbarkeit oder Erleichterung, je nachdem, wie er zustande kam. Jedes Gefühl trägt eine Folge für das nächste Handeln | `lib/bewertung.ts` |
 | **Web** | lesen (`browse_page`), **bedienen** (`browser_do` — klicken, tippen, hochladen, angemeldet bleiben), suchen, abrufen | `lib/browser*.ts` |
 | **Code** | eigene Sandbox pro Gespräch, Shell auf dem Droplet, GitHub lesen und durchsuchen, Änderungsvorschläge, die Issa im Dashboard annimmt | `lib/code-sandbox.ts`, `lib/github.ts`, `lib/proposals.ts` |
-| **Kommunikation** | Dashboard-Chat (SSE), WhatsApp, Telefon (Sprache, ein- und ausgehend), SMS über ClickSend, E-Mail lesen und Entwürfe vorbereiten | `routes/*`, `lib/telefon.ts`, `lib/sms.ts`, `lib/email.ts` |
+| **Kommunikation** | Dashboard-Chat (SSE), WhatsApp, Telefon (Sprache, ein- und ausgehend), SMS über ClickSend (ein- und ausgehend), E-Mail lesen und Entwürfe vorbereiten | `routes/*`, `lib/telefon.ts`, `lib/sms.ts`, `lib/email.ts` |
 | **Team** | neun Subagenten mit eigenen Profilen — Macher, Rechercheur, Ideenprüfer, Analyst, Texter, Code-Prüfer, Entwickler, Fehleranalyst, Sammler | `lib/subagents.ts` |
 | **Erweiterung** | fremde MCP-Server, OAuth 2.1 mit PKCE, Discovery, Dynamic Registration | `lib/mcp.ts` |
 | **Selbstheilung** | wiederkehrende Fehler werden erkannt, analysiert und als Vorschlag vorgelegt | `lib/selbstheilung.ts` |
@@ -166,11 +166,13 @@ eines mit bekannten Lücken.
   `lukas_erfahrungen`. Was fehlt, sind Zeitreihen und eine Ansicht darüber —
   man kann nachrechnen, ob heute mehr Werkzeuge scheitern als gestern, aber
   niemand bekommt es gesagt.
-- **Idempotenz gibt es nur für SMS.** Dort verhindert ein inhaltlicher
-  Fingerabdruck, dass ein Wiederholungsversuch dieselbe Nachricht zweimal
-  schickt. Für E-Mail-Versand und Werkzeuge fremder MCP-Server gibt es das
-  nicht — bricht ein Zug dort nach dem Absenden ab, läuft es beim nächsten
-  Versuch erneut.
+- **Idempotenz deckt SMS und E-Mail, nicht fremde MCP-Werkzeuge.** Ein
+  inhaltlicher Fingerabdruck verhindert, dass ein Wiederholungsversuch
+  dieselbe Nachricht zweimal schickt — bei SMS über die Nachrichtentabelle,
+  bei E-Mail über `lib/versandsperre.ts` (eindeutiger Index, reserviert *vor*
+  dem Versand, ohne Datenbank wird ausgeführt statt blockiert). Was ein
+  fremder MCP-Server tut, wissen wir dagegen nicht: bricht ein Zug dort nach
+  dem Absenden ab, läuft es beim nächsten Versuch erneut.
 
 **Prüfungen**
 
@@ -183,8 +185,13 @@ eines mit bekannten Lücken.
 
 **Fachlich**
 
-- **Eingehende SMS werden nicht verarbeitet** — es gibt keinen Webhook dafür.
 - **`browser_do` rät nicht.** Er braucht eine CSS-Auswahl oder sichtbaren Text;
   eine Seite, die beides verschleiert, bedient er nicht zuverlässig.
-- **Bildschirmfotos gehen an den Modellanbieter.** Wer eine Seite mit sensiblen
-  Daten bedient, schickt sie mit.
+- **Bildschirmfotos gehen an den Modellanbieter.** Passwortfelder werden vor
+  der Aufnahme geleert und danach zurückgeschrieben, das Passwort ist also
+  nicht im Bild. Alles andere auf der Seite schon — wer eine Seite mit
+  sensiblen Daten bedient, schickt sie mit.
+- **Eingehende SMS lösen bewusst nichts aus.** Sie werden abgelegt und Issa
+  gemeldet, mehr nicht. Eine SMS ist nicht authentifiziert; die
+  Absendernummer behauptet allein das Netz. Wer hier etwas auslösen könnte,
+  hätte eine Fernbedienung.

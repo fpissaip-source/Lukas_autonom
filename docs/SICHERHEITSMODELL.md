@@ -90,6 +90,7 @@ herabsetzen oder eine Freigabe erzeugen.
 | **Issa (WhatsApp)** | Absendernummer aus dem **von Meta signierten** Webhook, gegen `WHATSAPP_OWNER_NUMBERS` | alles |
 | **Fremder (WhatsApp)** | jede andere Nummer | Gespräch. **Keine Werkzeuge** — leeres Array im Modellaufruf, nicht bloß eine Anweisung. Eigener Gesprächsfaden, öffentlicher Prompt |
 | **Anrufer** | Nummer im SIP-From-Header | privat **oder** öffentlich — ⚠️ siehe Restrisiko 1 |
+| **SMS-Absender** | Nummer aus dem ClickSend-Webhook — **unsigniert**, also eine bloße Behauptung | **nichts.** Die Nachricht wird abgelegt und Issa gemeldet; sie löst kein Werkzeug aus und gibt nichts frei. Gesperrte Nummern werden abgelegt, aber nicht gemeldet |
 | **Widget auf dem Portfolio** | keine Anmeldung | öffentlicher Prompt, nur als `public` markierte Erinnerungen, eigene Drossel |
 | **Lukas selbst (autonom)** | kein Nutzerzug im Gange | R0/R1 laufen, R2/R3 landen als Freigabe im Dashboard und warten |
 
@@ -146,7 +147,9 @@ weniger als einer, dem Issa zusieht.
 | **Lastangriff** | Drossel 240/min, Öffentliches enger; Loopback und Webhooks ausgenommen | ebenda |
 | **Privates im öffentlichen Prompt** | Nur als `public` markierte Erinnerungen; getrennter Gesprächsfaden | `check-memory-filter.mjs` |
 | **Schlüssel-Abfluss über eine API-Antwort** | Die Verifikationsantwort geht nur an denselben Ursprung wie die konfigurierte API — Protokoll, Host und Port müssen stimmen; sonst gar nicht | `check-moltbook.mjs` |
-| **Doppelter Versand nach einem Netzabbruch** | Jede SMS trägt einen inhaltlichen Fingerabdruck; dieselbe Nachricht an dieselbe Nummer innerhalb von fünf Minuten wird nicht erneut gesendet | `check-sms.mjs` |
+| **Doppelter Versand nach einem Netzabbruch** | Jede SMS trägt einen inhaltlichen Fingerabdruck; dieselbe Nachricht an dieselbe Nummer innerhalb von fünf Minuten wird nicht erneut gesendet. Für E-Mail dasselbe über einen eindeutigen Index, der **vor** dem Versand reserviert wird | `check-sms.mjs`, `check-versandsperre.mjs` |
+| **Fernsteuerung über eine gefälschte SMS** — Absendernummer auf Issas Nummer gesetzt, Text als Auftrag formuliert | Der Webhook legt ab und meldet, mehr nicht: kein Werkzeug, keine Freigabe, kein Auftrag. Eine Signatur gibt es bei SMS nicht, also darf an der Nummer auch nichts hängen. `LUKAS_CLICKSEND_WEBHOOK_TOKEN` in der Adresse hält zufällige Anfragen fern, ersetzt aber keine Signatur | `check-sms-eingang.mjs` |
+| **Passwort auf dem Bildschirmfoto** | Passwortfelder werden vor der Aufnahme geleert und danach zurückgeschrieben; das Bild geht an den Modellanbieter, das Passwort nicht | `bench/integration/browser.mjs` |
 | **Unbekannter MCP-Server** | Fehlt der Slug im Cache, gilt `DEFAULT_RISK` (R2) — nicht R1 | `check-policy-wahrheit.mjs`, `bench/faelle/sicherheit.mjs` |
 | **Freigabe durch ein beiläufiges Wort** | Eine Zustimmung im Chat gilt nur bis 120 Zeichen; darüber zählt allein die Freigabe-Nummer | `check-consent.mjs` |
 | **Gedächtnis-Vergiftung über fremde Agenten** | Der Modellaufruf, der den fremden Feed liest, bekommt **keine Werkzeuge**; IDs müssen aus dem gelesenen Feed stammen; Behauptungen bleiben Evidenzstufe 2; Funde tragen ihre Herkunft in Text, Kategorie und Abruf | ebenda |

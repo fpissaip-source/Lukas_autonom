@@ -56,6 +56,10 @@ export const recordEmotion = async () => {};
 export const queryRows = async () => [];
 export const searchEmails = async () => []; export const readEmail = async () => "";
 export const sendEmail = async () => "";
+/* Die Versandsperre reicht hier durch: sie hat einen eigenen Test, und hier
+   geht es um das GitHub-Buendel, nicht um Idempotenz. */
+export const nurEinmal = async (art, schluessel, arbeit) => ({ wiederholung: false, ergebnis: await arbeit() });
+export const fingerabdruck = (...teile) => teile.map(String).join("|");
 export const executeCommand = async () => ""; export const resetSandbox = async () => "";
 export const executeOnHost = async () => "";
 export const renderPage = async () => "";

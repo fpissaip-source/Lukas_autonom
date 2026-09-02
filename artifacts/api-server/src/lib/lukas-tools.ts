@@ -23,6 +23,7 @@ import { sicherFetch, pruefeZiel } from "./netzschutz";
 import { sendeSms } from "./sms";
 import { bedienePage, type Schritt } from "./browser";
 import { merkeBild } from "./bildablage";
+import { nurEinmal, fingerabdruck } from "./versandsperre";
 
 export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -1419,7 +1420,21 @@ export async function executeLukasTool(
       // im Dashboard frei. Die frühere Doppelprüfung an dieser Stelle hat auch
       // nach erteilter Dashboard-Freigabe noch blockiert — zwei Zustimmungen
       // für eine Entscheidung, das war schlicht lästig ohne Sicherheitsgewinn.
-      return await sendEmail(String(input.to), String(input.subject), String(input.body));
+      /*
+       * Durch die Versandsperre. Eine Mail, die nach einem Netzabbruch ein
+       * zweites Mal rausgeht, laesst sich nicht zurueckholen — und der
+       * Empfaenger ist ein Dritter, nicht Issa.
+       */
+      const an = String(input.to);
+      const betreff = String(input.subject);
+      const rumpf = String(input.body);
+      const versand = await nurEinmal("email", fingerabdruck(an, betreff, rumpf), () =>
+        sendEmail(an, betreff, rumpf),
+      );
+      return versand.wiederholung
+        ? `Diese Mail ging vor Kurzem schon an ${an} — nicht erneut gesendet.` +
+            (versand.ergebnis ? ` Damals: ${versand.ergebnis}` : "")
+        : String(versand.ergebnis);
     }
     case "execute_command": {
       if (!ctx.conversationId) throw new Error("Keine Conversation-ID für die Sandbox verfügbar.");

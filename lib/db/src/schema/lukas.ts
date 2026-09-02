@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, real, timestamp, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, real, timestamp, jsonb, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -148,3 +148,35 @@ export const tageskostenTable = pgTable(
 );
 
 export type Tageskosten = typeof tageskostenTable.$inferSelect;
+
+/*
+ * Versandsperre — dieselbe Aktion nicht zweimal.
+ *
+ * Bei SMS steckt der Schutz in der Nachrichtentabelle selbst (jede Zeile
+ * entsteht vor dem Versand und wirkt als Reservierung). Fuer alles andere mit
+ * Aussenwirkung gab es nichts: bricht die Verbindung nach dem Absenden einer
+ * Mail ab, haelt der Agent den Aufruf fuer gescheitert und schickt sie
+ * erneut.
+ *
+ * Der eindeutige Index ueber (art, fingerabdruck) ist der eigentliche
+ * Mechanismus: der Einfuegeversuch IST die Reservierung. Zwei gleichzeitige
+ * Zuege koennen nicht beide gewinnen — einer bekommt den Konfliktfehler und
+ * weiss damit, dass der andere schon dran ist. Ein Lesen-dann-Schreiben
+ * haette genau dieses Rennen verloren.
+ */
+export const versandTable = pgTable(
+  "lukas_versand",
+  {
+    id: serial("id").primaryKey(),
+    /** email | mcp | … — damit sich Fingerabdruecke verschiedener Arten nie treffen. */
+    art: text("art").notNull(),
+    fingerabdruck: text("fingerabdruck").notNull(),
+    /** Was beim ersten Mal herauskam — wird bei einer Wiederholung zurueckgegeben. */
+    ergebnis: text("ergebnis").notNull().default(""),
+    erledigt: boolean("erledigt").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("lukas_versand_idx").on(t.art, t.fingerabdruck)],
+);
+
+export type Versand = typeof versandTable.$inferSelect;

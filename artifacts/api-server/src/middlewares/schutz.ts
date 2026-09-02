@@ -69,6 +69,7 @@ const istOeffentlich = (pfad: string) =>
   pfad.startsWith("/api/public/") ||
   pfad === "/api/whatsapp/webhook" ||
   pfad === "/api/telefon/eingehend" ||
+  pfad === "/api/sms/eingehend" ||
   pfad === "/healthz";
 
 const istApi = (pfad: string) => pfad.startsWith("/api/");

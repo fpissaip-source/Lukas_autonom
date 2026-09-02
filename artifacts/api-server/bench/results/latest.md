@@ -1,6 +1,6 @@
 # LUKAS BENCH v1.0.0
 
-**Commit:** `38145ce` · **Modus:** offline · **Datum:** 2026-09-01 16:34 · **Dauer:** 1.5 s
+**Commit:** `9b66e20` · **Modus:** offline · **Datum:** 2026-09-02 13:22 · **Dauer:** 1.8 s
 
 ## Gesamt: 96.4/100
 
@@ -27,7 +27,7 @@ Gewichtet über 57 von 100 Gewichtspunkten — der Rest ist nicht gemessen (sieh
 - Fremdquellen-Kontamination: **0.0 %**
 - Widerrufenes obenauf: **0.0 %**
 - DB-Abfragen je Frage: **3.56**
-- Laufzeit gesamt (ms): **3**
+- Laufzeit gesamt (ms): **5**
 - Einbettungen aktiv: **false**
 
 ### Erholung

@@ -165,9 +165,56 @@ async function ziel(page, wahl) {
    * mittlerer Qualitaet, weil ein PNG dieser Groesse den Kontext sprengt.
    */
   let bild = null;
+  let maskierung = null;
   if (plan.some((s) => s.art === 'oeffne' || s.art === 'klicke' || s.art === 'tippe') || plan.length === 0) {
     try {
+      /*
+       * Passwortfelder vor dem Foto leeren.
+       *
+       * Der Text der Seite wird sorgfaeltig ohne den Wert berichtet — und
+       * dann ging er ueber das Bild doch hinaus. Browser maskieren
+       * Passwortfelder zwar mit Punkten, aber ein "Passwort anzeigen"-Schalter
+       * hebt das auf, und manche Seiten benutzen ein type=text-Feld mit einer
+       * eigenen Maskierung, die auf einem Bildschirmfoto gar nichts verdeckt.
+       *
+       * Geleert wird nur fuer die Aufnahme, danach wieder eingesetzt: das
+       * Formular soll ja abgeschickt werden koennen. Das ist der Grund, warum
+       * hier nicht einfach ein CSS-Filter drueberliegt — der waere weg, sobald
+       * die Seite neu zeichnet.
+       */
+      maskierung = await page.evaluate(() => {
+        const felder = [...document.querySelectorAll('input')].filter(
+          (e) =>
+            e.type === 'password' ||
+            /pass|pwd|kennwort|secret/i.test(e.name + ' ' + e.id + ' ' + (e.autocomplete || '')),
+        );
+        const gemerkt = felder.map((e) => e.value);
+        for (const e of felder) e.value = '';
+        window.__lukasGemerkt = gemerkt;
+        /*
+         * Zurueckgemeldet wird, was NACH dem Leeren tatsaechlich in den
+         * Feldern steht. Das ist der einzige Wert, der eine Pruefung erlaubt:
+         * eine blosse Anzahl waere auch dann noch da, wenn die Zeile zum
+         * Leeren fehlt. So steht im Bericht, wie die Seite im Moment der
+         * Aufnahme wirklich aussah.
+         */
+        return { gefunden: felder.length, restInhalt: felder.map((e) => e.value).join("") };
+      });
+
       const puffer = await page.screenshot({ type: 'jpeg', quality: 55, fullPage: false });
+
+      if (maskierung.gefunden > 0) {
+        await page.evaluate(() => {
+          const felder = [...document.querySelectorAll('input')].filter(
+            (e) =>
+              e.type === 'password' ||
+              /pass|pwd|kennwort|secret/i.test(e.name + ' ' + e.id + ' ' + (e.autocomplete || '')),
+          );
+          const gemerkt = window.__lukasGemerkt || [];
+          felder.forEach((e, i) => { e.value = gemerkt[i] ?? e.value; });
+          delete window.__lukasGemerkt;
+        });
+      }
       bild = puffer.toString('base64');
     } catch (err) {
       bild = null;
@@ -177,6 +224,9 @@ async function ziel(page, wahl) {
   console.log(JSON.stringify({
     ok: !abgebrochen,
     bild,
+    // Wie viele Passwortfelder es gab und was beim Ausloesen darin stand —
+    // damit sich pruefen laesst, dass das Bild sie nicht zeigt.
+    maskierung: typeof maskierung === "undefined" ? null : maskierung,
     url: page.url(),
     titel: daten.titel,
     schritte: bericht,

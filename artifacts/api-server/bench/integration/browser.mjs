@@ -34,11 +34,13 @@ align-items:center;justify-content:center;z-index:99}#fehler{color:#c00;font-wei
 <form id="f">
   <input name="email" placeholder="E-Mail">
   <input name="passwort" type="password" placeholder="Passwort">
+  <button type="button" id="zeigen">Passwort anzeigen</button>
   <button type="submit">Anmelden</button>
 </form>
 <p id="fehler"></p><p id="willkommen"></p>
 <script>
 document.getElementById('ok').onclick = () => document.getElementById('banner').remove();
+document.getElementById('zeigen').onclick = () => { document.querySelector('[name=passwort]').type = 'text'; };
 document.getElementById('f').onsubmit = (e) => {
   e.preventDefault();
   const p = e.target.passwort.value;
@@ -133,6 +135,8 @@ const dir = mkdtempSync(new URL("../../.browser-bench-", import.meta.url).pathna
     /Willkommen zurück, Issa/.test(ergebnis?.text ?? ""));
   p("browser:passwort-nicht-im-bericht", "das Passwort steht in keinem Schrittbericht",
     !JSON.stringify(ergebnis?.schritte ?? []).includes("richtig-geheim"));
+  p("browser:passwort-nirgends", "und auch sonst nirgends in der Antwort — Text, Felder, Schritte",
+    !JSON.stringify({ t: ergebnis?.text, f: ergebnis?.felder, s: ergebnis?.schritte }).includes("richtig-geheim"));
   p("browser:bild", "ein Bildschirmfoto kommt zurück", typeof ergebnis?.bild === "string" && ergebnis.bild.length > 500);
 
   // ── 2. Ein Fehlschlag muss als Fehlschlag berichtet werden ─────────────
@@ -163,6 +167,41 @@ const dir = mkdtempSync(new URL("../../.browser-bench-", import.meta.url).pathna
     JSON.stringify(e2?.felder ?? []).slice(0, 120));
   p("browser:abbruch-nach-fehler", "und danach wird NICHT weitergeklickt",
     (e2?.schritte ?? []).length === 2, `${(e2?.schritte ?? []).length} Schritte`);
+
+  /*
+   * Der Fall, um den es beim Foto wirklich geht: die Seite hat einen
+   * "Passwort anzeigen"-Schalter. Damit steht der Klartext im DOM und wäre
+   * auf dem Bildschirmfoto zu lesen — der einzige Weg, auf dem das Passwort
+   * bisher noch hinausgehen konnte.
+   */
+  const plan3 = join(dir, "plan3.json");
+  writeFileSync(
+    plan3,
+    JSON.stringify([
+      { art: "oeffne", url: `http://127.0.0.1:${port}/` },
+      { art: "klicke", wahl: "#ok" },
+      { art: "tippe", wahl: "input[name=passwort]", text: "{{PASSWORT}}" },
+      { art: "klicke", wahl: "#zeigen" },
+    ]),
+  );
+  const roh3 = await fuehreAus(skript, "bench", plan3);
+  let e3 = null;
+  try {
+    e3 = JSON.parse(roh3.trim().split("\n").filter((z) => z.trim().startsWith("{")).pop() ?? "{}");
+  } catch { /* leer */ }
+  /*
+   * Geprüft wird, was BEIM AUSLÖSEN im Feld stand — nicht, ob "richtig-geheim"
+   * in der JSON-Antwort auftaucht. Der erste Anlauf prüfte genau das, und die
+   * Gegenprobe biss nicht: das Passwort steckte ja nie in der Antwort, sondern
+   * im Bild, und das kann der Test nicht lesen. Die Rückmeldung aus dem DOM
+   * ist der einzige Wert, der die Zeile zum Leeren wirklich festhält.
+   */
+  p("browser:passwort-gefunden", "das sichtbar geschaltete Passwortfeld wird erkannt",
+    (e3?.maskierung?.gefunden ?? 0) >= 1, JSON.stringify(e3?.maskierung ?? null));
+  p("browser:passwort-leer-beim-foto", "und steht beim Auslösen des Fotos leer da",
+    e3?.maskierung?.restInhalt === "", JSON.stringify(e3?.maskierung ?? null));
+  p("browser:passwort-nicht-in-antwort", "auch in der Antwort steht es nicht",
+    e3?.ok === true && !JSON.stringify(e3).includes("richtig-geheim"));
 
   rmSync(dir, { recursive: true, force: true });
   await new Promise((r) => server.close(r));

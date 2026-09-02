@@ -14,6 +14,7 @@ import { getCharacter } from "../lib/emotion-engine";
 import { runReflection } from "../lib/reflection";
 import { getDebugLog, recordDebugEvent } from "../lib/debug-log";
 import { listeMeldungen, beantworteMeldung } from "../lib/melden";
+import { kennzahlen } from "../lib/kennzahlen";
 import { baueGehirn, gehirnVault } from "../lib/gehirn";
 import { packeZip } from "../lib/zip";
 import { buildSystemPrompt } from "../lib/system-prompt";
@@ -374,6 +375,23 @@ router.get("/lukas/debug-log", async (req, res) => {
     res.json(await getDebugLog());
   } catch (err) {
     res.status(500).json({ error: "Failed to get debug log" });
+  }
+});
+
+/*
+ * Kennzahlen.
+ *
+ * Bewusst OHNE Parameter fuer den Zeitraum: vierzehn Tage sind lang genug,
+ * dass ein Median etwas bedeutet, und kurz genug, dass die Rohdaten in einem
+ * Zug lesbar bleiben. Ein frei waehlbares Fenster laedt dazu ein, so lange
+ * zu schieben, bis die Zahl gefaellt.
+ */
+router.get("/lukas/kennzahlen", async (_req, res) => {
+  try {
+    res.json(await kennzahlen(14));
+  } catch (err) {
+    logger.error({ err }, "Kennzahlen konnten nicht berechnet werden");
+    res.status(500).json({ error: "Failed to compute metrics" });
   }
 });
 

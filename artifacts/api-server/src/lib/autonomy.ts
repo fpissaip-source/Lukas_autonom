@@ -8,6 +8,7 @@ import { neueAntworten } from "./melden";
 import { anlass, laufNotiert } from "./autonomie-anlass";
 import { mitSperre } from "./lauf-sperre";
 import { budgetTor } from "./tagesbudget";
+import { kennzahlenHinweis, meldeAuffaelligkeiten } from "./kennzahlen";
 
 /*
  * Lukas arbeitet an Issas Zielen.
@@ -106,6 +107,22 @@ async function briefing(): Promise<string | null> {
   // gewartet hat — es gehoert an den Anfang seines Laufs, nicht ans Ende.
   const antworten = await neueAntworten();
 
+  /*
+   * Was heute anders laeuft als sonst.
+   *
+   * Hier und nicht im allgemeinen Systemprompt: im Chat sitzt Issa davor und
+   * sieht das Dashboard. Allein arbeitet Lukas gegen Werkzeuge, die schon den
+   * ganzen Tag scheitern koennen, ohne dass es ihm jemand sagt — er wuerde es
+   * jedes Mal aufs Neue herausfinden.
+   *
+   * Das Melden laeuft daneben, nicht davor: es haengt an der Datenbank, und
+   * ein autonomer Lauf soll nicht ausfallen, weil eine Ueberwachung klemmt.
+   */
+  const [kennzahlen] = await Promise.all([
+    kennzahlenHinweis(),
+    meldeAuffaelligkeiten().catch(() => 0),
+  ]);
+
   const letzte = await db
     .select()
     .from(diaryTable)
@@ -120,7 +137,7 @@ async function briefing(): Promise<string | null> {
 
 DEINE AKTIVEN ZIELE:
 
-${list}${antworten}${freigaben}${rueckblick}
+${list}${antworten}${freigaben}${kennzahlen}${rueckblick}
 
 Such dir EIN Ziel aus, das gerade am meisten davon hat, dass du dich damit
 beschäftigst — das dringendste, das am längsten liegengebliebene, oder das, wo

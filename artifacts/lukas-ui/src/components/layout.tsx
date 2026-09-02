@@ -4,6 +4,7 @@ import { useHealthCheck } from "@workspace/api-client-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Activity,
+  BarChart3,
   Brain,
   Target,
   BookOpen,
@@ -48,6 +49,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/approvals", label: "Freigaben", icon: ShieldCheck },
     { href: "/mcp", label: "MCP", icon: Plug },
     { href: "/telefon", label: "Telefon", icon: Phone },
+    { href: "/kennzahlen", label: "Kennzahlen", icon: BarChart3 },
     { href: "/diagnostics", label: "Diagnose", icon: AlertTriangle },
   ];
 

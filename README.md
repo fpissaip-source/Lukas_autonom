@@ -92,12 +92,14 @@ npm run dev
 **Prüfungen** (dieselben wie in CI):
 
 ```bash
-npm run typecheck         # tsc über alle Pakete UND alle 25 check-*.mjs
+npm run typecheck         # tsc über alle Pakete, 35 check-*.mjs und 24 Frontend-Tests
+npm run test -w @workspace/lukas-ui   # nur die Frontend-Tests
 ```
 
 **Deployment:** Railway baut aus `main`. `start:deploy` führt vor dem Start
-`db:push` aus, Schemaänderungen gehen also von selbst mit; schlägt es fehl,
-startet der Server trotzdem und der Fehler steht im Log.
+`db:push` aus, Schemaänderungen gehen also von selbst mit. Schlägt es fehl,
+startet der Server **nicht** — ein Server auf einem Schema, das er nicht kennt,
+scheitert sonst später und an unklarer Stelle.
 
 **Mindestens nötig:** `DATABASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY`,
 `LUKAS_API_TOKEN`, `PORT`. Ohne den Token ist die private API **ungeschützt** —
@@ -161,11 +163,14 @@ eines mit bekannten Lücken.
 - **Gefühle sind abgeleitet, nicht empfunden.** Sie unterscheiden sich, weil
   sie aus verschiedenen Lagen stammen, und sie ändern das Verhalten. Ob dabei
   etwas erlebt wird, sagt dieser Code nicht — und behauptet es auch nicht.
-- **Kaum Metriken.** Es gibt strukturierte Logs (pino), `/readyz`, den
-  Tagesverbrauch je Modell und die gezählten Werkzeug-Ausgänge in
-  `lukas_erfahrungen`. Was fehlt, sind Zeitreihen und eine Ansicht darüber —
-  man kann nachrechnen, ob heute mehr Werkzeuge scheitern als gestern, aber
-  niemand bekommt es gesagt.
+- **Metriken sind ein Vergleich, kein Alarmsystem.** Es gibt Zeitreihen über
+  vierzehn Tage (`lib/kennzahlen.ts`, Tab „Kennzahlen"): Werkzeug-Fehlerquote,
+  Tokens, Cache-Quote, Störungen, Freigaben. Auffällig heißt: heute gegen den
+  **Median** der Vortage, mit gewichtetem Anteil des angebrochenen Tages und
+  einer Untergrenze, unter der eine Quote nichts bedeutet. Lukas bekommt den
+  Befund im nächsten autonomen Lauf in den Prompt, Issa eine Meldung — aber
+  nur bei einer Warnung. Was es NICHT gibt: Schwellwerte, die jemand pflegen
+  müsste, und keine Benachrichtigung außerhalb des Dashboards.
 - **Idempotenz deckt SMS und E-Mail, nicht fremde MCP-Werkzeuge.** Ein
   inhaltlicher Fingerabdruck verhindert, dass ein Wiederholungsversuch
   dieselbe Nachricht zweimal schickt — bei SMS über die Nachrichtentabelle,
@@ -181,7 +186,12 @@ eines mit bekannten Lücken.
   echte Prozesse und einen echten Browser. Was fehlt: dass ein `docker exec`
   auf dem Droplet wirklich so antwortet, wie die Attrappe behauptet — dafür
   bräuchte es den Droplet selbst.
-- **Das Dashboard ist ungeprüft.** Kein einziger Frontend-Test.
+- **Das Dashboard ist nur an den kritischen Stellen geprüft.** 24 Tests
+  (vitest + Testing Library, `npm run test -w @workspace/lukas-ui`) decken die
+  Wege ab, an denen ein Fehler etwas auslöst statt nur schlecht auszusehen:
+  Freigabe erteilen und ablehnen (richtige ID, richtiges Verb, Token dabei,
+  abgelaufene Freigabe ohne Tasten), auf eine Meldung antworten, die
+  Kennzahlen. Chat, Studio, Gedächtnis und Gehirn haben keine Tests.
 
 **Fachlich**
 

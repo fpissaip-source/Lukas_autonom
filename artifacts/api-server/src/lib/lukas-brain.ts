@@ -304,6 +304,8 @@ export async function runLukasTurn(opts: {
    * als zu formulieren, was er herausgefunden hat.
    */
   let draft = textPieces.join("\n\n").trim();
+  /* Warum die Abschlussrunde scheiterte — fuer die Ersatzantwort unten. */
+  let abschlussFehler: unknown = null;
 
   if (!draft) {
     logger.info({ usedTools }, "Durchlauf ohne Text — Abschlussrunde ohne Werkzeuge");
@@ -331,9 +333,76 @@ export async function runLukasTurn(opts: {
       draft = (letzte.content || "").trim();
     } catch (err) {
       logger.warn({ err }, "Abschlussrunde fehlgeschlagen");
+      /*
+       * Und ins Fehlerprotokoll, nicht nur ins Log.
+       *
+       * Vorher landete das ausschliesslich in Railways Logansicht. Weder Issa
+       * noch Lukas konnten je sehen, dass eine Antwort ausgefallen ist —
+       * read_diagnostics zeigte nichts, die Selbstheilung sah nichts. Genau
+       * die Blindheit, gegen die das Protokoll angetreten ist.
+       */
+      recordDebugEvent("antwort:abschlussrunde", err);
+      abschlussFehler = err;
     }
   }
 
-  if (!draft) return "";
+  /*
+   * SCHWEIGEN IST KEINE ANTWORT.
+   *
+   * Hier stand `return ""`. Damit kam im Chat nichts an — kein Text, keine
+   * Fehlermeldung, nichts. Issa konnte nicht unterscheiden, ob Lukas noch
+   * arbeitet, abgestuerzt ist oder ihn einfach ignoriert. Das ist die
+   * schlimmste Antwort von allen, denn sie sieht aus wie Absicht.
+   *
+   * Und es passiert nicht selten: der Zug laeuft ins Rundenlimit oder ins
+   * Budget, die letzte Runde ohne Werkzeuge scheitert an einem Netzfehler —
+   * und beides fuehrte zur selben Stille.
+   *
+   * Jetzt entsteht stattdessen ein Satz aus dem, was wir sicher wissen: was er
+   * getan hat, warum er aufgehoert hat, woran es lag. Das ist keine schoene
+   * Antwort, aber eine ehrliche — und sie sagt Issa, ob er noch einmal fragen
+   * soll oder etwas kaputt ist.
+   */
+  if (!draft) {
+    const werkzeuge = [...new Set(usedTools)];
+    const teile: string[] = [];
+
+    if (werkzeuge.length > 0) {
+      teile.push(
+        `Ich habe in diesem Zug ${schleife.rundenZahl} Runde(n) gearbeitet und dabei ` +
+          `${werkzeuge.join(", ")} benutzt.`,
+      );
+    } else {
+      teile.push("Ich bin in diesem Zug zu keinem Werkzeugaufruf gekommen.");
+    }
+
+    if (abbruch) {
+      teile.push(
+        `Dann war Schluss: ${abbruch}. Das heisst, ich war noch nicht fertig — ` +
+          `frag mich das Gleiche gern noch einmal, dann arbeite ich an der Stelle weiter.`,
+      );
+    }
+
+    if (abschlussFehler) {
+      teile.push(
+        `Und die Antwort selbst ist mir dann auch noch misslungen: ` +
+          `${netzDiagnose(abschlussFehler)}`,
+      );
+    } else if (!abbruch) {
+      teile.push(
+        "Zu einer Antwort in Worten bin ich nicht mehr gekommen — das ist ein Fehler " +
+          "von mir, nicht deine Schuld. Sag es mir noch einmal.",
+      );
+    }
+
+    const notfall = teile.join(" ");
+    logger.warn(
+      { runden: schleife.rundenZahl, werkzeuge, abbruch },
+      "Zug ohne Text beendet — Ersatzantwort geschickt",
+    );
+    recordDebugEvent("antwort:leer", new Error(`${abbruch ?? "kein Text"} nach ${schleife.rundenZahl} Runden`));
+    return notfall;
+  }
+
   return renderLukasVoice({ systemPrompt, conversation: convo, draft });
 }

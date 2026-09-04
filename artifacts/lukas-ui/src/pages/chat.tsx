@@ -430,6 +430,20 @@ export default function Chat() {
       // sporadisch ausbleibenden Antworten.
       let puffer = "";
       let done = false;
+      /*
+       * Kam das ABSCHLUSSSIGNAL des Servers?
+       *
+       * Das ist etwas anderes als "der Stream ist zu Ende". Ein Deploy, ein
+       * Neustart oder ein abgestuerzter Prozess beenden die Leitung SAUBER —
+       * kein Fehler, keine Ausnahme, die Schleife laeuft einfach aus. Vorher
+       * passierte dann gar nichts: kein Text, keine Meldung, keine
+       * Nachfrage. Die Frage stand da, und es sah aus, als habe Lukas sie
+       * ignoriert.
+       *
+       * Genau das ist der Fall, den Issa als "er antwortet oft nicht" sieht —
+       * und heute besonders oft, weil jeder Deploy laufende Zuege abschneidet.
+       */
+      let abschlussGesehen = false;
       while (!done && !controller.signal.aborted) {
         const { value, done: streamDone } = await reader.read();
         if (streamDone) done = true;
@@ -451,8 +465,26 @@ export default function Chat() {
           }
           // Ein Fehler gehört sichtbar in den Chat, nicht in die Konsole.
           if (parsed.error) setStreamError(String(parsed.error));
-          if (parsed.done) done = true;
+          if (parsed.done) {
+            done = true;
+            abschlussGesehen = true;
+          }
         }
+      }
+
+      /*
+       * Die Leitung ist zu Ende, aber der Server hat nie "fertig" gesagt.
+       *
+       * Dann arbeitet er womoeglich noch und speichert die Antwort gleich —
+       * oder er ist mitten im Zug gestorben. Beides sieht von hier aus
+       * identisch aus, und in beiden Faellen ist Nachfragen richtig: kommt die
+       * Antwort, wird sie nachgeladen; kommt sie nicht, sagt die Geduldslogik
+       * es nach ihrer Frist ehrlich. Nur stillschweigend nichts tun ist
+       * falsch.
+       */
+      if (!abschlussGesehen && !controller.signal.aborted) {
+        setStreamError(null);
+        setWartetAufNachzuegler(true);
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {

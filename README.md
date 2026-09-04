@@ -92,8 +92,8 @@ npm run dev
 **Prüfungen** (dieselben wie in CI):
 
 ```bash
-npm run typecheck         # tsc über alle Pakete, 44 check-*.mjs und 43 Frontend-Tests
-npm run test -w @workspace/lukas-ui   # nur die Frontend-Tests (43)
+npm run typecheck         # tsc über alle Pakete, 44 check-*.mjs und 49 Frontend-Tests
+npm run test -w @workspace/lukas-ui   # nur die Frontend-Tests (49)
 ```
 
 **Deployment:** Railway baut aus `main`. `start:deploy` führt vor dem Start
@@ -202,7 +202,7 @@ eines mit bekannten Lücken.
   CI; die Spezifikation kann also beliebig weit abdriften, ohne dass etwas
   rot wird. Das ist keine neue Lücke, aber eine, die mit jeder Route wächst.
 
-- **Das Dashboard ist nur an den kritischen Stellen geprüft.** 43 Tests
+- **Das Dashboard ist nur an den kritischen Stellen geprüft.** 49 Tests
   (vitest + Testing Library, `npm run test -w @workspace/lukas-ui`) decken die
   Wege ab, an denen ein Fehler etwas auslöst statt nur schlecht auszusehen:
   Freigabe erteilen und ablehnen (richtige ID, richtiges Verb, Token dabei,

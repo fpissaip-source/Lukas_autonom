@@ -1,4 +1,5 @@
 import { db } from "@workspace/db";
+import { CACHE_TRENNER } from "./ai/cache-marke";
 import { memoriesTable, goalsTable, diaryTable } from "@workspace/db";
 import { eq, desc, gte, ne } from "drizzle-orm";
 import { CONVERSATION_CATEGORY } from "./conversation-memory";
@@ -143,10 +144,34 @@ export async function buildSystemPrompt(
     ? `\n\nDEIN LETZTER TAGEBUCHEINTRAG:\n${recentDiary[0].content}`
     : "";
 
+  /*
+   * DIE TRENNMARKE — und sie ist der Grund, warum der Cache ueberhaupt
+   * greifen kann.
+   *
+   * Anthropic vergleicht Praefixe nur an gesetzten Cache-Marken. Bisher stand
+   * genau eine, am ENDE des ganzen System-Prompts. Der endet aber auf
+   * Gefuehlszustand, Erinnerungen, Budget, Ziele, Tagebuch — auf alles, was
+   * sich zwischen zwei Nachrichten aendert. Damit war der zwischengespeicherte
+   * Block bei jeder neuen Nachricht ein anderer, und der Treffer fiel aus:
+   * innerhalb EINES Zuges griff er (der Prompt wird einmal gebaut), zwischen
+   * zwei Nachrichten NIE.
+   *
+   * Bezahlt wurden dabei jedes Mal auch die rund 11.600 Token aus Seele,
+   * Kontinuitaet und Werkzeugliste, die byte-gleich waren.
+   *
+   * Alles VOR dieser Marke ist stabil und wird zwischengespeichert. Alles
+   * danach wechselt und wird frisch bezahlt — das ist unvermeidbar und auch
+   * richtig so: es ist der Teil, der die Antwort aktuell macht.
+   *
+   * Die Reihenfolge ist damit keine Geschmacksfrage mehr. Wer hier etwas
+   * Wechselndes nach oben zieht, macht den Cache wertlos, ohne dass es
+   * irgendwo kracht — deshalb steht es hier und deshalb prueft es
+   * check-caching.mjs.
+   */
   return `${LUKAS_SYSTEM_PROMPT}
 ${CONTINUITY_PROMPT}
 ${executionContext()}
-
+${CACHE_TRENNER}
 DEIN AKTUELLER GEFÜHLSZUSTAND:
 ${emotionalContext}
 Obsession: ${status.obsession}

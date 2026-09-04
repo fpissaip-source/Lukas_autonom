@@ -1328,9 +1328,10 @@ export async function executeLukasTool(
       // ganze Eingang ist erst rein + gelesen + geschrieben.
       const einGesamt = zeilen.reduce((n, z) => n + z.rein + z.ausCache + z.inCache, 0);
       const quote = einGesamt > 0 ? Math.round((cacheGesamt / einGesamt) * 100) : 0;
+      const gesamtAufrufe = zeilen.reduce((n, z) => n + z.aufrufe, 0);
 
       return (
-        `Tokenverbrauch seit dem Start des Servers (${gesamt.toLocaleString("de-DE")} gesamt):\n\n` +
+        `Tokenverbrauch seit dem Start des Servers — NICHT seit heute; nach jedem Neustart fängt diese Zählung wieder bei null an (${gesamtAufrufe} Aufrufe, ${gesamt.toLocaleString("de-DE")} Tokens):\n\n` +
         zeilen
           .map(
             (z) =>
@@ -1345,11 +1346,30 @@ export async function executeLukasTool(
           ? ` (${schreibGesamt.toLocaleString("de-DE")} Tokens wurden neu hineingeschrieben — ` +
             `das kostet mehr als normale Eingabe und lohnt nur, wenn derselbe Anfang wiederkommt).`
           : ".") +
-        (quote < 20
-          ? ` Das ist wenig. Bei einem Zug mit vielen Werkzeugrunden sollte der ` +
-            `Anteil hoch sein — der Prompt ist dabei jedes Mal derselbe. Ist er es nicht, ` +
-            `verändert etwas den Anfang des Prompts zwischen den Runden.`
-          : ` Der wiederholte Teil des Prompts wird also nicht jedes Mal voll bezahlt.`) +
+        /*
+         * Der Hinweis auf die Blindstelle, und der gehoert hierhin.
+         *
+         * Diese Zahlen liegen im Arbeitsspeicher und sind nach jedem Neustart
+         * leer. Der ERSTE Aufruf danach kann strukturell nichts aus dem Cache
+         * lesen — er schreibt ihn nur. Und dieses Werkzeug laeuft ZWISCHEN
+         * dem ersten und dem zweiten Aufruf eines Zuges, sieht also genau
+         * jenen ersten.
+         *
+         * Ohne diesen Satz liest Lukas "0 % Cache", haelt es fuer einen Befund
+         * und meldet Issa eine Diagnose, die nur die eigene Messluecke
+         * beschreibt. Genau das ist passiert.
+         */
+        (gesamtAufrufe <= 2
+          ? ` ACHTUNG: Es wurden erst ${gesamtAufrufe} Aufruf(e) gezählt — der Server ist ` +
+            `frisch gestartet. Der erste Aufruf KANN nichts aus dem Cache lesen, er legt ihn ` +
+            `erst an, und dieses Werkzeug läuft mitten im ersten Zug. Eine niedrige Quote ` +
+            `sagt hier NICHTS über die Güte des Cachings. Sieh später noch einmal nach, ` +
+            `statt daraus einen Befund zu machen.`
+          : quote < 20
+            ? ` Das ist wenig. Bei einem Zug mit vielen Werkzeugrunden sollte der ` +
+              `Anteil hoch sein — der Prompt ist dabei jedes Mal derselbe. Ist er es nicht, ` +
+              `verändert etwas den Anfang des Prompts zwischen den Runden.`
+            : ` Der wiederholte Teil des Prompts wird also nicht jedes Mal voll bezahlt.`) +
         `\n\nZur Einordnung: sol ist das teure Modell, terra das mittlere, luna das günstige. ` +
         `Steht sol weit oben, obwohl es überwiegend Gespräche waren, arbeitest du zu teuer.`
       );

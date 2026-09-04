@@ -4,6 +4,7 @@ import { logger } from "../logger";
 import { fitLukasContext } from "./context-window";
 import type { ModelRoute } from "./model-router";
 import { localBaseUrl } from "./model-router";
+import { CACHE_TRENNER, ohneTrenner, systemBloecke } from "./cache-marke";
 
 export type LukasToolCall = {
   id: string;
@@ -526,10 +527,31 @@ async function callAnthropic(input: CallInput): Promise<LukasModelResult> {
    * ohne cache_control nichts. Unter etwa 1024 Token greift es nicht, was hier
    * nie der Fall ist.
    */
+  /*
+   * ZWEI Cache-Marken statt einer.
+   *
+   * Anthropic vergleicht Praefixe nur an gesetzten Marken. Eine einzige am
+   * Ende des gesamten System-Prompts hiess: der gespeicherte Block endet auf
+   * Gefuehlszustand, Erinnerungen und Budget — auf lauter Dinge, die sich
+   * zwischen zwei Nachrichten aendern. Damit traf er innerhalb eines Zuges
+   * (der Prompt wird einmal gebaut) und zwischen zwei Nachrichten NIE, obwohl
+   * die ersten rund 11.600 Token byte-gleich waren.
+   *
+   * Jetzt: eine Marke nach dem stabilen Teil (Werkzeuge, Seele,
+   * Kontinuitaet), eine am Ende. Aendert sich der wechselnde Teil, faellt nur
+   * dessen Treffer aus — der stabile Block wird weiterhin gelesen statt
+   * bezahlt.
+   *
+   * Gibt es keine Trennmarke (Untermitarbeiter, oeffentlicher Prompt, ein
+   * uebergebener System-Text), bleibt es bei EINEM Block mit einer Marke. Das
+   * ist genau das alte Verhalten und fuer kurze Prompts auch das richtige.
+   */
+  const systemBloecke_ = systemBloecke(converted.system);
+
   const body: any = {
     model: input.route.model,
     max_tokens: input.maxTokens ?? 8192,
-    system: [{ type: "text", text: converted.system, cache_control: { type: "ephemeral" } }],
+    system: systemBloecke_,
     messages: converted.messages,
   };
   if (tools.length) {
@@ -698,11 +720,33 @@ export async function callLukasModel(input: CallInput): Promise<LukasModelResult
   // Payload wird bei sehr langen Threads auf das Provider-Fenster gepackt.
   const prepared: CallInput = { ...input, messages: fitLukasContext(input.messages) };
 
+  /*
+   * NUR Anthropic kennt die Trennmarke. Bei allen anderen wird sie hier
+   * entfernt, BEVOR irgendein Anbieterpfad sie zu sehen bekommt.
+   *
+   * An genau einer Stelle, nicht in jedem Pfad einzeln: eine Marke, die
+   * durchrutscht, steht mitten im Prompt und richtet dort still Schaden an —
+   * kein Fehler, keine Ausnahme, nur ein Modell, das eine sinnlose Zeile liest
+   * und sich fragt, was sie bedeutet. Genau die Sorte Fehler, die man erst
+   * bemerkt, wenn die Antworten seltsam werden.
+   *
+   * Auch bei OpenAI kostet das nichts: dort laeuft das Zwischenspeichern
+   * automatisch ueber den laengsten passenden Praefix, ganz ohne Marken.
+   */
+  const ohne: CallInput = {
+    ...prepared,
+    messages: prepared.messages.map((m: any) =>
+      typeof m?.content === "string" && m.content.includes(CACHE_TRENNER)
+        ? { ...m, content: ohneTrenner(m.content) }
+        : m,
+    ),
+  };
+
   try {
     if (prepared.route.provider === "anthropic") return await callAnthropic(prepared);
-    if (prepared.route.provider === "google") return await callGoogle(prepared);
-    if (prepared.route.provider === "local") return await callLocal(prepared);
-    return await callOpenAI(prepared);
+    if (prepared.route.provider === "google") return await callGoogle(ohne);
+    if (prepared.route.provider === "local") return await callLocal(ohne);
+    return await callOpenAI(ohne);
   } catch (err) {
     logger.warn(
       {
@@ -721,7 +765,7 @@ export async function callLukasModel(input: CallInput): Promise<LukasModelResult
         reason: `Fallback nach ${prepared.route.provider}-Fehler`,
       };
       // Exakt dieselbe vorbereitete Lukas-Historie geht an den Fallback.
-      return await callOpenAI({ ...prepared, route: fallback });
+      return await callOpenAI({ ...ohne, route: fallback });
     }
 
     /*

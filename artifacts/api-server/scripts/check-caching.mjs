@@ -6,12 +6,22 @@
  * Token, die bei JEDER Runde eines Zuges byte-gleich wieder rausgehen. Ein Zug
  * mit zehn Werkzeugrunden hat sie zehnmal voll bezahlt.
  *
- * Zwei Dinge muessen dafuer stimmen, und beide fallen sonst still aus — man
+ * Drei Dinge muessen dafuer stimmen, und alle fallen sonst still aus — man
  * merkt nichts ausser einer hoeheren Rechnung:
- *   1. Anthropic braucht cache_control AUSDRUECKLICH, und die Marke muss am
- *      Ende des System-Prompts sitzen: gerendert wird tools -> system ->
- *      messages, nur so deckt sie beides ab.
- *   2. Die Cache-Treffer muessen gezaehlt werden. Beide Anbieter melden sie
+ *
+ *   1. Anthropic braucht cache_control AUSDRUECKLICH.
+ *
+ *   2. Die Marke darf NICHT nur am Ende des ganzen System-Prompts stehen.
+ *      Genau das war der Fehler: der Prompt endet auf Gefuehlszustand,
+ *      Erinnerungen und Budget — auf alles, was sich zwischen zwei
+ *      Nachrichten aendert. Anthropic vergleicht Praefixe nur an gesetzten
+ *      Marken, also traf der Cache innerhalb EINES Zuges (der Prompt wird
+ *      einmal gebaut) und zwischen zwei Nachrichten NIE. Bezahlt wurden
+ *      dabei jedes Mal auch die stabilen 11.600 Token.
+ *      Die Eigenschaft, die das prueft: zwei Prompts, die sich NUR hinter der
+ *      Marke unterscheiden, muessen einen byte-gleichen ersten Block ergeben.
+ *
+ *   3. Die Cache-Treffer muessen gezaehlt werden. Beide Anbieter melden sie
  *      unter verschiedenen Namen; wer keinen davon liest, kann nicht sagen,
  *      ob ueberhaupt etwas greift.
  */
@@ -29,14 +39,84 @@ const pruefe = (bedingung, text) => {
   }
 };
 
-// ── 1. Anthropic: Marke am Ende des System-Prompts ────────────────────────
+// ── 1. Anthropic: die Bloecke werden WIRKLICH so gebaut ───────────────────
+/*
+ * Ausgefuehrt statt im Quelltext gesucht. Ein Muster im Text sagt nur, dass
+ * irgendwo "cache_control" steht — nicht, dass der stabile Teil auch wirklich
+ * stabil bleibt. Genau daran ist es vorher vorbeigelaufen.
+ */
+{
+  const dir2 = mkdtempSync(join(process.cwd(), ".cache-marke-"));
+  const out2 = join(dir2, "marke.mjs");
+  await build({
+    entryPoints: ["src/lib/ai/cache-marke.ts"],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    outfile: out2,
+    logLevel: "silent",
+  });
+  const { CACHE_TRENNER, systemBloecke, ohneTrenner } = await import(`file://${out2}`);
+  rmSync(dir2, { recursive: true, force: true });
+
+  const seele = "DU BIST LUKAS. ".repeat(200);
+  const montag = `${seele}${CACHE_TRENNER}Gefühl: neugierig. Erinnerungen: A, B.`;
+  const dienstag = `${seele}${CACHE_TRENNER}Gefühl: müde. Erinnerungen: A, B, C, D.`;
+
+  const a = systemBloecke(montag);
+  const b = systemBloecke(dienstag);
+
+  pruefe(a.length === 2, "Mit Trennmarke müssen es ZWEI Blöcke sein, sonst gibt es nichts zu treffen");
+  pruefe(
+    a.every((bl) => bl.cache_control?.type === "ephemeral"),
+    "Jeder Block braucht cache_control — ohne passiert bei Anthropic nichts",
+  );
+
+  /*
+   * DAS ist die eigentliche Zusage: der stabile Teil bleibt gleich, auch wenn
+   * sich Gefühle und Erinnerungen ändern. Ohne diese Eigenschaft ist der
+   * Cache eine Behauptung.
+   */
+  pruefe(
+    a[0].text === b[0].text,
+    "Zwei Prompts, die sich nur hinter der Marke unterscheiden, MÜSSEN denselben ersten Block ergeben",
+  );
+  pruefe(a[1].text !== b[1].text, "Der wechselnde Teil muss sich dagegen unterscheiden dürfen");
+
+  // Die Marke selbst darf nirgends beim Modell ankommen.
+  pruefe(
+    a.every((bl) => !bl.text.includes(CACHE_TRENNER)),
+    "Die Trennmarke darf in keinem Block stehen — sonst liest das Modell eine sinnlose Zeile",
+  );
+  pruefe(
+    !ohneTrenner(montag).includes(CACHE_TRENNER),
+    "ohneTrenner muss die Marke restlos entfernen — für alle Anbieter außer Anthropic",
+  );
+
+  // Ohne Marke: genau ein Block, altes Verhalten.
+  const kurz = systemBloecke("Ein kurzer Prompt ohne Marke.");
+  pruefe(kurz.length === 1, "Ohne Trennmarke bleibt es bei EINEM Block");
+  pruefe(kurz[0].cache_control?.type === "ephemeral", "Auch der eine Block trägt die Marke");
+
+  // Endet der Prompt auf der Marke, entsteht kein leerer Block — Anthropic lehnt den ab.
+  pruefe(
+    systemBloecke(`${seele}${CACHE_TRENNER}`).length === 1,
+    "Ein Prompt, der auf der Marke endet, darf keinen leeren Block erzeugen",
+  );
+  pruefe(
+    systemBloecke(`${seele}${CACHE_TRENNER}   `).length === 1,
+    "Auch nicht, wenn dahinter nur Leerraum steht",
+  );
+}
+
+// Und die Marke muss im System-Prompt überhaupt gesetzt werden.
 pruefe(
-  /system:\s*\[\{[^}]*cache_control:\s*\{\s*type:\s*"ephemeral"\s*\}/.test(quelle),
-  "Der System-Prompt muss als Block MIT cache_control gesendet werden — ohne passiert bei Anthropic nichts",
+  readFileSync("src/lib/system-prompt.ts", "utf8").includes("${CACHE_TRENNER}"),
+  "Ohne Marke im System-Prompt nützt die beste Aufteilung nichts",
 );
 pruefe(
   !/system:\s*converted\.system\s*,/.test(quelle),
-  "Der System-Prompt darf nicht mehr als nackter String gehen, sonst gibt es keine Stelle für die Marke",
+  "Der System-Prompt darf nicht als nackter String gehen, sonst gibt es keine Stelle für die Marke",
 );
 
 // ── 2. OpenAI: Schluessel, damit gleichartige Anfragen sich treffen ───────

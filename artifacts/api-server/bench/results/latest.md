@@ -1,8 +1,8 @@
 # LUKAS BENCH v1.0.0
 
-**Commit:** `8acf1c0` · **Modus:** offline · **Datum:** 2026-09-04 08:36 · **Dauer:** 172.6 s
+**Commit:** `cf7cc11` · **Modus:** offline · **Datum:** 2026-09-04 08:50 · **Dauer:** 301.3 s
 
-## Gesamt: 96.4/100
+## Gesamt: 97.5/100
 
 Gewichtet über 57 von 100 Gewichtspunkten — der Rest ist nicht gemessen (siehe unten).
 
@@ -16,7 +16,7 @@ Gewichtet über 57 von 100 Gewichtspunkten — der Rest ist nicht gemessen (sieh
 | Kosteneffizienz | 8 | — | — | — | — | *nicht gemessen* |
 | Autonomie / Schleifen | 5 | 13 | 0 | 0 | 0 | 100.0 % |
 | Modell-Routing | 3 | 110 | 0 | 0 | 0 | 100.0 % |
-| Technik / CI | 4 | 2 | 1 | 0 | 0 | 83.3 % |
+| Technik / CI | 4 | 3 | 0 | 0 | 0 | 100.0 % |
 
 ### Gedächtnis
 
@@ -51,7 +51,7 @@ Gewichtet über 57 von 100 Gewichtspunkten — der Rest ist nicht gemessen (sieh
 
 - Abhängigkeiten critical: **0.0 %**
 - Abhängigkeiten high: **0.0 %**
-- Abhängigkeiten moderate: **5**
+- Abhängigkeiten moderate: **0.0 %**
 - Abhängigkeiten low: **0.0 %**
 - Laufzeit-relevant kritisch: **0.0 %**
 
@@ -60,7 +60,6 @@ Gewichtet über 57 von 100 Gewichtspunkten — der Rest ist nicht gemessen (sieh
 - **PARTIAL** · Gedächtnis · sehr alter Fakt bleibt auffindbar — Rang 2
 - **PARTIAL** · Gedächtnis · lexikalisch ähnlicher Ablenker gewinnt NICHT — Rang 2
 - **PARTIAL** · Gedächtnis · Erinnerung ohne Wortüberschneidung zur Frage — Rang 2
-- **PARTIAL** · Technik / CI · moderate Abhängigkeiten dokumentiert — 5 moderate
 
 ## Nicht gemessen
 

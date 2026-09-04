@@ -23,6 +23,7 @@ import { sicherFetch, pruefeZiel } from "./netzschutz";
 import { sendeSms } from "./sms";
 import { bedienePage, type Schritt } from "./browser";
 import { merkeBild } from "./bildablage";
+import { zugangFuer } from "./zugaenge";
 import { nurEinmal, fingerabdruck } from "./versandsperre";
 
 export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -609,7 +610,7 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "browser_do",
       description:
-        "Eine Webseite BEDIENEN statt nur lesen: klicken, in Felder tippen, absenden, hochladen. Läuft in einer dauerhaften Browser-Sitzung — einmal angemeldet, bleibst du angemeldet, auch beim nächsten Aufruf. Nach den Schritten bekommst du zurück, was auf der Seite steht, welche Felder/Knöpfe es gibt — UND ein Bildschirmfoto, das du direkt anschaust. Nimm das Bild ernst: es zeigt Overlays, Cookie-Banner, rote Fehlermeldungen und ob ein Knopf überhaupt sichtbar war. Wenn ein Schritt scheitert, sieh zuerst auf das Bild, bevor du eine andere Auswahl rätst. Für Zugangsdaten NIEMALS echte Werte eintippen: schreib {{BENUTZER}} bzw. {{PASSWORT}}, den echten Wert setzt der Server aus seiner Konfiguration ein. Wenn du nur lesen willst, nimm browse_page — das ist schneller.",
+        "Eine Webseite BEDIENEN statt nur lesen: klicken, in Felder tippen, absenden, hochladen. Läuft in einer dauerhaften Browser-Sitzung — einmal angemeldet, bleibst du angemeldet, auch beim nächsten Aufruf. Nach den Schritten bekommst du zurück, was auf der Seite steht, welche Felder/Knöpfe es gibt — UND ein Bildschirmfoto, das du direkt anschaust. Nimm das Bild ernst: es zeigt Overlays, Cookie-Banner, rote Fehlermeldungen und ob ein Knopf überhaupt sichtbar war. Wenn ein Schritt scheitert, sieh zuerst auf das Bild, bevor du eine andere Auswahl rätst. Für Zugangsdaten NIEMALS echte Werte eintippen: schreib {{BENUTZER}}, {{PASSWORT}} oder jeden anderen hinterlegten Namen ({{PIN}}, {{API_KEY}} …) — den echten Wert setzt der Server erst im Browser ein. Fehlt einer, wird der Plan GAR NICHT ausgeführt und dir gesagt, welcher fehlt. Wenn du nur lesen willst, nimm browse_page — das ist schneller.",
       parameters: {
         type: "object",
         properties: {
@@ -634,7 +635,7 @@ export const LUKAS_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
                   description:
                     "Was gemeint ist: CSS-Auswahl (input[name=email]) oder einfach der sichtbare Text (Anmelden)",
                 },
-                text: { type: "string", description: "bei tippe — {{BENUTZER}}/{{PASSWORT}} für Zugangsdaten" },
+                text: { type: "string", description: "bei tippe — {{BENUTZER}}/{{PASSWORT}}/{{PIN}} … für Zugangsdaten, nie den echten Wert" },
                 wert: { type: "string", description: "bei waehle" },
                 taste: { type: "string", description: "bei taste, Standard Enter" },
                 datei: { type: "string", description: "bei lade_hoch: Pfad im Browser-Container" },
@@ -1449,25 +1450,34 @@ export async function executeLukasTool(
       const schritte = Array.isArray(input.schritte) ? (input.schritte as Schritt[]) : [];
 
       /*
-       * Die Zugangsdaten dieser Sitzung, falls es welche gibt. Sie kommen aus
-       * der Umgebung des Servers und gehen direkt in den Container — Lukas
-       * sieht sie nie, und was er nicht kennt, kann ihm auch keine fremde
-       * Webseite entlocken.
+       * Die Zugangsdaten dieser Sitzung. Sie kommen aus dem Tresor (oder,
+       * als Rueckfall, aus der Umgebung) und gehen direkt in den Container —
+       * Lukas sieht sie nie, und was er nicht kennt, kann ihm auch keine
+       * fremde Webseite entlocken.
        */
-      const schluessel = sitzung.toUpperCase().replace(/[^A-Z0-9]/g, "_");
-      const zugang: Record<string, string> = {};
-      const benutzer = process.env[`LUKAS_WEB_${schluessel}_USER`]?.trim();
-      const passwort = process.env[`LUKAS_WEB_${schluessel}_PASS`]?.trim();
-      if (benutzer) zugang.BENUTZER = benutzer;
-      if (passwort) zugang.PASSWORT = passwort;
+      const zugang = await zugangFuer(sitzung);
 
-      const braucht = JSON.stringify(schritte).includes("{{PASSWORT}}");
-      if (braucht && !passwort) {
+      /*
+       * Fehlt ein Platzhalter, wird der Plan GAR NICHT ausgefuehrt.
+       *
+       * Sonst tippt der Browser die geschweiften Klammern woertlich ins
+       * Anmeldeformular — das ist ein Fehlversuch, und nach fuenf davon ist
+       * das Konto gesperrt. Ein ehrliches "das fehlt" ist billiger als ein
+       * gesperrter Zugang, den Issa dann per Hand aufmachen muss.
+       */
+      const gebraucht = [...JSON.stringify(schritte).matchAll(/\{\{([A-Z][A-Z0-9_]*)\}\}/g)].map(
+        (m) => m[1],
+      );
+      const fehlend = [...new Set(gebraucht)].filter((f) => !(f in zugang));
+      if (fehlend.length > 0) {
+        const da = Object.keys(zugang).sort();
         return (
-          `Für die Sitzung "${sitzung}" ist kein Passwort hinterlegt. Issa muss ` +
-          `LUKAS_WEB_${schluessel}_USER und LUKAS_WEB_${schluessel}_PASS setzen — dann meldest du ` +
-          `dich mit {{BENUTZER}}/{{PASSWORT}} an, ohne die Werte je zu sehen. Sag ihm das über ` +
-          `melde_dich_bei_issa, statt es hier zu versuchen.`
+          `Für die Sitzung "${sitzung}" fehlt: ${fehlend.map((f) => `{{${f}}}`).join(", ")}. ` +
+          (da.length
+            ? `Hinterlegt ist dort bisher: ${da.map((f) => `{{${f}}}`).join(", ")}. `
+            : `Dort ist bisher nichts hinterlegt. `) +
+          `Issa legt das im Dashboard unter "Zugänge" an — du bekommst die Werte nie zu sehen, ` +
+          `du setzt nur die Platzhalter ein. Sag es ihm über melde_dich_bei_issa, statt hier zu raten.`
         );
       }
 

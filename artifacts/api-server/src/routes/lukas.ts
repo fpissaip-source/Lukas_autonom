@@ -15,6 +15,8 @@ import { runReflection } from "../lib/reflection";
 import { getDebugLog, recordDebugEvent } from "../lib/debug-log";
 import { listeMeldungen, beantworteMeldung } from "../lib/melden";
 import { kennzahlen } from "../lib/kennzahlen";
+import { listeZugaenge, setzeZugang, loescheZugang } from "../lib/zugaenge";
+import { tresorBereit } from "../lib/tresor";
 import { baueGehirn, gehirnVault } from "../lib/gehirn";
 import { packeZip } from "../lib/zip";
 import { buildSystemPrompt } from "../lib/system-prompt";
@@ -375,6 +377,57 @@ router.get("/lukas/debug-log", async (req, res) => {
     res.json(await getDebugLog());
   } catch (err) {
     res.status(500).json({ error: "Failed to get debug log" });
+  }
+});
+
+/*
+ * Zugänge: Anmeldedaten, die Lukas benutzt und nie sieht.
+ *
+ * DIE LISTE GIBT KEINE WERTE ZURUECK — und das ist keine Bequemlichkeit,
+ * sondern der Zweck. Waere sie auslesbar, waere der API-Token nicht mehr nur
+ * der Schluessel zu Lukas, sondern zu jedem Konto, das Lukas benutzt. Aendern
+ * heisst deshalb ueberschreiben, nicht bearbeiten.
+ */
+router.get("/lukas/zugaenge", async (_req, res) => {
+  try {
+    res.json({ bereit: tresorBereit(), zugaenge: await listeZugaenge() });
+  } catch (err) {
+    logger.error({ err }, "Zugänge konnten nicht gelesen werden");
+    res.status(500).json({ error: "Failed to list credentials" });
+  }
+});
+
+router.put("/lukas/zugaenge", async (req, res) => {
+  try {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    res.json(
+      await setzeZugang({
+        sitzung: String(b.sitzung ?? ""),
+        feld: String(b.feld ?? ""),
+        wert: String(b.wert ?? ""),
+        notiz: typeof b.notiz === "string" ? b.notiz : undefined,
+      }),
+    );
+  } catch (err) {
+    /*
+     * Der Fehlertext geht an die Oberflaeche. Er darf sagen, WAS fehlt
+     * (Schluessel, Feldname, Wert) — aber nie den Wert selbst enthalten,
+     * deshalb wird hier nichts aus dem Rumpf zurueckgespiegelt.
+     */
+    const grund = err instanceof Error ? err.message : "Fehler";
+    logger.warn({ err }, "Zugang konnte nicht hinterlegt werden");
+    res.status(400).json({ error: grund });
+  }
+});
+
+router.delete("/lukas/zugaenge/:sitzung/:feld", async (req, res) => {
+  try {
+    const weg = await loescheZugang(String(req.params.sitzung), String(req.params.feld));
+    if (!weg) return void res.status(404).json({ error: "Nicht gefunden" });
+    res.status(204).end();
+  } catch (err) {
+    logger.error({ err }, "Zugang konnte nicht gelöscht werden");
+    res.status(500).json({ error: "Failed to delete credential" });
   }
 });
 

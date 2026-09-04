@@ -16,6 +16,21 @@
  */
 
 const MCP_WICHTIG: RegExp[] = [
+  /*
+   * Die ANLEITUNG steht vor dem Werkzeug — und das ist keine Geschmacksfrage.
+   *
+   * Higgsfield liefert zu jeder mehrstufigen Produktion einen fertigen
+   * Workflow: mehrszeniges Erzaehlvideo, Schnitt als Timeline, Figuren, die
+   * ueber Clips hinweg gleich aussehen, Untertitel in die Pixel gebrannt. Der
+   * Anbieter selbst sagt, dass der Workflow VOR der Erzeugung zu laden ist.
+   *
+   * Diese beiden standen bisher nicht in der Liste, fielen also ans Ende und
+   * unter den Deckel. Lukas kam ueber mcp_search noch dran — nur hatte er
+   * keinen Anlass zu wissen, dass es sie gibt. Er konnte damit sechs Clips
+   * bauen, die einzeln gut und zusammen kein Film waren, ohne je zu erfahren,
+   * dass die Antwort darauf beim Anbieter fertig herumlag.
+   */
+  /^(get_workflow_instructions|get_workflow_bundle_file)$/,
   /^generate_(image|video|audio|3d)$/, // erzeugen: der Kern
   /^(models_explore|presets_show|show_characters)$/, // was steht zur Auswahl
   /^(show_generations|show_generation_by_ids|show_medias|job_display|jobs_wait)$/, // nachsehen und blaettern

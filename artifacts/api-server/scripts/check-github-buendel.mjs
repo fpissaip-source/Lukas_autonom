@@ -59,6 +59,9 @@ export const sendEmail = async () => "";
 /* Die Versandsperre reicht hier durch: sie hat einen eigenen Test, und hier
    geht es um das GitHub-Buendel, nicht um Idempotenz. */
 export const nurEinmal = async (art, schluessel, arbeit) => ({ wiederholung: false, ergebnis: await arbeit() });
+/* Zugangsdaten gibt es in diesem Test nicht — browser_do wird hier nicht
+   gefahren, und der Tresor hat seinen eigenen Test. */
+export const zugangFuer = async () => ({});
 export const fingerabdruck = (...teile) => teile.map(String).join("|");
 export const executeCommand = async () => ""; export const resetSandbox = async () => "";
 export const executeOnHost = async () => "";

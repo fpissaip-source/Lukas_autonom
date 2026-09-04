@@ -12,3 +12,4 @@ export * from "./subagents";
 export * from "./meldungen";
 export * from "./sms";
 export * from "./telefon";
+export * from "./zugang";

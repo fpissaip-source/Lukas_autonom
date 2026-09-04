@@ -5,6 +5,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Activity,
   BarChart3,
+  KeyRound,
   Brain,
   Target,
   BookOpen,
@@ -50,6 +51,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/mcp", label: "MCP", icon: Plug },
     { href: "/telefon", label: "Telefon", icon: Phone },
     { href: "/kennzahlen", label: "Kennzahlen", icon: BarChart3 },
+    { href: "/zugaenge", label: "Zugänge", icon: KeyRound },
     { href: "/diagnostics", label: "Diagnose", icon: AlertTriangle },
   ];
 

@@ -50,6 +50,8 @@ rmSync(dir, { recursive: true, force: true });
  */
 const fuellstoff = Array.from({ length: 60 }, (_, i) => ({ name: `sonstiges_${i}` }));
 const wichtig = [
+  "get_workflow_instructions",
+  "get_workflow_bundle_file",
   "generate_image",
   "generate_video",
   "models_explore",
@@ -69,6 +71,8 @@ const genommen = ordneMcpWerkzeuge(server)
 
 let fehler = 0;
 const muss = [
+  "get_workflow_instructions",
+  "get_workflow_bundle_file",
   "generate_image",
   "generate_video",
   "models_explore",
@@ -83,6 +87,20 @@ for (const name of muss) {
     console.error(`FEHLER: ${name} fehlt in der Auswahl`);
     fehler++;
   }
+}
+
+/*
+ * Die ANLEITUNG steht vor dem Erzeugen.
+ *
+ * Nicht Kosmetik: Higgsfields eigene Regel ist, den Workflow VOR einer
+ * mehrstufigen Produktion zu laden. Landet get_workflow_instructions hinter
+ * generate_video, faellt es bei einem Server mit 81 Werkzeugen als Erstes
+ * unter den Deckel — und Lukas baut sechs Clips, die zusammen kein Film sind,
+ * ohne je zu erfahren, dass die Antwort fertig herumlag.
+ */
+if (genommen.indexOf("get_workflow_instructions") > genommen.indexOf("generate_video")) {
+  console.error("FEHLER: get_workflow_instructions steht hinter generate_video");
+  fehler++;
 }
 
 // Erzeugen muss vor Nebensaechlichem kommen.

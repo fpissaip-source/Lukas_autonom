@@ -141,6 +141,9 @@ weniger als einer, dem Issa zusieht.
 | **Gefälschter WhatsApp-Webhook** | HMAC über den **rohen** Body; ohne `WHATSAPP_APP_SECRET` wird **abgelehnt**, nicht durchgewunken | `check-schutz.mjs` |
 | **Gefälschter Telefon-Webhook** | Signatur **und** Zeitstempel; ohne Secret wirft es | — |
 | **Passwort-Diebstahl über eine präparierte Seite** | Im Schrittplan steht nur `{{PASSWORT}}`; der Wert wird erst **im Container** eingesetzt. Lukas kennt ihn nicht — was er nicht kennt, kann ihm niemand entlocken | `check-browser-bedienen.mjs` |
+| **Datenbank-Abzug mit Passwörtern darin** | Zugangsdaten liegen AES-256-GCM-verschlüsselt in `lukas_zugaenge`, der Schlüssel nur in der Umgebung (`LUKAS_TRESOR_SCHLUESSEL`). Eigener IV je Wert, damit zwei gleiche Passwörter nicht als gleich erkennbar sind; ohne Schlüssel wird **nicht gespeichert** statt im Klartext | `check-zugaenge.mjs` |
+| **Zugangsdaten über den API-Token abziehen** | Es gibt keinen Weg, der einen Wert zurückgibt — nicht als Route, nicht als Werkzeug, nicht in der Oberfläche. Anlegen und Löschen ja, Auslesen nein. Sonst wäre der Token nicht der Schlüssel zu Lukas, sondern zu jedem Konto, das Lukas benutzt | `check-zugaenge.mjs`, `zugaenge.test.tsx` |
+| **Verfälschter Kryptotext im Anmeldeformular** | GCM erkennt jede Änderung und wirft; ein unlesbarer Zugang wird **übergangen**, nicht getippt. Fünf Fehlversuche mit Müll sperren sonst das Konto | `check-zugaenge.mjs` |
 | **Befehlsanhang über einen Sitzungsnamen** | `shQuote`, Variablennamen gefiltert auf `[A-Z_]+` | ebenda |
 | **Fremde Webseite liest die private API** | CORS auf eigene Hosts; CSP mit `script-src 'self'`; HSTS hinter HTTPS | `check-schutz.mjs` |
 | **Token-Raten über Laufzeitunterschiede** | `timingSafeEqual` | ebenda |

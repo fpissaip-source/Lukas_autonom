@@ -92,8 +92,8 @@ npm run dev
 **Prüfungen** (dieselben wie in CI):
 
 ```bash
-npm run typecheck         # tsc über alle Pakete, 35 check-*.mjs und 24 Frontend-Tests
-npm run test -w @workspace/lukas-ui   # nur die Frontend-Tests
+npm run typecheck         # tsc über alle Pakete, 36 check-*.mjs und 32 Frontend-Tests
+npm run test -w @workspace/lukas-ui   # nur die Frontend-Tests (32)
 ```
 
 **Deployment:** Railway baut aus `main`. `start:deploy` führt vor dem Start
@@ -140,7 +140,12 @@ eines mit bekannten Lücken.
   Werkzeuge —, aber zuhören. `LUKAS_TELEFON_STRENG=true` schließt das;
   Voreinstellung ist offen, weil es Issas Zugang verengt.
   ([Details](docs/SICHERHEITSMODELL.md#7-restrisiken--was-auch-nach-diesem-durchgang-bleibt))
-- **Ein Token ist der einzige Faktor.** Wer `LUKAS_API_TOKEN` hat, ist Issa.
+- **Ein Token ist der einzige Faktor.** Wer `LUKAS_API_TOKEN` hat, ist Issa —
+  kann damit aber **keine hinterlegten Zugangsdaten auslesen**, nur anlegen und
+  löschen. Die Werte liegen AES-256-GCM-verschlüsselt in der Datenbank, der
+  Schlüssel steht in der Umgebung (`LUKAS_TRESOR_SCHLUESSEL`); ohne ihn wird
+  nichts gespeichert statt im Klartext. Lukas selbst kennt sie nie — im Plan
+  steht `{{PASSWORT}}`, eingesetzt wird erst im Browser-Container.
 - **Issas Nummer steht in der Git-Historie.** Aus dem aktuellen Stand ist sie
   entfernt; alte Commits eines öffentlichen Repositories bleiben.
 
@@ -186,12 +191,12 @@ eines mit bekannten Lücken.
   echte Prozesse und einen echten Browser. Was fehlt: dass ein `docker exec`
   auf dem Droplet wirklich so antwortet, wie die Attrappe behauptet — dafür
   bräuchte es den Droplet selbst.
-- **Das Dashboard ist nur an den kritischen Stellen geprüft.** 24 Tests
+- **Das Dashboard ist nur an den kritischen Stellen geprüft.** 32 Tests
   (vitest + Testing Library, `npm run test -w @workspace/lukas-ui`) decken die
   Wege ab, an denen ein Fehler etwas auslöst statt nur schlecht auszusehen:
   Freigabe erteilen und ablehnen (richtige ID, richtiges Verb, Token dabei,
   abgelaufene Freigabe ohne Tasten), auf eine Meldung antworten, die
-  Kennzahlen. Chat, Studio, Gedächtnis und Gehirn haben keine Tests.
+  Kennzahlen, und dass die Zugangs-Seite nie einen Wert anzeigt. Chat, Studio, Gedächtnis und Gehirn haben keine Tests.
 
 **Fachlich**
 

@@ -18,6 +18,7 @@ import Approvals from "@/pages/approvals";
 import Proposals from "@/pages/proposals";
 import Meldungen from "@/pages/meldungen";
 import Kennzahlen from "@/pages/kennzahlen";
+import Zugaenge from "@/pages/zugaenge";
 /*
  * Die 3D-Ansicht bringt three.js mit — eine halbe Megabyte, die niemand
  * laden soll, der nur in den Chat will. Deshalb erst beim Öffnen des Tabs.
@@ -48,6 +49,7 @@ function Router() {
         <Route path="/mcp" component={Mcp} />
         <Route path="/telefon" component={Telefon} />
         <Route path="/kennzahlen" component={Kennzahlen} />
+        <Route path="/zugaenge" component={Zugaenge} />
         <Route path="/diagnostics" component={Diagnostics} />
         <Route component={NotFound} />
       </Switch>

@@ -1,6 +1,6 @@
 # LUKAS BENCH v1.0.0
 
-**Commit:** `67c3ab7` · **Modus:** offline · **Datum:** 2026-09-02 13:40 · **Dauer:** 1.8 s
+**Commit:** `47200f3` · **Modus:** offline · **Datum:** 2026-09-04 08:19 · **Dauer:** 47.8 s
 
 ## Gesamt: 96.4/100
 
@@ -27,7 +27,7 @@ Gewichtet über 57 von 100 Gewichtspunkten — der Rest ist nicht gemessen (sieh
 - Fremdquellen-Kontamination: **0.0 %**
 - Widerrufenes obenauf: **0.0 %**
 - DB-Abfragen je Frage: **3.56**
-- Laufzeit gesamt (ms): **5**
+- Laufzeit gesamt (ms): **3**
 - Einbettungen aktiv: **false**
 
 ### Erholung
@@ -51,7 +51,7 @@ Gewichtet über 57 von 100 Gewichtspunkten — der Rest ist nicht gemessen (sieh
 
 - Abhängigkeiten critical: **0.0 %**
 - Abhängigkeiten high: **0.0 %**
-- Abhängigkeiten moderate: **4**
+- Abhängigkeiten moderate: **5**
 - Abhängigkeiten low: **0.0 %**
 - Laufzeit-relevant kritisch: **0.0 %**
 
@@ -60,7 +60,7 @@ Gewichtet über 57 von 100 Gewichtspunkten — der Rest ist nicht gemessen (sieh
 - **PARTIAL** · Gedächtnis · sehr alter Fakt bleibt auffindbar — Rang 2
 - **PARTIAL** · Gedächtnis · lexikalisch ähnlicher Ablenker gewinnt NICHT — Rang 2
 - **PARTIAL** · Gedächtnis · Erinnerung ohne Wortüberschneidung zur Frage — Rang 2
-- **PARTIAL** · Technik / CI · moderate Abhängigkeiten dokumentiert — 4 moderate
+- **PARTIAL** · Technik / CI · moderate Abhängigkeiten dokumentiert — 5 moderate
 
 ## Nicht gemessen
 

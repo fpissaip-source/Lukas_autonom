@@ -136,15 +136,22 @@ for (const [msg, code] of faelle) {
   const quelle = await import("node:fs").then((fs) =>
     fs.readFileSync("src/lib/code-sandbox.ts", "utf8"),
   );
+  /*
+   * Auf die EIGENSCHAFT geprueft, nicht auf den Wortlaut: die Diagnose wird
+   * erzeugt und geworfen, der rohe Fehler nicht. Der erste Entwurf suchte
+   * woertlich nach `reject(new Error(sshDiagnose(err)))` — und schlug fehl,
+   * sobald die Zeile aus einem anderen Grund umgebaut wurde, obwohl die
+   * Eigenschaft weiter stimmte. Ein Test, der bei einer Umbenennung rot wird,
+   * erzieht dazu, ihn anzupassen statt ihn zu lesen.
+   */
   pruefe(
-    "sshExec wirft die Diagnose, nicht den rohen Fehler",
-    /reject\(new Error\(sshDiagnose\(err\)\)\)/.test(quelle),
+    "die Diagnose wird im Fehlerpfad erzeugt",
+    /sshDiagnose\(err\)/.test(quelle),
   );
   pruefe(
-    "und der rohe Fehler wird nirgends mehr direkt geworfen",
-    !/\.on\("error", \(err\) => \{ clearTimeout\(timer\); finish\(\(\) => reject\(err\)\); \}\)/.test(
-      quelle,
-    ),
+    "und geworfen wird sie, nicht der rohe Fehler",
+    /reject\(new Error\(diagnose\)\)|reject\(new Error\(sshDiagnose\(err\)\)\)/.test(quelle) &&
+      !/finish\(\(\) => reject\(err\)\)/.test(quelle),
   );
   /*
    * Der Verbindungsaufbau bekam bisher immer ssh2s Voreinstellung von 20

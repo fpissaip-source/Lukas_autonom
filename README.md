@@ -92,7 +92,7 @@ npm run dev
 **Prüfungen** (dieselben wie in CI):
 
 ```bash
-npm run typecheck         # tsc über alle Pakete, 41 check-*.mjs und 41 Frontend-Tests
+npm run typecheck         # tsc über alle Pakete, 42 check-*.mjs und 41 Frontend-Tests
 npm run test -w @workspace/lukas-ui   # nur die Frontend-Tests (41)
 ```
 

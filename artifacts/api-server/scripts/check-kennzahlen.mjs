@@ -133,7 +133,18 @@ leeren();
   pruefe("Quote gerechnet", Math.abs(heute.fehlerquote - 0.25) < 1e-9);
   pruefe("Modellaufrufe aus den Tageskosten", heute.modellAufrufe === 7);
   pruefe("Tokens summiert", heute.tokenRein === 50_000 && heute.tokenRaus === 4_000);
-  pruefe("Cache-Quote als Verhältnis der Summen", Math.abs(heute.cacheQuote - 0.6) < 1e-9);
+  /*
+   * 30.000 aus dem Cache bei 50.000 frisch bezahlten heisst NICHT 60 %.
+   * `rein` ist der frisch bezahlte Eingang OHNE Cache — der ganze Eingang ist
+   * 50.000 + 30.000 = 80.000, die Quote also 37,5 %.
+   *
+   * Der erste Entwurf teilte durch `rein` und zeigte im Dashboard 104 % an.
+   * Eine Quote ueber 100 % ist keine ungenaue Zahl, sondern eine unmoegliche.
+   */
+  pruefe(
+    "Cache-Quote am GANZEN Eingang, nicht am frisch bezahlten",
+    Math.abs(heute.cacheQuote - 30_000 / 80_000) < 1e-9,
+  );
   pruefe("Freigaben gezählt", heute.freigabenGefragt === 2 && heute.freigabenErteilt === 1);
   pruefe("Meldungen gezählt", heute.meldungenNeu === 1);
   pruefe("Störungen gezählt", heute.stoerungen === 1);
@@ -141,6 +152,28 @@ leeren();
   const k = await kennzahlen(14);
   pruefe("offene Freigaben stehen als Zustand daneben", k.jetzt.freigabenOffen === 1);
   pruefe("offene Meldungen auch", k.jetzt.meldungenOffen === 1);
+}
+
+// ── 1b. Eine Quote kann NIE über 100 % liegen ────────────────────────────
+/*
+ * Der Fall, der im Dashboard stand: mehr aus dem Cache gelesen als frisch
+ * bezahlt. Das ist der Normalfall bei gutem Caching — und ergab mit der
+ * falschen Rechnung 104 %.
+ */
+leeren();
+{
+  globalThis.__daten.kosten.push({
+    tag: tagVon(new Date()), provider: "anthropic", model: "opus",
+    aufrufe: 20, rein: 5_000, raus: 2_000, ausCache: 120_000, inCache: 0,
+  });
+  const reihe = await zeitreihe(14);
+  const q = reihe.at(-1).cacheQuote;
+  pruefe("die Quote bleibt bei oder unter 100 %", q !== null && q <= 1);
+  pruefe("und ist hier sehr hoch, wie es sich gehört", q > 0.9);
+  pruefe(
+    "gerechnet wird 120.000 von 125.000",
+    Math.abs(q - 120_000 / 125_000) < 1e-9,
+  );
 }
 
 // ── 2. Eine Quote aus drei Aufrufen ist keine Quote ───────────────────────

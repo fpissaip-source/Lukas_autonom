@@ -160,9 +160,21 @@ export async function zeitreihe(tage = 14): Promise<Tageswert[]> {
     t.modellAufrufe += k.aufrufe;
     t.tokenRein += k.rein;
     t.tokenRaus += k.raus;
+    /*
+     * Der NENNER ist der ganze Eingang, nicht der frisch bezahlte.
+     *
+     * `rein` heisst in model-client.ts ausdruecklich "frisch bezahlter
+     * Eingang, OHNE das, was aus dem Cache kam". Wer durch `rein` teilt,
+     * rechnet Gelesenes gegen Nicht-Gelesenes — und bekommt bei einem guten
+     * Cache ueber 100 %. Genau das stand im Dashboard: 104 %.
+     *
+     * Der ganze Eingang ist rein + gelesen + geschrieben. So rechnet
+     * read_usage seit jeher; hier war es falsch, und die Zahl war damit nicht
+     * bloss ungenau, sondern unmoeglich.
+     */
     const c = cache.get(k.tag) ?? { aus: 0, gesamt: 0 };
     c.aus += k.ausCache;
-    c.gesamt += k.rein;
+    c.gesamt += k.rein + k.ausCache + k.inCache;
     cache.set(k.tag, c);
   }
 
@@ -187,7 +199,14 @@ export async function zeitreihe(tage = 14): Promise<Tageswert[]> {
     t.fehlerquote =
       t.werkzeugAufrufe >= MINDESTMENGE ? t.werkzeugFehler / t.werkzeugAufrufe : null;
     const c = cache.get(t.tag);
-    t.cacheQuote = c && c.gesamt > 0 ? c.aus / c.gesamt : null;
+    /*
+     * Gedeckelt, und das ist kein Misstrauen gegen die Rechnung darueber,
+     * sondern gegen die Zukunft: eine Quote ueber 100 % ist immer ein Fehler,
+     * und sie soll auffallen, bevor sie jemandem als Messwert vorgelegt wird.
+     * Eine unmoegliche Zahl im Dashboard kostet mehr Vertrauen als eine
+     * fehlende.
+     */
+    t.cacheQuote = c && c.gesamt > 0 ? Math.min(1, c.aus / c.gesamt) : null;
   }
 
   return [...nach.values()];

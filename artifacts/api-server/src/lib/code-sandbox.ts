@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { Client } from "ssh2";
+import { ausgefallen, merkeAusfall, merkeErfolg } from "./ausfall";
 import { logger } from "./logger";
 
 /*
@@ -130,6 +131,9 @@ function requireSshConfig(): { host: string; user: string; key: string; port: nu
  * glaubt, er koenne einen ausgeschalteten Server durch einen weiteren Versuch
  * anschalten, versucht es sonst bis zum Rundenlimit.
  */
+/** Alles, was ueber SSH zum Droplet geht, faellt gemeinsam aus. */
+const SSH_BEREICH = "droplet-ssh";
+
 export function sshDiagnose(err: unknown): string {
   const roh = err instanceof Error ? err.message : String(err);
   const code = (err as { code?: string } | null)?.code ?? "";
@@ -179,6 +183,19 @@ export function sshExec(
   stdin?: string,
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   const cfg = requireSshConfig();
+
+  /*
+   * Ist der Droplet gerade als tot bekannt, wird gar nicht erst verbunden.
+   *
+   * Sonst laeuft jeder Aufruf zwanzig Sekunden in die Zeitueberschreitung —
+   * und jeder gescheiterte Aufruf kommt als Werkzeugergebnis zurueck, geht in
+   * den naechsten Modellaufruf ein und wird dort bezahlt. Vierzig Fehlschlaege
+   * in einem Zug sind vierzig Runden Kontext, und der autonome Lauf startet
+   * alle 30 Minuten neu.
+   */
+  const bekannt = ausgefallen(SSH_BEREICH);
+  if (bekannt) return Promise.reject(new Error(bekannt));
+
   return new Promise((resolve, reject) => {
     const conn = new Client();
     let settled = false;
@@ -207,6 +224,8 @@ export function sshExec(
           stream
             .on("close", (code: number) => {
               clearTimeout(timer);
+              // Es ging durch: der Weg steht wieder.
+              merkeErfolg(SSH_BEREICH);
               finish(() => resolve({ stdout, stderr, code: code ?? 0 }));
             })
             .on("data", (d: Buffer) => { stdout += d.toString(); })
@@ -215,7 +234,9 @@ export function sshExec(
       })
       .on("error", (err) => {
         clearTimeout(timer);
-        finish(() => reject(new Error(sshDiagnose(err))));
+        const diagnose = sshDiagnose(err);
+        merkeAusfall(SSH_BEREICH, diagnose);
+        finish(() => reject(new Error(diagnose)));
       })
       .connect({
         host: cfg.host,

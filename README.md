@@ -92,8 +92,8 @@ npm run dev
 **Prüfungen** (dieselben wie in CI):
 
 ```bash
-npm run typecheck         # tsc über alle Pakete, 36 check-*.mjs und 32 Frontend-Tests
-npm run test -w @workspace/lukas-ui   # nur die Frontend-Tests (32)
+npm run typecheck         # tsc über alle Pakete, 37 check-*.mjs und 41 Frontend-Tests
+npm run test -w @workspace/lukas-ui   # nur die Frontend-Tests (41)
 ```
 
 **Deployment:** Railway baut aus `main`. `start:deploy` führt vor dem Start
@@ -191,12 +191,13 @@ eines mit bekannten Lücken.
   echte Prozesse und einen echten Browser. Was fehlt: dass ein `docker exec`
   auf dem Droplet wirklich so antwortet, wie die Attrappe behauptet — dafür
   bräuchte es den Droplet selbst.
-- **Das Dashboard ist nur an den kritischen Stellen geprüft.** 32 Tests
+- **Das Dashboard ist nur an den kritischen Stellen geprüft.** 41 Tests
   (vitest + Testing Library, `npm run test -w @workspace/lukas-ui`) decken die
   Wege ab, an denen ein Fehler etwas auslöst statt nur schlecht auszusehen:
   Freigabe erteilen und ablehnen (richtige ID, richtiges Verb, Token dabei,
   abgelaufene Freigabe ohne Tasten), auf eine Meldung antworten, die
-  Kennzahlen, und dass die Zugangs-Seite nie einen Wert anzeigt. Chat, Studio, Gedächtnis und Gehirn haben keine Tests.
+  Kennzahlen, der Block „Wartet auf dich" auf der Startseite, und dass die
+  Zugangs-Seite nie einen Wert anzeigt. Chat, Studio, Gedächtnis und Gehirn haben keine Tests.
 
 **Fachlich**
 

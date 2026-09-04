@@ -15,6 +15,7 @@ import { runReflection } from "../lib/reflection";
 import { getDebugLog, recordDebugEvent } from "../lib/debug-log";
 import { listeMeldungen, beantworteMeldung } from "../lib/melden";
 import { kennzahlen } from "../lib/kennzahlen";
+import { wartendes } from "../lib/wartet";
 import { listeZugaenge, setzeZugang, loescheZugang } from "../lib/zugaenge";
 import { tresorBereit } from "../lib/tresor";
 import { baueGehirn, gehirnVault } from "../lib/gehirn";
@@ -377,6 +378,36 @@ router.get("/lukas/debug-log", async (req, res) => {
     res.json(await getDebugLog());
   } catch (err) {
     res.status(500).json({ error: "Failed to get debug log" });
+  }
+});
+
+/*
+ * Was auf Issa wartet — für die Startseite.
+ *
+ * DER ANLASS: Lukas meldet sich, wenn er allein nicht weiterkommt, und bleibt
+ * dann stehen. Diese Meldung lag in einem eigenen Tab, die offenen Freigaben
+ * in einem zweiten. Beides sah man nur, wenn man ohnehin schon wusste, dass
+ * etwas ansteht — und wenn man das wusste, brauchte man die Ansicht nicht
+ * mehr. Die Startseite ist die Seite, die man aufmacht, ohne etwas zu wissen.
+ *
+ * EIN EIGENER ENDPUNKT und nicht ein Feld in /dashboard: eine Freigabe
+ * entsteht, während Lukas arbeitet, und ist nach Minuten wieder weg. Das
+ * gehört häufiger nachgeladen als sein Tagebuch — und die restliche Übersicht
+ * dafür alle zehn Sekunden neu zu berechnen wäre Verschwendung.
+ *
+ * ABGELAUFENE FREIGABEN WERDEN HIER AUSSORTIERT, nicht erst in der Ansicht.
+ * Der Server weiß, wann eine abgelaufen ist; wer das der Oberfläche
+ * überlässt, hat dieselbe Regel an zwei Stellen und irgendwann in einer davon
+ * falsch. Was hier herauskommt, ist ausnahmslos etwas, das Issa jetzt
+ * entscheiden KANN — sonst drückt er auf "Erlauben", sieht keinen Fehler und
+ * hält für erledigt, was weiter offen ist.
+ */
+router.get("/lukas/wartet", async (_req, res) => {
+  try {
+    res.json(await wartendes());
+  } catch (err) {
+    logger.error({ err }, "Wartendes konnte nicht gelesen werden");
+    res.status(500).json({ error: "Failed to load pending items" });
   }
 });
 

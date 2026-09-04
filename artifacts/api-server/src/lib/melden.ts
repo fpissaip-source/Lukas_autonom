@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { meldungen, type Meldung } from "@workspace/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { logger } from "./logger";
 
 /*
@@ -131,6 +131,26 @@ export async function anfrageVonWebsite(opts: {
 
   logger.info({ id: row.id, email }, "Anfrage von der Website eingegangen");
   return row;
+}
+
+/*
+ * Was gerade auf Issa wartet — fuer die Startseite.
+ *
+ * Bewusst die MELDUNGEN SELBST und nicht nur ihre Anzahl. Eine Zahl sagt
+ * "irgendetwas liegt an" und verschiebt die Arbeit auf einen zweiten Klick;
+ * genau so entstehen Zaehler, die wochenlang auf 3 stehen. Wer den Betreff
+ * liest, entscheidet in derselben Sekunde, ob es jetzt dran ist.
+ *
+ * Dringendes zuerst, danach das Aelteste: was am laengsten liegt, blockiert
+ * Lukas am laengsten.
+ */
+export async function offeneMeldungen(limit = 5): Promise<Meldung[]> {
+  return db
+    .select()
+    .from(meldungen)
+    .where(eq(meldungen.status, "offen"))
+    .orderBy(desc(meldungen.dringend), asc(meldungen.createdAt))
+    .limit(limit);
 }
 
 export async function listeMeldungen(): Promise<Meldung[]> {

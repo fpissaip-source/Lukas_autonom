@@ -38,6 +38,7 @@ export const meldungen = { betreff: "betreff", status: "status", id: "id", geles
 export const eq = (feld, wert) => (z) => z[feld] === wert;
 export const and = (...fns) => (z) => fns.every((f) => f(z));
 export const desc = () => ({});
+export const asc = () => ({});
 
 const treffer = (bed) => globalThis.__tabelle.filter((z) => (bed ? bed(z) : true));
 

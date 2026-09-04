@@ -16,6 +16,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { de } from "date-fns/locale";
 import { PageHeader } from "@/components/page-header";
+import { WartetAufDich } from "@/components/wartet-auf-dich";
 
 /*
  * Ein Abschnitt der Uebersicht.
@@ -140,6 +141,11 @@ export default function Dashboard() {
       />
 
       <div className="p-5 sm:p-6 space-y-8 max-w-6xl">
+        {/* Ganz oben, vor allem anderen: was von Issa gebraucht wird. Alles
+            Übrige auf dieser Seite ist Information, nur das hier ist eine
+            Aufgabe. */}
+        <WartetAufDich />
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Kennzahl
             icon={Activity}

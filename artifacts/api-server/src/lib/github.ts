@@ -28,7 +28,38 @@ export async function githubRequest(
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`GitHub API ${res.status}: ${body.slice(0, 300)}`);
+    const method = init?.method ?? "GET";
+    const apiPath = path.split("?", 1)[0];
+
+    let rateLimitDetails = "";
+
+    if (res.status === 403) {
+      const remaining =
+        res.headers.get("x-ratelimit-remaining") ?? "unknown";
+      const resetHeader = res.headers.get("x-ratelimit-reset");
+
+      let reset = "unknown";
+
+      if (resetHeader !== null && resetHeader.trim() !== "") {
+        const resetSeconds = Number(resetHeader);
+
+        if (Number.isFinite(resetSeconds)) {
+          const resetDate = new Date(resetSeconds * 1000);
+
+          if (!Number.isNaN(resetDate.getTime())) {
+            reset = resetDate.toISOString();
+          }
+        }
+      }
+
+      rateLimitDetails =
+        `; x-ratelimit-remaining=${remaining}` +
+        `; x-ratelimit-reset=${reset}`;
+    }
+
+    throw new Error(
+      `GitHub API ${method} ${apiPath} ${res.status}${rateLimitDetails}: ${body.slice(0, 300)}`,
+    );
   }
   return res.status === 204 ? null : res.json();
 }

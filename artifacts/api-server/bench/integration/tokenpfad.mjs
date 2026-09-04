@@ -47,12 +47,51 @@ export async function lauf() {
     cache_creation_input_tokens: 0,
   };
 
+  /*
+   * Derselbe Server bedient BEIDE Anbieter — Anthropics /v1/messages und
+   * OpenAIs /v1/responses. Nicht aus Bequemlichkeit: so laeuft der Vergleich
+   * der beiden Verbrauchs-Semantiken gegen dieselbe Zustellung, und ein
+   * Unterschied im Ergebnis kann nur aus dem Code kommen, nicht aus zwei
+   * verschieden gebauten Attrappen.
+   */
   const server = createServer((req, res) => {
     let body = "";
     req.on("data", (d) => { body += d; });
     req.on("end", () => {
       anfragen.push({ pfad: req.url, body: JSON.parse(body || "{}") });
       res.writeHead(200, { "content-type": "application/json" });
+
+      if (String(req.url).includes("/responses")) {
+        /*
+         * Die echte Antwortform der Responses-API.
+         *
+         * `output_text` ist KEIN Feld, das der Server schickt — das SDK
+         * leitet es aus den Ausgabe-Elementen ab. Der erste Entwurf hat es
+         * einfach mitgeschickt und lief in "Modell hat nichts geliefert".
+         * Genau so einen Fund kann nur eine Pruefung gegen die echte
+         * Bibliothek machen; eine handgeschriebene Attrappe haette brav das
+         * geliefert, was der Code lesen will.
+         */
+        return res.end(
+          JSON.stringify({
+            id: "resp_test",
+            object: "response",
+            status: "completed",
+            model: "gpt-test",
+            output: [
+              {
+                type: "message",
+                id: "msg_test",
+                role: "assistant",
+                status: "completed",
+                content: [{ type: "output_text", text: "ok", annotations: [] }],
+              },
+            ],
+            usage: antwortUsage,
+          }),
+        );
+      }
+
       res.end(
         JSON.stringify({
           content: [{ type: "text", text: "ok" }],
@@ -69,12 +108,25 @@ export async function lauf() {
   const dir = mkdtempSync(join(process.cwd(), ".tokenpfad-"));
   const out = join(dir, "mc.mjs");
   const attrappe = join(dir, "a.mjs");
+  /*
+   * Der OpenAI-Client ist hier ECHT — dieselbe Bibliothek wie im Betrieb, nur
+   * mit baseURL auf unseren Server. Damit laeuft auch das Drahtformat des SDK
+   * durch die Pruefung: wie es den Request baut, was es sendet, wie es die
+   * Antwort zurueckgibt. Eine handgeschriebene Attrappe haette genau das
+   * uebersprungen — und der Verbrauch wird aus response.usage gelesen, also
+   * aus dem, was das SDK durchreicht.
+   */
   writeFileSync(
     attrappe,
-    `export const db = new Proxy({}, { get: () => () => ({}) });
+    `import OpenAI from "openai";
+export const db = new Proxy({}, { get: () => () => ({}) });
 export default new Proxy({}, { get: () => () => ({}) });
 export const logger = { info(){},warn(){},error(){},debug(){} };
-export const openai = {};
+export const openai = new OpenAI({
+  apiKey: "test-schluessel",
+  baseURL: "http://127.0.0.1:${port}/v1",
+  maxRetries: 0,
+});
 export const verbucheTag = async () => {};
 export const fitLukasContext = (m) => m;
 `,
@@ -90,7 +142,6 @@ export const fitLukasContext = (m) => m;
       "@workspace/db": attrappe,
       "drizzle-orm": attrappe,
       "@workspace/integrations-openai-ai": attrappe,
-      openai: attrappe,
     },
     plugins: [
       {
@@ -244,7 +295,70 @@ export const fitLukasContext = (m) => m;
     Number.isFinite(ohne?.rein) && Number.isFinite(ohne?.ausCache),
   );
 
-  // ── 5. Die andere Anbieter-Semantik: OpenAI zählt den Cache MIT ────────
+  // ── 5. Der ECHTE OpenAI-Pfad, nicht nur seine Semantik ─────────────────
+  /*
+   * Bis hierher lief alles ueber callAnthropic. Der OpenAI-Weg ist ein
+   * anderer: andere API (Responses statt Messages), anderer Request-Aufbau,
+   * anderer Schluessel fuers Zwischenspeichern. Ihn nicht zu pruefen und
+   * trotzdem "der Token-Weg klappt" zu sagen, waere die halbe Wahrheit
+   * gewesen.
+   */
+  antwortUsage = {
+    input_tokens: 20000,
+    output_tokens: 10,
+    input_tokens_details: { cached_tokens: 18000 },
+  };
+  const vorherAnfragen = anfragen.length;
+  await mc.callLukasModel({
+    ...zug("sachlich"),
+    route: { provider: "openai", model: "gpt-test", profile: "general" },
+    cacheKey: "lukas-42",
+  });
+  const oaiAnfrage = anfragen[vorherAnfragen];
+
+  p(
+    "token:openai-responses",
+    "der OpenAI-Weg geht über die Responses-API",
+    String(oaiAnfrage?.pfad ?? "").includes("/responses"),
+    `Pfad: ${oaiAnfrage?.pfad}`,
+  );
+  /*
+   * Ohne diesen Schluessel ist ein Cache-Treffer bei OpenAI Zufall: er lenkt
+   * gleichartige Anfragen auf dieselbe Maschine.
+   */
+  p(
+    "token:openai-cache-key",
+    "der prompt_cache_key wird mitgeschickt und trägt die Unterhaltung",
+    oaiAnfrage?.body?.prompt_cache_key === "lukas-42",
+    `key: ${oaiAnfrage?.body?.prompt_cache_key}`,
+  );
+  p(
+    "token:openai-keine-marke",
+    "die Trennmarke wird für OpenAI ENTFERNT — sie ist nur für Anthropic",
+    !JSON.stringify(oaiAnfrage?.body ?? {}).includes(marke.CACHE_TRENNER),
+  );
+  p(
+    "token:openai-prompt-vollstaendig",
+    "der Prompt kommt trotzdem vollständig an, nicht an der Marke abgeschnitten",
+    JSON.stringify(oaiAnfrage?.body ?? {}).includes("Gefühl: sachlich"),
+  );
+
+  const oaiEcht = mc.verbrauchsUebersicht().find((z) => z.model === "gpt-test");
+  p(
+    "token:openai-verbrauch",
+    "steckt der Cache IM Eingang, wird er abgezogen — 20.000 gemeldet, 18.000 gecacht → 2.000 frisch",
+    oaiEcht?.rein === 2000 && oaiEcht?.ausCache === 18000,
+    `rein: ${oaiEcht?.rein}, ausCache: ${oaiEcht?.ausCache}`,
+  );
+  const ganzEcht = (oaiEcht?.rein ?? 0) + (oaiEcht?.ausCache ?? 0) + (oaiEcht?.inCache ?? 0);
+  p(
+    "token:openai-quote",
+    "und die Quote bleibt bei oder unter 100 %",
+    ganzEcht > 0 && (oaiEcht.ausCache / ganzEcht) * 100 <= 100,
+    `${((oaiEcht.ausCache / ganzEcht) * 100).toFixed(1)} %`,
+  );
+
+  // ── 6. Dieselbe Semantik noch einmal über den Anthropic-Pfad ───────────
   /*
    * Bei OpenAI STECKT der Cache in prompt_tokens. Wer beides gleich
    * behandelt, zaehlt dieselben Tokens zweimal — einmal als Eingang, einmal
@@ -252,7 +366,6 @@ export const fitLukasContext = (m) => m;
    * die fehleranfaelligste Stelle im ganzen Verbrauchspfad, und sie hat mich
    * beim Schreiben dieses Tests selbst erwischt.
    */
-  antwortUsage = { input_tokens: 20000, output_tokens: 10, input_tokens_details: { cached_tokens: 18000 } };
   await mc.callLukasModel({ ...zug("sachlich"), route: { ...route, model: "wie-openai" } });
   const oai = mc.verbrauchsUebersicht().find((z) => z.model === "wie-openai");
   p(

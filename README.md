@@ -193,6 +193,15 @@ eines mit bekannten Lücken.
   wie die Anthropic-API verhält. Was fehlt: dass ein `docker exec`
   auf dem Droplet wirklich so antwortet, wie die Attrappe behauptet — dafür
   bräuchte es den Droplet selbst.
+- **Die OpenAPI-Spezifikation deckt nur einen Teil ab.** `lib/api-spec/openapi.yaml`
+  beschreibt 21 Pfade, der Server hat 76 Route-Handler. Sechs Dashboard-Seiten
+  benutzen den daraus erzeugten typisierten Client, alle übrigen (Freigaben,
+  Meldungen, MCP, Telefon, Vorschläge, Kennzahlen, Zugänge, Startseite) rufen
+  mit `fetch` direkt auf — zwischen Server und Oberfläche gibt es dort keine
+  geprüfte Zusage. **Nichts erzwingt die Übereinstimmung**, weder ein Test noch
+  CI; die Spezifikation kann also beliebig weit abdriften, ohne dass etwas
+  rot wird. Das ist keine neue Lücke, aber eine, die mit jeder Route wächst.
+
 - **Das Dashboard ist nur an den kritischen Stellen geprüft.** 41 Tests
   (vitest + Testing Library, `npm run test -w @workspace/lukas-ui`) decken die
   Wege ab, an denen ein Fehler etwas auslöst statt nur schlecht auszusehen:

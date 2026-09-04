@@ -16,7 +16,7 @@ import { execSync } from "node:child_process";
 
 const HIER = new URL(".", import.meta.url).pathname;
 const ERGEBNISSE = `${HIER}../results`;
-const MODULE = ["postgres", "netz", "nebenlaeufigkeit", "gedaechtnis-echt", "browser"];
+const MODULE = ["postgres", "netz", "nebenlaeufigkeit", "gedaechtnis-echt", "browser", "tokenpfad"];
 
 const commit = () => {
   try {

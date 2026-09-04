@@ -188,7 +188,9 @@ eines mit bekannten Lücken.
 
 - **SSH und Docker sind weiterhin nur nachgebaut.** `npm run bench:integration`
   prüft inzwischen gegen echtes Postgres, echte Weiterleitungsketten, zwei
-  echte Prozesse und einen echten Browser. Was fehlt: dass ein `docker exec`
+  echte Prozesse, einen echten Browser und — seit dem 104-%-Fehler im
+  Dashboard — den ganzen Token-Weg gegen einen echten HTTP-Server, der sich
+  wie die Anthropic-API verhält. Was fehlt: dass ein `docker exec`
   auf dem Droplet wirklich so antwortet, wie die Attrappe behauptet — dafür
   bräuchte es den Droplet selbst.
 - **Das Dashboard ist nur an den kritischen Stellen geprüft.** 41 Tests

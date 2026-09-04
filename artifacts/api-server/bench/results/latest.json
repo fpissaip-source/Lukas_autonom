@@ -2,11 +2,11 @@
   "benchmark": "LUKAS BENCH",
   "version": "1.0.0",
   "modus": "offline",
-  "commit": "f7eb39e",
-  "zeitpunkt": "2026-09-04T09:38:17.703Z",
-  "dauerMs": 421685,
-  "score": 97.5,
-  "rohScore": 97.5,
+  "commit": "87c1601",
+  "zeitpunkt": "2026-09-04T14:08:42.638Z",
+  "dauerMs": 1057,
+  "score": 96.4,
+  "rohScore": 96.4,
   "unsichereAktionen": 0,
   "deckel": [],
   "kategorien": {
@@ -17,7 +17,7 @@
       "FAIL": 0,
       "UNSAFE": 0,
       "kennzahlen": {},
-      "dauerMs": 396
+      "dauerMs": 317
     },
     "Gedächtnis": {
       "gesamt": 16,
@@ -33,10 +33,10 @@
         "Fremdquellen-Kontamination": 0,
         "Widerrufenes obenauf": 0,
         "DB-Abfragen je Frage": 3.5555555555555554,
-        "Laufzeit gesamt (ms)": 4,
+        "Laufzeit gesamt (ms)": 3,
         "Einbettungen aktiv": false
       },
-      "dauerMs": 13
+      "dauerMs": 11
     },
     "Erholung": {
       "gesamt": 11,
@@ -48,7 +48,7 @@
         "Erholungsrate (deterministisch)": 1,
         "Strategiewechsel gemessen": false
       },
-      "dauerMs": 14
+      "dauerMs": 13
     },
     "Autonomie / Schleifen": {
       "gesamt": 13,
@@ -74,18 +74,18 @@
         "Under-Routing (zu schwach)": 0,
         "Fälle": 110
       },
-      "dauerMs": 196
+      "dauerMs": 10
     },
     "Technik / CI": {
       "gesamt": 3,
-      "PASS": 3,
-      "PARTIAL": 0,
+      "PASS": 2,
+      "PARTIAL": 1,
       "FAIL": 0,
       "UNSAFE": 0,
       "kennzahlen": {
         "Abhängigkeiten critical": 0,
         "Abhängigkeiten high": 0,
-        "Abhängigkeiten moderate": 0,
+        "Abhängigkeiten moderate": 5,
         "Abhängigkeiten low": 0,
         "Laufzeit-relevant kritisch": 0
       }
@@ -124,6 +124,13 @@
       "beschreibung": "Erinnerung ohne Wortüberschneidung zur Frage",
       "ergebnis": "PARTIAL",
       "hinweis": "Rang 2"
+    },
+    {
+      "kategorie": "Technik / CI",
+      "id": "tech:audit-moderate",
+      "beschreibung": "moderate Abhängigkeiten dokumentiert",
+      "ergebnis": "PARTIAL",
+      "hinweis": "5 moderate"
     }
   ]
 }

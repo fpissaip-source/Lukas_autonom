@@ -110,6 +110,69 @@ function requireSshConfig(): { host: string; user: string; key: string; port: nu
  * braucht der Browser: sein Skript ist mehrere Kilobyte gross und steckt voller
  * Anfuehrungszeichen — als Argument waere das ein Zitier-Minenfeld.
  */
+/*
+ * Aus einem SSH-Fehler eine Diagnose machen.
+ *
+ * ANLASS: im Dashboard stand "Fehler: Timed out while waiting for handshake".
+ * Das ist die Meldung der ssh2-Bibliothek, unveraendert durchgereicht — und
+ * sie sagt weder Lukas noch Issa irgendetwas. Lukas konnte daraus nicht
+ * schliessen, ob der Droplet aus ist, der Schluessel nicht passt oder der
+ * Browser kaputt ist. Er haette es mit demselben Werkzeug erneut versucht,
+ * dann mit einem anderen, das ueber denselben Weg laeuft — und jedes Mal
+ * dieselbe raetselhafte Zeile bekommen.
+ *
+ * DESHALB STEHT HIER AUCH, WAS SONST NOCH BETROFFEN IST. Alles, was auf dem
+ * Droplet laeuft, faellt gemeinsam aus: die Sandbox, der Browser, das
+ * Bedienen von Seiten. Ohne diesen Satz probiert er die Geschwister durch und
+ * verbrennt drei Runden an derselben Ursache.
+ *
+ * Und es steht dabei, dass er es NICHT selbst reparieren kann. Ein Agent, der
+ * glaubt, er koenne einen ausgeschalteten Server durch einen weiteren Versuch
+ * anschalten, versucht es sonst bis zum Rundenlimit.
+ */
+export function sshDiagnose(err: unknown): string {
+  const roh = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string } | null)?.code ?? "";
+  const wo = `${process.env.VPS_SSH_HOST ?? "?"}:${process.env.VPS_SSH_PORT ?? "22"}`;
+
+  const nachsatz =
+    ` Betroffen ist damit ALLES, was auf dem Droplet läuft — Sandbox, Browser, ` +
+    `Seiten bedienen. Probier nicht die anderen Werkzeuge durch, die scheitern ` +
+    `am selben Punkt. Das kannst du nicht selbst reparieren: sag es Issa über ` +
+    `melde_dich_bei_issa.`;
+
+  if (/waiting for handshake/i.test(roh)) {
+    return (
+      `Der Droplet (${wo}) antwortet nicht auf SSH — der Verbindungsaufbau lief in ` +
+      `die Zeitüberschreitung. Meistens heißt das: der Server ist aus, oder eine ` +
+      `Firewall lässt uns nicht mehr durch.` + nachsatz
+    );
+  }
+  if (/authentication|All configured authentication methods failed/i.test(roh)) {
+    return (
+      `Der Droplet (${wo}) ist erreichbar, weist den Schlüssel aber ab. Der ` +
+      `Zugang in VPS_SSH_KEY passt nicht (mehr) zum Server.` + nachsatz
+    );
+  }
+  if (code === "ECONNREFUSED" || /ECONNREFUSED/.test(roh)) {
+    return (
+      `Der Droplet (${wo}) ist da, aber auf dem SSH-Port nimmt niemand ab — der ` +
+      `SSH-Dienst läuft nicht oder hört auf einem anderen Port.` + nachsatz
+    );
+  }
+  if (code === "ENOTFOUND" || /ENOTFOUND|EAI_AGAIN/.test(roh)) {
+    return (
+      `Der Name in VPS_SSH_HOST (${wo}) lässt sich nicht auflösen — die Adresse ` +
+      `stimmt nicht oder der Droplet existiert nicht mehr.` + nachsatz
+    );
+  }
+  if (code === "ETIMEDOUT" || /ETIMEDOUT|EHOSTUNREACH|ENETUNREACH/.test(roh)) {
+    return `Der Droplet (${wo}) ist über das Netz nicht erreichbar.` + nachsatz;
+  }
+  // Unbekannt: die Originalmeldung MIT Einordnung, nicht statt ihr.
+  return `SSH zum Droplet (${wo}) fehlgeschlagen: ${roh}` + nachsatz;
+}
+
 export function sshExec(
   command: string,
   timeoutMs: number,
@@ -150,8 +213,27 @@ export function sshExec(
             .stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
         });
       })
-      .on("error", (err) => { clearTimeout(timer); finish(() => reject(err)); })
-      .connect({ host: cfg.host, port: cfg.port, username: cfg.user, privateKey: cfg.key });
+      .on("error", (err) => {
+        clearTimeout(timer);
+        finish(() => reject(new Error(sshDiagnose(err))));
+      })
+      .connect({
+        host: cfg.host,
+        port: cfg.port,
+        username: cfg.user,
+        privateKey: cfg.key,
+        /*
+         * Der Verbindungsaufbau bekam bisher IMMER ssh2s Voreinstellung von
+         * 20 Sekunden — auch dann, wenn der Aufrufer 180 Sekunden mitgab. Ein
+         * grosszuegiges Zeitlimit half also genau bei dem Teil nicht, der am
+         * ehesten haengt.
+         *
+         * Nach oben gedeckelt: laenger als eine Minute auf einen Handshake zu
+         * warten bringt nichts. Wer nach 60 Sekunden nicht antwortet,
+         * antwortet auch nach 180 nicht — und solange blockiert der Zug.
+         */
+        readyTimeout: Math.min(Math.max(timeoutMs, 20000), 60000),
+      });
   });
 }
 

@@ -6,6 +6,7 @@
 // leer, sobald man ihn sich ansieht.
 
 import { db } from "@workspace/db";
+import { fehlerText } from "./fehlertext";
 import { debugLogTable } from "@workspace/db";
 import { desc, gte } from "drizzle-orm";
 import { logger } from "./logger";
@@ -19,7 +20,16 @@ export interface DebugLogEntry {
 // Fire-and-forget: ein DB-Fehler beim Protokollieren darf nie die eigentliche
 // Fehlerbehandlung des Aufrufers stoeren.
 export function recordDebugEvent(scope: string, err: unknown): void {
-  const message = err instanceof Error ? err.message : String(err);
+  /*
+   * Ueber fehlerText(), damit die Ursachenkette mitkommt.
+   *
+   * Das ist hier besonders wichtig: aus diesem Protokoll bildet die
+   * Selbstheilung ihre Fehlergruppen. Stand darin bei JEDEM Netzfehler nur
+   * "fetch failed", fielen DNS-Fehler, Zertifikatsfehler und Zeitlimits zu
+   * EINER Gruppe zusammen — und die Reparaturkette bekam eine Gruppe von
+   * dreissig Fehlern vorgelegt, die nichts miteinander zu tun hatten.
+   */
+  const message = fehlerText(err);
   db.insert(debugLogTable)
     .values({ scope, message })
     .catch((dbErr) => logger.warn({ dbErr }, "Debug-Log konnte nicht gespeichert werden"));

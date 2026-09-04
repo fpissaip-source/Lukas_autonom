@@ -7,6 +7,7 @@ import { buildSystemPrompt } from "./system-prompt";
 import { verdichteWerkzeugErgebnisse, ersparnis } from "./ai/verdichten";
 import { fuehleWerkzeug } from "./emotion-engine";
 import { logger } from "./logger";
+import { fehlerText, netzDiagnose } from "./fehlertext";
 import { recordDebugEvent } from "./debug-log";
 import { routeLukasModel, directRoute } from "./ai/model-router";
 import { callLukasModel } from "./ai/model-client";
@@ -32,8 +33,13 @@ function historyHasMultimodal(history: OpenAI.Chat.Completions.ChatCompletionMes
  * credentials" sagt alles, was man zum Weitersuchen braucht.
  */
 function fehlerGrund(err: unknown): string {
-  const text = err instanceof Error ? err.message : String(err);
-  return text.split("\n")[0].slice(0, 200);
+  /*
+   * Ueber fehlerText(), damit die Ursachenkette mitkommt. Vorher stand hier
+   * bei jedem Netzfehler nur "fetch failed" — und weil daraus die Lehren
+   * gebildet werden, hiess es nach drei Fehlschlaegen: "github_read_path
+   * scheitert an: fetch failed". Das ist keine Lehre, das ist eine Zaehlung.
+   */
+  return fehlerText(err).slice(0, 300);
 }
 
 export async function runLukasTurn(opts: {
@@ -208,7 +214,14 @@ export async function runLukasTurn(opts: {
         convo.push({
           role: "tool",
           tool_call_id: tc.id,
-          content: `Fehler: ${err instanceof Error ? err.message : String(err)}`,
+          /*
+           * netzDiagnose() statt err.message: bei einem Netzfehler steht die
+           * eigentliche Ursache in err.cause, und die wurde bisher
+           * weggeworfen. Lukas las "fetch failed" und konnte daraus nur
+           * schliessen, es noch einmal zu versuchen — auch dann, wenn ein
+           * zweiter Versuch nie klappen konnte.
+           */
+          content: `Fehler: ${netzDiagnose(err)}`,
         });
         // Ein geworfener Fehler ist der eindeutigste Misserfolg, den es gibt —
         // hier wird nichts geraten.

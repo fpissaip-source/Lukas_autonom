@@ -11,6 +11,31 @@ export const lukasStatusTable = pgTable("lukas_status", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+/*
+ * Der Zustand des autonomen Taktes — ueber Neustarts hinweg.
+ *
+ * DER ANLASS: die Leerlaufbremse lag im Arbeitsspeicher. Nach jedem Neustart
+ * war sie leer, und "erster Lauf nach dem Start" loeste sofort einen vollen
+ * Agentenlauf aus. An einem Tag mit einem Dutzend Deployments sind das ein
+ * Dutzend zusaetzlicher Laeufe — jeder mit Seele, Werkzeugen, Erinnerungen und
+ * mehreren Runden. Und weil ein Lauf selbst Ziele und Tagebuch aendert, war
+ * danach auch die Signatur anders und der naechste regulaere Takt lief
+ * ebenfalls. Eine Bremse, die bei jedem Neustart vergisst, ist keine.
+ *
+ * Zwei Werte, eine Zeile. Absichtlich keine eigene Tabelle mit Historie: es
+ * geht um den Zustand von jetzt, nicht um seine Geschichte.
+ */
+export const autonomieStandTable = pgTable("lukas_autonomie_stand", {
+  id: serial("id").primaryKey(),
+  /** Wann zuletzt wirklich gelaufen wurde. */
+  letzterLauf: timestamp("letzter_lauf", { withTimezone: true }),
+  /** Fingerabdruck der Welt nach diesem Lauf. */
+  stand: text("stand"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type AutonomieStand = typeof autonomieStandTable.$inferSelect;
+
 export const memoriesTable = pgTable("lukas_memories", {
   id: serial("id").primaryKey(),
   content: text("content").notNull(),

@@ -33,6 +33,15 @@ export const gte = (_f, wert) => (z) => new Date(z.createdAt).getTime() >= new D
 export const logger = { info() {}, warn() {}, error() {}, debug() {} };
 export const tageskostenTable = new Proxy({}, { get: (_t, k) => String(k) });
 export const sql = () => ({});
+export const desc = () => ({});
+
+/*
+ * Der gespeicherte Autonomie-Stand. Er ist der Kern der Aenderung: die
+ * Leerlaufbremse lag vorher im Arbeitsspeicher und war nach jedem Neustart
+ * leer — ein Deploy loeste damit sofort einen vollen Agentenlauf aus.
+ */
+globalThis.__stand = [];
+export const autonomieStandTable = t("stand");
 
 // Ein OpenAI-SDK, das nur das tut, was model-client davon braucht: antworten
 // und dabei eine Verbrauchsmeldung mitgeben.
@@ -44,9 +53,18 @@ export const openai = {
 };
 globalThis.__welt = { goals: [], approvals: [], meldungen: [], debug: [] };
 export const db = {
+  /* Tabellenbewusst: die Tageskosten schreiben ebenfalls, und sie duerfen den
+     Autonomie-Stand nicht mitbefuellen. Genau das hat dieser Test beim ersten
+     Anlauf getan und eine falsche Zahl geprueft. */
+  insert: (tab) => ({ values: async (v) => {
+    if (tab && tab.__name === "stand") globalThis.__stand.push({ id: 1, ...v });
+  } }),
+  update: () => ({ set: (w) => ({ where: async () => {
+    if (globalThis.__stand[0]) Object.assign(globalThis.__stand[0], w);
+  } }) }),
   select: () => ({
     from: (tab) => {
-      const alle = globalThis.__welt[tab.__name] ?? [];
+      const alle = tab.__name === "stand" ? globalThis.__stand : (globalThis.__welt[tab.__name] ?? []);
       const bau = (bed) => ({
         where: (b) => bau(b),
         orderBy: () => bau(bed),
@@ -224,15 +242,88 @@ globalThis.__welt.goals = [{ id: 1, status: "active", progress: "weiter", update
 pruefe("ein verändertes Ziel weckt ihn", (await anlass()).starten === true);
 await laufNotiert();
 
-// Fehler haeufen sich.
+// Fehler haeufen sich — und zwar VERSCHIEDENE.
 globalThis.__welt.debug = [
-  { id: 1, createdAt: new Date() },
-  { id: 2, createdAt: new Date() },
+  { id: 1, scope: "tool:fetch_url", message: "getaddrinfo ENOTFOUND", createdAt: new Date() },
+  { id: 2, scope: "chat", message: "Leere Antwort", createdAt: new Date() },
 ];
 pruefe("zwei Fehler sind noch kein Anlass", (await anlass()).starten === false);
-globalThis.__welt.debug.push({ id: 3, createdAt: new Date() });
+globalThis.__welt.debug.push({
+  id: 3, scope: "tool:browser_do", message: "Zeitüberschreitung", createdAt: new Date(),
+});
 const f = await anlass();
 pruefe("drei sind einer", f.starten === true);
+
+/*
+ * Und der Fall, der einen ganzen Tag lang 4,2 Millionen Tokens gekostet hat:
+ * der Droplet ist tot, JEDES Werkzeug meldet denselben Fehler, dutzendfach.
+ *
+ * Vorher war die Schwelle von drei damit zu jedem Zeitpunkt gerissen — die
+ * Leerlaufbremse war den ganzen Tag wirkungslos, jeder 30-Minuten-Takt lief,
+ * und jeder Lauf erzeugte beim Scheitern neue Fehler fuer den naechsten. Eine
+ * Rueckkopplung, die sich selbst am Leben haelt.
+ *
+ * Dreissig Mal dasselbe ist EIN Problem, kein Grund fuer dreissig Laeufe.
+ */
+await laufNotiert();
+globalThis.__welt.debug = Array.from({ length: 30 }, (_, i) => ({
+  id: 100 + i,
+  scope: "tool:browse_page",
+  message: "Der Droplet (1.2.3.4:22) antwortet nicht auf SSH — der Verbindungsaufbau lief in die Zeitüberschreitung.",
+  createdAt: new Date(),
+}));
+const gleiche = await anlass();
+pruefe(
+  "dreissig Mal DERSELBE Fehler ist kein Anlass für dreissig Läufe",
+  gleiche.starten === false,
+);
+
+/*
+ * Und die zweite Hälfte derselben Sache: ein NEUSTART ist kein Ereignis in
+ * Lukas' Welt, sondern eines in meiner.
+ *
+ * Vorher lag der Stand im Arbeitsspeicher. Nach jedem Deploy war er leer, und
+ * "erster Lauf nach dem Start" löste sofort einen vollen Agentenlauf aus — an
+ * einem Tag mit einem Dutzend Deployments ein Dutzend zusätzliche Läufe. Und
+ * weil ein Lauf selbst Ziele und Tagebuch ändert, lief danach auch der nächste
+ * reguläre Takt.
+ */
+globalThis.__welt.debug = [];
+await laufNotiert();
+pruefe("nach dem Lauf ist ein Stand gespeichert", globalThis.__stand.length === 1);
+{
+  // Der Neustart: der Speicher ist leer, die Datenbank nicht.
+  anlassZuruecksetzen();
+  const nachNeustart = await anlass();
+  pruefe(
+    "ein Neustart allein löst KEINEN Lauf mehr aus",
+    nachNeustart.starten === false,
+  );
+  pruefe(
+    "und der Grund nennt den Grundtakt statt 'erster Lauf'",
+    /Grundtakt/.test(nachNeustart.grund),
+  );
+}
+
+/*
+ * Gespeichert ist ein Zeitpunkt, aber KEIN Weltbild — das passiert, wenn die
+ * Datenbank direkt nach einem Lauf kurz nicht lesbar war.
+ *
+ * Dann wird gelaufen, und das ist Absicht: in dieser Lage ist ohnehin etwas
+ * nicht in Ordnung, und lieber einmal zu viel als nie wieder. Festgehalten,
+ * damit später niemand das für ein Versehen hält und "wegoptimiert".
+ */
+globalThis.__stand = [{ id: 1, letzterLauf: new Date(), stand: null }];
+anlassZuruecksetzen();
+{
+  const e = await anlass();
+  pruefe("ohne gespeichertes Weltbild wird bewusst gelaufen", e.starten === true);
+}
+
+// Wirklich noch nie gelaufen: dann natürlich schon.
+globalThis.__stand = [];
+anlassZuruecksetzen();
+pruefe("beim allerersten Mal läuft er sofort", (await anlass()).starten === true);
 pruefe("und stehen im Grund", /Fehler/.test(f.grund));
 await laufNotiert();
 

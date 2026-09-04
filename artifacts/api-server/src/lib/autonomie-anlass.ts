@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
-import { goalsTable, approvals, meldungen, debugLogTable } from "@workspace/db";
-import { eq, inArray, gte } from "drizzle-orm";
+import { goalsTable, approvals, meldungen, debugLogTable, autonomieStandTable } from "@workspace/db";
+import { eq, inArray, gte, desc } from "drizzle-orm";
 import { logger } from "./logger";
 
 /*
@@ -28,11 +28,47 @@ import { logger } from "./logger";
 
 let letzterLauf = 0;
 let letzterStand: string | null = null;
+/** Ob der gespeicherte Stand schon aus der Datenbank geholt wurde. */
+let geladen = false;
 
 /** Nur fuer Tests. */
 export function anlassZuruecksetzen(): void {
   letzterLauf = 0;
   letzterStand = null;
+  geladen = false;
+}
+
+/*
+ * Den Stand aus der Datenbank holen — einmal je Prozessleben.
+ *
+ * Vorher lag er ausschliesslich im Arbeitsspeicher. Nach jedem Neustart war er
+ * leer, und "erster Lauf nach dem Start" loeste sofort einen vollen
+ * Agentenlauf aus. An einem Tag mit einem Dutzend Deployments sind das ein
+ * Dutzend zusaetzliche Laeufe, jeder mit vollem Prompt und mehreren Runden.
+ *
+ * Und es blieb nicht dabei: ein Lauf aendert Ziele und schreibt Tagebuch, also
+ * war danach auch die Signatur anders — und der naechste regulaere Takt lief
+ * ebenfalls. Ein Neustart hat sich so in zwei Laeufe uebersetzt.
+ *
+ * Ist die Datenbank nicht lesbar, bleibt es beim alten Verhalten: lieber
+ * einmal zu viel laufen als gar nicht mehr.
+ */
+async function ladeStand(): Promise<void> {
+  if (geladen) return;
+  geladen = true;
+  try {
+    const [zeile] = await db
+      .select()
+      .from(autonomieStandTable)
+      .orderBy(desc(autonomieStandTable.id))
+      .limit(1);
+    if (zeile?.letzterLauf) {
+      letzterLauf = new Date(zeile.letzterLauf).getTime();
+      letzterStand = zeile.stand ?? null;
+    }
+  } catch (err) {
+    logger.warn({ err }, "Autonomie-Stand nicht lesbar — der nächste Lauf startet regulär");
+  }
 }
 
 function minuten(name: string, standard: number): number {
@@ -75,29 +111,65 @@ async function weltbild(): Promise<{ signatur: string; teile: Record<string, str
 /** Haeufen sich seit dem letzten Lauf Fehler? Drei sind kein Ausrutscher mehr. */
 async function neueFehler(seit: Date): Promise<number> {
   const zeilen = await db.select().from(debugLogTable).where(gte(debugLogTable.createdAt, seit));
-  return (zeilen as any[]).length;
+  /*
+   * Nach Art zusammengefasst, nicht gezaehlt. Der Anfang der Meldung reicht
+   * als Unterscheidung — "SSH zum Droplet …" bleibt derselbe Text, egal wie
+   * oft er auftritt.
+   */
+  const arten = new Set(
+    (zeilen as any[]).map((z) => `${z.scope}:${String(z.message ?? "").slice(0, 60)}`),
+  );
+  return arten.size;
 }
 
 export async function anlass(): Promise<{ starten: boolean; grund: string }> {
+  await ladeStand();
   const jetzt = Date.now();
   const grundtakt = minuten("LUKAS_AUTONOMY_MIN_PAUSE_MIN", 180) * 60 * 1000;
 
   const { signatur } = await weltbild();
 
-  // Erster Lauf nach dem Start: immer. Der Serverneustart ist selbst ein
-  // Ereignis, und ohne diesen Fall wuerde Lukas nach einem Deploy drei Stunden
-  // schweigen.
+  /*
+   * Kein gespeicherter Stand: dann laufen.
+   *
+   * Frueher hiess das "nach jedem Neustart", denn der Stand lag im
+   * Arbeitsspeicher — ein Deploy loeste damit sofort einen vollen Agentenlauf
+   * aus. Seit er in der Datenbank steht, heisst es nur noch: wirklich noch nie
+   * gelaufen, oder das Weltbild war nach dem letzten Lauf nicht lesbar.
+   *
+   * Im zweiten Fall ist Laufen die richtige Antwort — dann ist ohnehin etwas
+   * nicht in Ordnung, und lieber einmal zu viel als nie wieder.
+   *
+   * (Eine zusaetzliche Pruefung auf letzterLauf === 0 stand hier kurz. Sie war
+   * ueberfluessig: die Signaturpruefung unten faengt denselben Fall, und die
+   * Gegenprobe hat gezeigt, dass ihr Entfernen nichts aendert. Zwei Waechter
+   * fuer dieselbe Sache sind keine doppelte Sicherheit.)
+   */
   if (letzterStand === null) {
-    return { starten: true, grund: "erster Lauf nach dem Start" };
+    return { starten: true, grund: "kein gespeicherter Stand — erster Lauf" };
   }
 
   if (signatur !== letzterStand) {
     return { starten: true, grund: "es hat sich etwas bewegt (Ziele, Freigaben oder eine Antwort von Issa)" };
   }
 
+  /*
+   * Neue Fehler sind ein Anlass — aber nur VERSCHIEDENE.
+   *
+   * Der Droplet war einen Tag lang tot. Damit entstand bei jedem Werkzeug
+   * derselbe Fehler, dutzendfach, und die Schwelle von drei war zu jedem
+   * Zeitpunkt gerissen. Die Leerlaufbremse war damit den ganzen Tag
+   * wirkungslos: jeder 30-Minuten-Takt lief, und jeder Lauf erzeugte beim
+   * Scheitern neue Fehler fuer den naechsten. Eine Rueckkopplung, die sich
+   * selbst am Leben haelt.
+   *
+   * Gezaehlt werden jetzt unterschiedliche Fehlerarten. Dreissig Mal dasselbe
+   * ist EIN Problem, kein Grund fuer dreissig Laeufe — und wenn es wirklich
+   * eines ist, kuemmert sich die Selbstheilung darum.
+   */
   const fehler = await neueFehler(new Date(letzterLauf));
   if (fehler >= 3) {
-    return { starten: true, grund: `${fehler} neue Fehler seit dem letzten Lauf` };
+    return { starten: true, grund: `${fehler} verschiedene neue Fehler seit dem letzten Lauf` };
   }
 
   if (jetzt - letzterLauf >= grundtakt) {
@@ -124,5 +196,26 @@ export async function laufNotiert(): Promise<void> {
     // startet der naechste Durchgang regulaer.
     logger.warn({ err }, "Weltbild nach dem Lauf nicht lesbar");
     letzterStand = null;
+  }
+
+  /*
+   * Und dauerhaft ablegen, damit der naechste Neustart nicht wieder bei null
+   * anfaengt. Genau EINE Zeile, die fortgeschrieben wird — der Zustand von
+   * jetzt, nicht seine Geschichte.
+   */
+  try {
+    const [vorhanden] = await db
+      .select()
+      .from(autonomieStandTable)
+      .orderBy(desc(autonomieStandTable.id))
+      .limit(1);
+    const werte = { letzterLauf: new Date(letzterLauf), stand: letzterStand, updatedAt: new Date() };
+    if (vorhanden) {
+      await db.update(autonomieStandTable).set(werte).where(eq(autonomieStandTable.id, vorhanden.id));
+    } else {
+      await db.insert(autonomieStandTable).values(werte);
+    }
+  } catch (err) {
+    logger.warn({ err }, "Autonomie-Stand nicht speicherbar");
   }
 }

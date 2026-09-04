@@ -20,7 +20,7 @@ type Ruf = { url: string; init?: RequestInit };
 const freigabe = {
   id: 42,
   tool: "email_send",
-  riskTier: "R3",
+  riskTier: "R2",
   argumentsPreview: 'an: "kunde@example.com"\nbetreff: "Angebot"',
   expiresAt: new Date(Date.now() + 3600_000).toISOString(),
 };
@@ -61,7 +61,7 @@ describe("Wartet auf dich", () => {
 
     expect(await screen.findByText("Zugang zum Kundenpostfach fehlt")).toBeInTheDocument();
     expect(screen.getByText("email_send")).toBeInTheDocument();
-    expect(screen.getByText("R3")).toBeInTheDocument();
+    expect(screen.getByText("R2")).toBeInTheDocument();
     /* Man gibt frei, was man sieht — der Werkzeugname allein ist eine
        Unterschrift auf einem leeren Blatt. */
     expect(screen.getByText(/kunde@example\.com/)).toBeInTheDocument();
@@ -92,6 +92,43 @@ describe("Wartet auf dich", () => {
       expect(post?.url).toBe("/api/lukas/approvals/42/deny");
     });
     expect(rufe.every((r) => !r.url.includes("/allow"))).toBe(true);
+  });
+
+  /*
+   * "Für die Aufgabe" ist die Entscheidung, die Issa meistens meint: er hat
+   * einen Auftrag erteilt, nicht einen einzelnen Aufruf erlaubt. Sie führt
+   * auf eine ANDERE Route — geht die verloren, klickt er weiter sechsmal, ohne
+   * dass irgendwo ein Fehler erschiene.
+   */
+  it("gibt für die ganze Aufgabe frei — eigene Route", async () => {
+    const rufe = mitAntwort({ meldungen: [], freigaben: [freigabe], gesamt: { meldungen: 0, freigaben: 1 } });
+    render(<WartetAufDich />);
+    await screen.findByText("email_send");
+
+    await userEvent.click(screen.getByRole("button", { name: /Für die Aufgabe/ }));
+
+    await waitFor(() => {
+      const post = rufe.find((r) => r.init?.method === "POST");
+      expect(post?.url).toBe("/api/lukas/approvals/42/allow-auftrag");
+    });
+  });
+
+  /*
+   * Bei R3 darf es den Knopf NICHT geben. Geld, Zugangsdaten und
+   * Unumkehrbares bleiben Einzelentscheidungen — der Server lehnt es zwar
+   * ohnehin ab, aber ein Knopf, der nichts tut, ist eine Lüge.
+   */
+  it("bietet bei R3 keine Freigabe für die ganze Aufgabe an", async () => {
+    mitAntwort({
+      meldungen: [],
+      freigaben: [{ ...freigabe, riskTier: "R3" }],
+      gesamt: { meldungen: 0, freigaben: 1 },
+    });
+    render(<WartetAufDich />);
+    await screen.findByText("email_send");
+
+    expect(screen.queryByRole("button", { name: /Für die Aufgabe/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Erlauben/ })).toBeInTheDocument();
   });
 
   it("beantwortet eine Meldung an Ort und Stelle", async () => {

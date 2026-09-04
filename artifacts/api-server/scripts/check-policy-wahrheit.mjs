@@ -35,6 +35,7 @@ export const and = () => ({});
 export const eq = () => ({});
 export const gt = () => ({});
 export const desc = () => ({});
+export const sql = () => ({});
 export const logger = { info() {}, warn() {}, error() {}, debug() {} };
 // Der Container-Weg ist die Standard-Ausfuehrungsumgebung; ueber die Attrappe
 // laesst sich beides durchspielen.

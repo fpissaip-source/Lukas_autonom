@@ -186,6 +186,7 @@ export const eq = (feld, wert) => (z) => z[feld] === wert;
 export const gt = (feld, wert) => (z) => z[feld] > wert;
 export const and = (...b) => (z) => b.every((f) => f(z));
 export const desc = () => () => true;
+export const sql = () => ({});
 export const db = {
   update: () => ({
     set: (werte) => ({

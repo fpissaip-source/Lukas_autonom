@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { db } from "@workspace/db";
 import { approvals } from "@workspace/db";
-import { and, eq, gt, desc } from "drizzle-orm";
+import { and, eq, gt, desc, sql } from "drizzle-orm";
 import { logger } from "./logger";
 import { isIsolatedBackend } from "./code-sandbox";
 import { isLinkFromEmail } from "./email";
@@ -319,7 +319,37 @@ export function needsApproval(tier: RiskTier): boolean {
  * Läuft kein Nutzerzug (autonomer Hintergrund-Task, Cron), greift diese
  * Abkürzung nicht — dann bleibt es bei der Freigabe im Dashboard.
  */
+/*
+ * Wie weit eine Auftragsfreigabe reicht.
+ *
+ * Fuenfundzwanzig Aufrufe und dreissig Minuten: grosszuegig genug fuer einen
+ * Film aus mehreren Clips samt Nachbesserungen, eng genug, dass sie nicht in
+ * den naechsten Tag hinueberreicht. Beides ist eine Abwaegung, keine
+ * Naturkonstante — deshalb ueber die Umgebung verstellbar.
+ */
+const AUFTRAG_AUFRUFE = Number(process.env.LUKAS_AUFTRAG_AUFRUFE ?? 25);
+const AUFTRAG_MINUTEN = Number(process.env.LUKAS_AUFTRAG_MINUTEN ?? 30);
+
 const CONSENT_TOOLS = new Set(["email_send"]);
+
+/*
+ * Werkzeuge fremder MCP-Server duerfen ebenfalls per Zustimmung im Chat
+ * freigegeben werden.
+ *
+ * Der Grund ist derselbe wie bei email_send und traegt hier genauso: geprueft
+ * wird Issas eigener, unveraenderter Nachrichtentext. Eine Prompt-Injection
+ * aus einer gelesenen Seite steht in Werkzeug-Ausgaben, nicht in dem, was er
+ * getippt hat.
+ *
+ * Der Anlass ist praktisch: "generier mir sechs Clips" ist EINE Entscheidung.
+ * Sie in sechs Dashboard-Freigaben zu zerlegen macht sie nicht sicherer — es
+ * macht sie nur laestig, und Laestiges klickt man irgendwann ungelesen weg.
+ *
+ * R3 bleibt ausgeschlossen; das prueft die Bedingung unten, nicht diese Liste.
+ */
+function darfImChatZustimmen(tool: string): boolean {
+  return CONSENT_TOOLS.has(tool) || tool === "mcp_call" || tool.startsWith("mcp__");
+}
 
 const AFFIRMATION =
   /\b(ja|jep|jup|genau|passt|okay|ok|los|mach|machs|abschicken|absenden|raus damit)\b|\b(send(e|en|et)?|schick(e|en|t)?|verschick(e|en|t)?)\b/i;
@@ -500,6 +530,48 @@ export async function checkPolicy(
   const now = new Date();
 
   /*
+   * ZUERST: gibt es fuer diese Aufgabe schon eine Freigabe?
+   *
+   * Issa hat einmal ja gesagt — fuer den Auftrag, nicht fuer den einzelnen
+   * Aufruf. Solange das Fenster laeuft und die Zahl reicht, wird nicht erneut
+   * gefragt.
+   *
+   * Vier Grenzen, und jede hat einen Grund:
+   *   - NUR mit Unterhaltung. Im autonomen Lauf gibt es keine, dort greift
+   *     das also nie. Eine Freigabe aus einem Chat darf nicht nachts um drei
+   *     einen Hintergrundlauf decken.
+   *   - NUR dasselbe Werkzeug. "Ja, generier die Clips" ist keine Erlaubnis,
+   *     Mails zu verschicken.
+   *   - NIE R3. Geld, Zugangsdaten, Unumkehrbares bleiben einzeln.
+   *   - Gezaehlt und befristet, damit sie sich nicht unbemerkt in die naechste
+   *     Woche schleppt.
+   */
+  if (tier !== "R3" && conversationId !== undefined && conversationId !== null) {
+    const [auftrag] = await db
+      .update(approvals)
+      .set({ verbleibend: sql`${approvals.verbleibend} - 1` })
+      .where(
+        and(
+          eq(approvals.tool, tool),
+          eq(approvals.conversationId, conversationId),
+          eq(approvals.geltung, "auftrag"),
+          eq(approvals.status, "allowed"),
+          gt(approvals.verbleibend, 0),
+          gt(approvals.expiresAt, now),
+        ),
+      )
+      .returning();
+
+    if (auftrag) {
+      logger.info(
+        { tool, approvalId: auftrag.id, verbleibend: auftrag.verbleibend - 1 },
+        "Auftragsfreigabe genutzt",
+      );
+      return { allow: true };
+    }
+  }
+
+  /*
    * Gibt es eine gültige, noch nicht verbrauchte Freigabe für GENAU diese
    * Argumente?
    *
@@ -562,17 +634,49 @@ export async function checkPolicy(
   if (
     pending &&
     tier === "R2" &&
-    CONSENT_TOOLS.has(tool) &&
+    darfImChatZustimmen(tool) &&
     rawUserMessage &&
     isAffirmation(rawUserMessage, pending.id)
   ) {
+    /*
+     * Wie weit die Zustimmung im Chat reicht, haengt vom Werkzeug ab — und der
+     * Unterschied ist keine Feinheit.
+     *
+     * BEI MCP wird daraus eine AUFTRAGSfreigabe. "Ja, mach" bezieht sich auf
+     * die Aufgabe, ueber die gerade geredet wird, nicht auf genau diesen einen
+     * Aufruf. Wer das anders auslegt, fragt beim zweiten Clip erneut, und Issa
+     * hat den Eindruck, seine Antwort sei nicht angekommen.
+     *
+     * BEI E-MAIL NICHT. "Ja, schick ab" meint DIESEN Entwurf, den Issa gerade
+     * gelesen hat — nicht jede Mail der naechsten halben Stunde. Eine Mail ist
+     * weg, sobald sie weg ist, und sie landet bei einem Dritten; ein Clip
+     * kostet Credits und liegt danach in seinem eigenen Konto.
+     *
+     * Genau das hat check-consent.mjs beim ersten Anlauf gefangen: die
+     * Aenderung haette aus einer Bestaetigung fuer einen Entwurf eine
+     * Sammelfreigabe fuer alle Mails gemacht.
+     */
+    const alsAuftrag = tool === "mcp_call" || tool.startsWith("mcp__");
     const [confirmed] = await db
       .update(approvals)
-      .set({ status: "used", decidedAt: now })
+      .set(
+        alsAuftrag
+          ? {
+              status: "allowed",
+              decidedAt: now,
+              geltung: "auftrag",
+              verbleibend: AUFTRAG_AUFRUFE - 1,
+              expiresAt: new Date(now.getTime() + AUFTRAG_MINUTEN * 60 * 1000),
+            }
+          : { status: "used", decidedAt: now },
+      )
       .where(and(eq(approvals.id, pending.id), eq(approvals.status, "pending")))
       .returning();
     if (confirmed) {
-      logger.info({ tool, approvalId: confirmed.id }, "Freigabe durch Bestätigung im Chat");
+      logger.info(
+        { tool, approvalId: confirmed.id },
+        "Freigabe durch Bestätigung im Chat — gilt für den Auftrag",
+      );
       return { allow: true };
     }
   }

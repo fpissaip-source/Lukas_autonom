@@ -24,6 +24,29 @@ export const approvals = pgTable("lukas_approvals", {
   reason: text("reason"),
   // pending | allowed | denied | used | expired
   status: text("status").notNull().default("pending"),
+  /*
+   * Wie WEIT eine Freigabe reicht.
+   *
+   *   "einmal"  — genau dieser Aufruf mit genau diesen Argumenten. Das war
+   *               bisher der einzige Fall.
+   *   "auftrag" — dasselbe Werkzeug in DIESER Unterhaltung, bis das Fenster
+   *               oder die Zahl aufgebraucht ist.
+   *
+   * WARUM ES DAS BRAUCHT: Issa beauftragt einen Film aus sechs Clips, und
+   * jeder einzelne Aufruf legt eine neue Anfrage im Dashboard an. Sechs Klicks
+   * fuer eine Entscheidung, die er einmal getroffen hat. Nach dem dritten
+   * klickt man nicht mehr sorgfaeltig, sondern nur noch schnell — und dann
+   * ist die Freigabe keine Pruefung mehr, sondern ein Hindernis, das man
+   * wegdrueckt.
+   *
+   * WARUM SIE TROTZDEM ENG BLEIBT: gebunden an die Unterhaltung (im autonomen
+   * Lauf gibt es keine, dort greift sie also nie), befristet, gezaehlt, und
+   * NIE fuer R3. Geld, Zugangsdaten und Unumkehrbares bleiben bei der
+   * Einzelfreigabe.
+   */
+  geltung: text("geltung").notNull().default("einmal"),
+  /** Wie viele Aufrufe eine Auftragsfreigabe noch deckt. */
+  verbleibend: integer("verbleibend").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),

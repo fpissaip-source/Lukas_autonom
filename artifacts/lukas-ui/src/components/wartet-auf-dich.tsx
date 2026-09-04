@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertTriangle, Check, Inbox, Send, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCheck, Inbox, Send, ShieldCheck, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { de } from "date-fns/locale";
 
@@ -91,7 +91,7 @@ export function WartetAufDich() {
     }
   };
 
-  const entscheide = async (id: number, was: "allow" | "deny") => {
+  const entscheide = async (id: number, was: "allow" | "deny" | "allow-auftrag") => {
     setBeschaeftigt(`f${id}`);
     try {
       await fetch(`${BASE}/api/lukas/approvals/${id}/${was}`, {
@@ -160,6 +160,22 @@ export function WartetAufDich() {
               >
                 <Check className="h-4 w-4" /> Erlauben
               </Button>
+              {/* "Für die Aufgabe" ist die Entscheidung, die Issa meistens
+                  meint: er hat einen Auftrag gegeben, nicht einen Aufruf
+                  einzeln erlaubt. Bei R3 gibt es sie nicht — Geld,
+                  Zugangsdaten und Unumkehrbares bleiben einzeln. */}
+              {f.riskTier !== "R3" && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="gap-1.5"
+                  disabled={beschaeftigt === `f${f.id}`}
+                  onClick={() => entscheide(f.id, "allow-auftrag")}
+                  title="Gilt für dieses Werkzeug in dieser Unterhaltung — 30 Minuten, höchstens 25 Aufrufe"
+                >
+                  <CheckCheck className="h-4 w-4" /> Für die Aufgabe
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="outline"

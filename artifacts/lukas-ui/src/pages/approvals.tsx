@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ShieldCheck, RefreshCw, Check, X, Clock } from "lucide-react";
+import { ShieldCheck, RefreshCw, Check, CheckCheck, X, Clock } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -65,7 +65,7 @@ export default function Approvals() {
     return () => clearInterval(t);
   }, [load]);
 
-  const decide = async (id: number, action: "allow" | "deny") => {
+  const decide = async (id: number, action: "allow" | "deny" | "allow-auftrag") => {
     await fetch(`${BASE}/api/lukas/approvals/${id}/${action}`, {
       method: "POST",
       headers: authHeaders(),
@@ -130,6 +130,19 @@ export default function Approvals() {
                   <Button size="sm" onClick={() => decide(r.id, "allow")} className="gap-1.5">
                     <Check className="w-4 h-4" /> Erlauben
                   </Button>
+                  {/* Bei R3 bewusst nicht: Geld, Zugangsdaten und
+                      Unumkehrbares bleiben Einzelentscheidungen. */}
+                  {r.riskTier !== "R3" && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => decide(r.id, "allow-auftrag")}
+                      className="gap-1.5"
+                      title="Gilt für dieses Werkzeug in dieser Unterhaltung — 30 Minuten, höchstens 25 Aufrufe"
+                    >
+                      <CheckCheck className="w-4 h-4" /> Für die Aufgabe
+                    </Button>
+                  )}
                   <Button size="sm" variant="outline" onClick={() => decide(r.id, "deny")} className="gap-1.5">
                     <X className="w-4 h-4" /> Ablehnen
                   </Button>
@@ -139,8 +152,15 @@ export default function Approvals() {
                 {r.argumentsPreview}
               </pre>
               <p className="text-[11px] text-muted-foreground">
-                Die Freigabe gilt nur für genau diese Argumente und nur einmal. Ändert Lukas
-                etwas daran, braucht es eine neue Freigabe.
+                <strong>Erlauben</strong> gilt nur für genau diese Argumente und nur einmal —
+                ändert Lukas ein Zeichen, braucht es eine neue Freigabe.{" "}
+                {r.riskTier !== "R3" && (
+                  <>
+                    <strong>Für die Aufgabe</strong> gilt für dieses Werkzeug in dieser
+                    Unterhaltung, 30 Minuten lang und höchstens 25 Aufrufe — für einen Auftrag,
+                    den du einmal erteilt hast und nicht sechsmal bestätigen willst.
+                  </>
+                )}
               </p>
             </div>
           ))}

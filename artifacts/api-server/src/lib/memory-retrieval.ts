@@ -310,3 +310,53 @@ export async function memoryContextFor(query: string, limit = 6): Promise<string
   if (hits.length === 0) return "";
   return hits.map((h) => `- ${h.text}`).join("\n");
 }
+
+/*
+ * Dasselbe, aber ohne das, was ohnehin schon im Prompt steht.
+ *
+ * DAS PROBLEM, gegen das das steht: der System-Prompt traegt bereits die zehn
+ * wichtigsten und die zehn neuesten Erinnerungen. Die Suche daneben lieferte
+ * dieselben Zeilen ein zweites Mal — in einem anderen Format, weshalb es beim
+ * Lesen nicht auffiel. Bezahlt wurde es zweimal, und schlimmer: eine doppelt
+ * genannte Erinnerung wirkt auf ein Modell wichtiger als eine einmal genannte.
+ * Die Wiederholung hat also nicht nur Geld gekostet, sie hat auch das Gewicht
+ * verschoben.
+ *
+ * NACHGEFASST STATT NUR GESTRICHEN: waeren die Doppelten einfach entfernt
+ * worden, blieben von acht Plaetzen vielleicht fuenf uebrig — die Suche haette
+ * sich also selbst bestraft. Deshalb wird breiter geholt und danach auf die
+ * gewuenschte Zahl aufgefuellt.
+ */
+/**
+ * Die Auswahl selbst — ohne Datenbank, damit sie pruefbar ist.
+ *
+ * NUR `kind === "memory"` wird verglichen, und das ist keine Feinheit: IDs
+ * sind pro Tabelle vergeben. Die Episode 3 ist nicht die Erinnerung 3. Wer
+ * bloss die Zahl vergleicht, wirft richtige Treffer weg und merkt es nie —
+ * es fehlt ja nur etwas, es steht nichts Falsches da.
+ */
+export function waehleOhneDoppel(
+  hits: MemoryHit[],
+  limit: number,
+  ausser: Set<number>,
+): MemoryHit[] {
+  return hits.filter((h) => !(h.kind === "memory" && ausser.has(h.id))).slice(0, limit);
+}
+
+export async function memoryContextOhne(
+  query: string,
+  limit: number,
+  ausser: Set<number>,
+): Promise<string> {
+  if (ausser.size === 0) return memoryContextFor(query, limit);
+
+  /*
+   * BREITER HOLEN, dann auswaehlen. Wer nur streicht, laesst von acht
+   * Treffern vielleicht fuenf uebrig — dann bestraft sich die Suche fuer
+   * jede Erinnerung, die ohnehin schon wichtig genug war, um oben zu stehen.
+   */
+  const hits = await searchMemory(query, limit + ausser.size);
+  const uebrig = waehleOhneDoppel(hits, limit, ausser);
+  if (uebrig.length === 0) return "";
+  return uebrig.map((h) => `- ${h.text}`).join("\n");
+}

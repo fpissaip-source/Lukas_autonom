@@ -1,0 +1,13 @@
+export const db = new Proxy({}, { get: () => () => ({}) });
+export default new Proxy({}, { get: () => () => ({}) });
+export const logger = { info(){},warn(){},error(){},debug(){} };
+export const memoriesTable = {}; export const claimsTable = {}; export const episodesTable = {};
+export const conversations = {}; export const messages = {}; export const memActionsTable = {};
+export const knownAgentsTable = {}; export const strategiesTable = {}; export const goalsTable = {};
+export const diaryTable = {};
+export const eq = () => ({}); export const ne = () => ({}); export const and = () => ({});
+export const or = () => ({}); export const desc = () => ({}); export const asc = () => ({});
+export const gte = () => ({}); export const lte = () => ({}); export const sql = () => ({});
+export const inArray = () => ({}); export const ilike = () => ({}); export const isNull = () => ({});
+export const graphTreffer = async () => ({ einstieg: [], treffer: [] });
+export const knotenFuer = async () => [];

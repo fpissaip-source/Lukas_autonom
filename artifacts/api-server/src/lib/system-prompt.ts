@@ -63,7 +63,6 @@ export async function buildSystemPrompt(
     proposalContext,
     budget,
     lehren,
-    relevantContext,
   ] = await Promise.all([
     getLukasStatus(),
     db
@@ -104,19 +103,6 @@ export async function buildSystemPrompt(
       logger.warn({ err }, "Lehren nicht geladen");
       return "";
     }),
-    userQuery
-      ? import("./memory-retrieval")
-          .then(({ memoryContextFor }) => memoryContextFor(userQuery, 8))
-          .then((block) =>
-            block
-              ? `\n\nRELEVANTES WISSEN ZU DIESER NACHRICHT (mit Evidenz-Status — unbelegtes NIE als Fakt behandeln):\n${block}`
-              : "",
-          )
-          .catch((err) => {
-            logger.warn({ err }, "Memory-Retrieval fehlgeschlagen");
-            return "";
-          })
-      : Promise.resolve(""),
   ]);
 
   const status = statusRow ?? { ...DEFAULT_STATUS, updatedAt: new Date() };
@@ -127,6 +113,35 @@ export async function buildSystemPrompt(
     seen.add(m.id);
     return true;
   });
+
+  /*
+   * ERST JETZT die Suche — sie braucht zu wissen, was oben schon drinsteht.
+   *
+   * Das kostet einen serialisierten Aufruf: vorher lief die Suche parallel zu
+   * allem anderen. Der Preis ist eine schnelle, indizierte Abfrage Wartezeit;
+   * der Gegenwert ist, dass dieselbe Erinnerung nicht zweimal im Prompt
+   * steht — einmal als "wichtigste", einmal als "relevant", in zwei Formaten,
+   * weshalb es beim Lesen nie auffiel.
+   *
+   * Doppelt ist dabei nicht nur teuer. Eine zweimal genannte Erinnerung wirkt
+   * auf ein Modell wichtiger als eine einmal genannte; die Wiederholung hat
+   * also auch das Gewicht verschoben.
+   */
+  const relevantContext = userQuery
+    ? await import("./memory-retrieval")
+        .then(({ memoryContextOhne }) =>
+          memoryContextOhne(userQuery, 8, new Set(memories.map((m) => m.id))),
+        )
+        .then((block) =>
+          block
+            ? `\n\nRELEVANTES WISSEN ZU DIESER NACHRICHT (mit Evidenz-Status — unbelegtes NIE als Fakt behandeln):\n${block}`
+            : "",
+        )
+        .catch((err) => {
+          logger.warn({ err }, "Memory-Retrieval fehlgeschlagen");
+          return "";
+        })
+    : "";
 
   const memoryContext = memories.length > 0
     ? `\n\nDEINE ERINNERUNGEN (wichtigste und neueste):\n${memories

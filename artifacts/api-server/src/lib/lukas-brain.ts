@@ -4,6 +4,7 @@ import { allLukasTools, executeLukasTool } from "./lukas-tools";
 import { nimmBilder, entwerteAlteBilder, BILD_MARKE } from "./bildablage";
 import { merkeErfahrung } from "./lernen";
 import { buildSystemPrompt } from "./system-prompt";
+import { verdichteWerkzeugErgebnisse, ersparnis } from "./ai/verdichten";
 import { fuehleWerkzeug } from "./emotion-engine";
 import { logger } from "./logger";
 import { recordDebugEvent } from "./debug-log";
@@ -111,11 +112,30 @@ export async function runLukasTurn(opts: {
         });
     // Budget bewusst offen lassen — siehe callOpenAI: bei Reasoning-Modellen
     // teilen sich Denken und Antwort dasselbe max_output_tokens.
+    /*
+     * Alte Werkzeug-Ergebnisse eindampfen, BEVOR der Aufruf rausgeht.
+     *
+     * Ein fetch_url liefert bis zu 15.000 Zeichen. Die haengen danach im
+     * Gespraech und gehen bei jeder weiteren Runde vollstaendig wieder mit —
+     * im nicht gecachten Teil, also zum vollen Preis. Nach fuenf
+     * Recherche-Runden werden 45.000 Zeichen Rohtext in Runde sechs, sieben
+     * und acht erneut bezahlt.
+     *
+     * Das Gespraech selbst bleibt unangetastet: `convo` traegt weiter den
+     * vollen Text, gekuerzt wird nur die Fassung fuer diesen einen Aufruf.
+     * Was gespeichert wird, soll vollstaendig sein.
+     */
+    const fuerModell = verdichteWerkzeugErgebnisse(convo);
+    const gespart = ersparnis(convo, fuerModell);
+    if (gespart > 0) {
+      logger.info({ gespart, runde: i }, "Alte Werkzeug-Ergebnisse gekürzt");
+    }
+
     const result = await callLukasModel({
       cacheKey: `lukas-${opts.conversationId ?? "ohne"}`,
       route,
       tools,
-      messages: convo,
+      messages: fuerModell,
     });
 
     if (result.content) textPieces.push(result.content);
